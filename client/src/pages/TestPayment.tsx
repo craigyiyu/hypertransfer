@@ -8,6 +8,9 @@ import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { Clock, CheckCircle2, XCircle, ArrowRight, RotateCcw, AlertTriangle } from "lucide-react";
+import TransactionStatus from "@/components/TransactionStatus";
+import FeeBreakdown from "@/components/FeeBreakdown";
+import { getNetworkFee } from "@/lib/currency";
 
 type PaymentState = "monitoring" | "confirming" | "confirmed" | "failed" | "timeout";
 
@@ -59,6 +62,41 @@ export default function TestPayment() {
   return (
     <Shell showBack backTo="/deposit-address" title="Test Payment" subtitle="Monitoring your test deposit">
       <div className="space-y-6">
+        {/* Fee breakdown */}
+        <FeeBreakdown
+          amount="1.00"
+          network={state.selectedNetwork}
+          networkFee={getNetworkFee(state.selectedNetwork).toFixed(2)}
+          totalFee={getNetworkFee(state.selectedNetwork).toFixed(2)}
+          settlementTime="~30 seconds"
+          showDetails
+        />
+
+        {/* Transaction status timeline */}
+        {paymentState !== "failed" && paymentState !== "timeout" && (
+          <TransactionStatus
+            steps={[
+              {
+                label: "Transaction Initiated",
+                status: paymentState === "monitoring" ? "pending" : "confirmed",
+                timestamp: "Just now",
+              },
+              {
+                label: "Blockchain Confirmation",
+                status: paymentState === "confirming" || paymentState === "confirmed" ? (paymentState === "confirmed" ? "confirmed" : "pending") : "pending",
+                confirmations: confirmations,
+                totalConfirmations: requiredConfirmations,
+              },
+              {
+                label: "Deposit Confirmed",
+                status: paymentState === "confirmed" ? "confirmed" : "pending",
+              },
+            ]}
+            estimatedTime="~30 seconds"
+            currentStatus={paymentState === "confirmed" ? "confirmed" : "pending"}
+          />
+        )}
+
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="px-2 py-1 rounded-md bg-gold/10 text-gold font-mono text-[10px]">
@@ -70,81 +108,24 @@ export default function TestPayment() {
           <span>Test Deposit</span>
         </div>
 
-        {/* Status card */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card-gold rounded-xl p-6 flex flex-col items-center text-center"
-        >
-          {/* Icon */}
-          {paymentState === "monitoring" && (
-            <motion.div
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mb-4"
-            >
-              <Clock className="w-8 h-8 text-warning" />
-            </motion.div>
-          )}
-          {paymentState === "confirming" && (
-            <div className="w-16 h-16 rounded-full bg-gold/10 flex items-center justify-center mb-4">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full"
-              />
-            </div>
-          )}
-          {paymentState === "confirmed" && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 200 }}
-              className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-4"
-            >
-              <CheckCircle2 className="w-8 h-8 text-success" />
-            </motion.div>
-          )}
-          {(paymentState === "failed" || paymentState === "timeout") && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4"
-            >
-              <XCircle className="w-8 h-8 text-destructive" />
-            </motion.div>
-          )}
-
-          {/* Status text */}
-          <p className="text-sm font-semibold text-foreground">
-            {paymentState === "monitoring" && "Waiting for Transaction"}
-            {paymentState === "confirming" && "Transaction Detected"}
-            {paymentState === "confirmed" && "Test Payment Confirmed"}
-            {paymentState === "failed" && "Test Payment Failed"}
-            {paymentState === "timeout" && "Transaction Timed Out"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {paymentState === "monitoring" && "Scanning the blockchain for your test payment..."}
-            {paymentState === "confirming" && `${confirmations}/${requiredConfirmations} confirmations received`}
-            {paymentState === "confirmed" && "Your test deposit of 1.00 " + state.selectedAsset + " has been received and confirmed."}
-            {paymentState === "failed" && "The test payment was not received or could not be verified. Please check the address and network."}
-            {paymentState === "timeout" && "No transaction detected within the expected timeframe."}
-          </p>
-
-          {/* Confirmation progress */}
-          {(paymentState === "confirming" || paymentState === "confirmed") && (
-            <div className="w-full mt-4 flex gap-2">
-              {Array.from({ length: requiredConfirmations }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-                    i < confirmations ? "progress-gold" : "bg-border"
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-        </motion.div>
+        {/* Status card - only show for failed state */}
+        {(paymentState === "failed" || paymentState === "timeout") && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="card-wine rounded-xl p-6 flex flex-col items-center text-center"
+          >
+            <XCircle className="w-12 h-12 text-destructive mb-3" />
+            <h2 className="text-lg font-semibold text-destructive mb-2">
+              {paymentState === "failed" ? "Payment Failed" : "Transaction Timed Out"}
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              {paymentState === "failed"
+                ? "The test payment could not be confirmed. Please check the address and network."
+                : "No transaction detected within the expected timeframe."}
+            </p>
+          </motion.div>
+        )}
 
         {/* Failure guidance */}
         {(paymentState === "failed" || paymentState === "timeout") && (

@@ -16,19 +16,66 @@ import {
   User,
   HelpCircle,
 } from "lucide-react";
+import SessionRecovery from "@/components/SessionRecovery";
+import SecurityStatus from "@/components/SecurityStatus";
+import { useState } from "react";
 
 const WALLET_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/wallet-illustration-UrVobqFRocWM8UQXYryQQw.webp";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
+  const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
 
   const pendingTx = state.transactions.filter((t) => t.status === "pending").length;
   const confirmedTx = state.transactions.filter((t) => t.status === "confirmed" || t.status === "cleared").length;
 
+  // Find incomplete sessions for recovery
+  const incompleteSessions = state.transactions
+    .filter((t) => t.status === "pending" && !dismissedSessions.includes(t.sessionId))
+    .reduce((acc: any[], tx) => {
+      const existing = acc.find((s) => s.sessionId === tx.sessionId);
+      if (!existing) {
+        acc.push({
+          sessionId: tx.sessionId,
+          asset: tx.asset,
+          network: tx.network,
+          step: tx.type === "test" ? "test-payment" : "main-deposit",
+          createdAt: tx.date,
+        });
+      }
+      return acc;
+    }, []);
+
   return (
     <Shell title={`Welcome, ${state.patronName || "Patron"}`} subtitle="Manage your crypto deposits">
       <div className="space-y-5">
+        {/* Session recovery alert */}
+        {incompleteSessions.length > 0 && (
+          <SessionRecovery
+            sessions={incompleteSessions}
+            onResume={(sessionId) => {
+              const session = incompleteSessions.find((s) => s.sessionId === sessionId);
+              if (session?.step === "test-payment") {
+                navigate("/test-payment");
+              } else {
+                navigate("/main-deposit");
+              }
+            }}
+            onDismiss={() => {
+              setDismissedSessions([...dismissedSessions, incompleteSessions[0].sessionId]);
+            }}
+          />
+        )}
+
+        {/* Security status */}
+        <SecurityStatus
+          twoFAEnabled={true}
+          kycVerified={state.kycComplete}
+          travelRuleComplete={state.travelRuleComplete || false}
+          compact={false}
+        />
+
         {/* Status cards */}
         <div className="grid grid-cols-2 gap-3">
           <motion.div

@@ -21,6 +21,7 @@ import MainDeposit from "./pages/MainDeposit";
 import DepositSuccess from "./pages/DepositSuccess";
 import History from "./pages/History";
 import Support from "./pages/Support";
+import Settings from "./pages/Settings";
 
 function Router() {
   return (
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/deposit-success" component={DepositSuccess} />
       <Route path="/history" component={History} />
       <Route path="/support" component={Support} />
+      <Route path="/settings" component={Settings} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

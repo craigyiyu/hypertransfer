@@ -4,8 +4,10 @@
  * Every page renders inside this shell.
  */
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, ArrowLeft } from "lucide-react";
+import { Shield, ArrowLeft, LogOut, Settings, User } from "lucide-react";
 import { useLocation } from "wouter";
+import { useState } from "react";
+import { useDemo } from "@/contexts/DemoContext";
 import type { ReactNode } from "react";
 
 const STEPS = [
@@ -43,12 +45,21 @@ export default function Shell({
   subtitle,
 }: ShellProps) {
   const [location, navigate] = useLocation();
+  const { state, resetAll } = useDemo();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const isAuthenticated = state.patronId && state.patronName;
 
   const stepIndex = STEPS.indexOf(location);
   const progress = stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
 
   return (
-    <div className="min-h-[100dvh] bg-background noise-overlay flex flex-col items-center relative overflow-hidden">
+    <div
+      className="min-h-[100dvh] bg-background noise-overlay flex flex-col items-center relative overflow-hidden"
+      style={{
+        paddingTop: "max(0px, env(safe-area-inset-top))",
+        paddingBottom: "max(0px, env(safe-area-inset-bottom))",
+      }}
+    >
       {/* Gold progress bar at top */}
       {showProgress && stepIndex > 0 && (
         <div className="fixed top-0 left-0 right-0 h-[2px] bg-border z-50">
@@ -81,9 +92,51 @@ export default function Shell({
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-            <span>Encrypted</span>
+          <div className="flex items-center gap-3">
+            {isAuthenticated && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
+                  title="User menu"
+                >
+                  <User className="w-4 h-4" />
+                </button>
+                {showUserMenu && (
+                  <div className="absolute top-10 right-0 w-48 bg-card border border-border/50 rounded-lg shadow-lg z-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border/30">
+                      <p className="text-xs text-muted-foreground">Signed in as</p>
+                      <p className="text-sm font-semibold text-foreground truncate">{state.patronName}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        navigate("/settings");
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        resetAll();
+                        navigate("/");
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2 border-t border-border/30"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+              <span>Encrypted</span>
+            </div>
           </div>
         </div>
 

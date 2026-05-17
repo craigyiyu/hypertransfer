@@ -6,6 +6,7 @@
 import { motion } from "framer-motion";
 import { Shield, QrCode, UserPlus, LogIn } from "lucide-react";
 import { useLocation } from "wouter";
+import ComplianceBadges from "@/components/ComplianceBadges";
 
 const HERO_BG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/hero-bg-62bvwNpUn3XWmYV9fDibfk.webp";
 const QR_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/qr-illustration-RPGHKcS3GRqKk2oQmNPeCn.webp";
@@ -96,16 +97,9 @@ export default function Landing() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="mt-10 flex items-center gap-4 text-[10px] text-muted-foreground/60"
+          className="mt-10 w-full"
         >
-          <div className="flex items-center gap-1">
-            <div className="w-1 h-1 rounded-full bg-success" />
-            256-bit SSL
-          </div>
-          <span>&middot;</span>
-          <span>Licensed Custodian</span>
-          <span>&middot;</span>
-          <span>Hong Kong</span>
+          <ComplianceBadges variant="inline" />
         </motion.div>
 
         {/* Legal */}
