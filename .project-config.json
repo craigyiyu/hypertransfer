@@ -1,0 +1,35 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [],
+  "dev_command": "pnpm run dev",
+  "env_vars": {},
+  "experiments": null,
+  "git_remote": {
+    "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk",
+    "access_key_id": "ASIAZV3A2ECZMVRFRDMQ",
+    "secret_access_key": "pHa/6n3BapxuuIjKJ9X2N0QBzlxfnbUNP+UI2EzT",
+    "session_token": "IQoJb3JpZ2luX2VjENr//////////wEaCXVzLWVhc3QtMSJIMEYCIQC3ai5r20g+XnT3ebhCOrAlqiXCLrI9QRecHw0G/lWvfAIhAM3uayIZuyYOehMPCVna+eN4xO0MmLD4zBhDj64OTwfJKv8DCKP//////////wEQBBoMNjY1Mzg2MDk4ODY2IgxRXX1X0+QTfZdmmuEq0wPrJfiELF2uvLhnb+Ob06fhGGQ7IeJXzl/+b024zh9IvafRhpCD6QFShmBx5Hqinl7GvslatfhBJsDXf29si72BQOuSB7NrfEfd55omGiRufQeGPAyENwCJBRJJKVStb1VOdost61GegRbBdFBHgrYMfg6LykCwNyukZ/RN7D6h1ILYtb+YCOsJISh+shk66jLQ5swlEJQKhnFYy0ZwFGZ+dA9ktFQtKwey86CsSoQO0GGDqPztHTdnhIVEFfaC+MJ8M2OQN231lQQLnAuZcz4aT9KDmCLNYVQ3NqOYasmA0G4VaI96hEm/s7nXsKWYSJLCobW7yyJh7hzo+QHrXegS4EFqFNhevlc389H3m3CuGhrWTB1HWN9AU3AiH6zSaD2cuc1WcVm9FQ2zDdSNl9VYqDZ/a/zV4717nHhD0rAoks4xXm9OWrBZK6rcwild9nM8aeYDtjHuzUB05dJq8iQ2xseKtLJ3PCJCNRBwT0SoMMM4g4s/RYQMfq9/bvfi7tX+O8Owc/tIx0DaYVMm3QEnq65WnrKoTyPNDyjHmK4iJF0yTwaVf7qmk2fTT2QIViB2MxxXD9WW2+e4bdqk9u15Q+ik+UMMBDx9ZSnxfIWYlwce4DCVmKbQBjqcARj/JLwQQA7lOeO/MnMCMHrrOyMl7UKEY2b0JTZ31icJrUJU1JWfyZO4mxyrmTUTxp0YH9quQm4Aa65kKhDINkDHBOLmvvCaPZ8yBnUPUWY3v7ue+FqR57ARhx/jcTOy3EOWrjnuln5sbFMbbA/aGCmO9AZPBqPkyX7d55l4ZIIlEBPHQGh58k/T4hsErR+OTyASM7p0YYy2gFGxbg==",
+    "expiration": "2026-05-17T21:36:21.000Z"
+  },
+  "name": "hypertransfer",
+  "path": "/home/ubuntu/hypertransfer",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "YYaX3xaVkDes3bkbM9atZw",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "JWT_SECRET": "3XmgUzix5diBWywem9zUKw",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OWNER_NAME": "Craig Yu",
+    "OWNER_OPEN_ID": "amdepWscCd3V7fHTAyBAGL",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "e45d8277-0e10-4450-945d-5282e48908a6",
+    "VITE_APP_ID": "iTEdVVzV69Mbx6YDNWtLkk",
+    "VITE_APP_LOGO": "",
+    "VITE_APP_TITLE": "HyperTransfer - Casino Patron Crypto Portal",
+    "VITE_FRONTEND_FORGE_API_KEY": "VGxunqemmxHuYVppVtzzET",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-static",
+  "test_command": "pnpm test"
+}
