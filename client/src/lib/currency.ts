@@ -1,14 +1,51 @@
 /**
  * Currency utilities for HyperTransfer.
- * Handles USDT ↔ HKD conversion and formatting.
+ * Handles USDT ↔ HKD conversion using Hex Trust fiatRates/fiatValueDecimal fields.
+ * In production, these values come from the Hex Trust API response.
  */
 
-// Mock exchange rates (in production, these would come from an API)
+/**
+ * Mock Hex Trust fiatRates response structure.
+ * In production: each deposit/transfer API response includes:
+ *   fiatRates: [{ currency: "HKD", rate: "7.80" }, ...]
+ *   fiatValueDecimal: "7800.00" (for a 1000 USDT transfer)
+ */
+export const HEX_TRUST_FIAT_RATES = [
+  { currency: "HKD", rate: "7.80" },
+  { currency: "USD", rate: "1.00" },
+];
+
+// Derived exchange rates from Hex Trust fiatRates
 const EXCHANGE_RATES: Record<string, number> = {
-  "USDT/HKD": 7.8, // 1 USDT = 7.8 HKD (approximate)
-  "USDT/USD": 1.0,
-  "HKD/USDT": 1 / 7.8,
+  "USDT/HKD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "HKD")?.rate || "7.80"),
+  "USDT/USD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "USD")?.rate || "1.00"),
+  "USDC/HKD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "HKD")?.rate || "7.80"),
+  "BTC/HKD": 545000, // ~$70k * 7.8
+  "ETH/HKD": 27300, // ~$3500 * 7.8
+  "HKD/USDT": 1 / 7.80,
 };
+
+export function convertToHKD(amount: number | string, asset: string = "USDT"): number {
+  const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(numAmount) || numAmount === 0) return 0;
+  const rateKey = `${asset}/HKD`;
+  const rate = EXCHANGE_RATES[rateKey] || 7.80;
+  return numAmount * rate;
+}
+
+export function formatHKD(amount: number): string {
+  if (isNaN(amount) || amount === 0) return "HKD 0.00";
+  return `HKD ${amount.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Returns the HKD equivalent string for a given crypto amount.
+ * Uses Hex Trust fiatRates for conversion.
+ */
+export function getHKDEquivalent(amount: number | string, asset: string = "USDT"): string {
+  const hkd = convertToHKD(amount, asset);
+  return formatHKD(hkd);
+}
 
 export function convertCurrency(
   amount: number,
@@ -65,10 +102,10 @@ export function formatFiatAmount(amount: number | string): string {
   return formatCurrency(hkdAmount, "HKD");
 }
 
-export function formatBothCurrencies(amount: number | string): string {
+export function formatBothCurrencies(amount: number | string, asset: string = "USDT"): string {
   const numAmount = typeof amount === "string" ? parseFloat(amount) : amount;
-  const hkdAmount = convertCurrency(numAmount, "USDT", "HKD");
-  return `${formatCurrency(numAmount, "USDT")} ≈ ${formatCurrency(hkdAmount, "HKD")}`;
+  const hkdAmount = convertToHKD(numAmount, asset);
+  return `${asset} ${numAmount.toFixed(2)} ≈ ${formatHKD(hkdAmount)}`;
 }
 
 /**

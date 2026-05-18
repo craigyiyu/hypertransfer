@@ -27,13 +27,13 @@ export const translations = {
     landing: {
       title: "HyperTransfer",
       subtitle: "Secure Crypto Transfers",
-      invitedBy: "Invited by your host",
+      invitedBy: "Referred by",
       createAccount: "Create Account",
       signIn: "Sign In",
       badge_ssl: "256-bit SSL",
       badge_kyc: "KYC Verified",
       badge_travel: "Travel Rule",
-      badge_custodian: "Licensed Custodian",
+      badge_custodian: "Secure Custody",
       terms: "Terms & Privacy Policy",
     },
     register: {
@@ -194,13 +194,13 @@ export const translations = {
     landing: {
       title: "HyperTransfer",
       subtitle: "安全加密轉帳",
-      invitedBy: "由你的主持人邀請",
+      invitedBy: "推薦人",
       createAccount: "創建帳戶",
       signIn: "登入",
       badge_ssl: "256位 SSL",
       badge_kyc: "KYC 已驗證",
       badge_travel: "旅行規則",
-      badge_custodian: "持牌保管人",
+      badge_custodian: "安全托管",
       terms: "條款及隱私政策",
     },
     register: {
@@ -361,13 +361,13 @@ export const translations = {
     landing: {
       title: "HyperTransfer",
       subtitle: "安全加密转账",
-      invitedBy: "由你的主持人邀请",
+      invitedBy: "推荐人",
       createAccount: "创建账户",
       signIn: "登入",
       badge_ssl: "256位 SSL",
       badge_kyc: "KYC 已验证",
       badge_travel: "旅行规则",
-      badge_custodian: "持牌保管人",
+      badge_custodian: "安全托管",
       terms: "条款及隐私政策",
     },
     register: {

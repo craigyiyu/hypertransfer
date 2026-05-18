@@ -128,7 +128,7 @@ export default function FeeBreakdown({
           </p>
           {parseFloat(custodianFee) > 0 && (
             <p className="text-xs text-muted-foreground leading-relaxed mt-2">
-              <span className="font-medium text-foreground">Custodian Fee:</span> A small fee charged by our custodian partner for secure asset custody.
+              <span className="font-medium text-foreground">Custodian Fee:</span> A small fee charged by the custody provider for secure asset storage.
             </p>
           )}
         </motion.div>

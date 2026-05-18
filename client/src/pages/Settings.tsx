@@ -1,5 +1,6 @@
 /**
- * Settings — Patron account settings and preferences.
+ * Settings / Profile — Full account profile page with account info,
+ * security settings, language, and logout.
  * Design: Dark canvas, gold accents, single-column layout.
  */
 import { useLocation } from "wouter";
@@ -15,6 +16,10 @@ import {
   LogOut,
   ChevronRight,
   Globe,
+  User,
+  Mail,
+  Hash,
+  CheckCircle2,
 } from "lucide-react";
 
 export default function Settings() {
@@ -29,8 +34,8 @@ export default function Settings() {
 
   return (
     <Shell
-      title={t("settings.title")}
-      subtitle={t("settings.profile")}
+      title="Account Profile"
+      subtitle="Manage your account and security"
       showBack
       backTo="/dashboard"
     >
@@ -43,21 +48,30 @@ export default function Settings() {
           className="card-gold rounded-xl p-5"
         >
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-gold" />
-            Profile Information
+            <User className="w-4 h-4 text-gold" />
+            Account Information
           </h3>
           <div className="space-y-3">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Full Name</p>
-              <p className="text-sm font-medium text-foreground mt-1">{state.patronName || "Not provided"}</p>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
+              <User className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Full Name</p>
+                <p className="text-sm font-medium text-foreground">{state.patronName || "Not provided"}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Email</p>
-              <p className="text-sm font-medium text-foreground mt-1">{state.patronEmail || "Not provided"}</p>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
+              <Mail className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-sm font-medium text-foreground">{state.patronEmail || "Not provided"}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Patron ID</p>
-              <p className="text-sm font-medium text-foreground mt-1 font-mono">{state.patronId}</p>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
+              <Hash className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Account ID</p>
+                <p className="text-sm font-medium text-foreground font-mono">{state.patronId}</p>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -71,7 +85,7 @@ export default function Settings() {
         >
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
             <Lock className="w-4 h-4 text-gold" />
-            Security
+            Security Settings
           </h3>
           <div className="space-y-3">
             <button className="w-full flex items-center justify-between p-3 rounded-lg border border-border/30 hover:border-gold/30 hover:bg-secondary/30 transition-all duration-200 group">
@@ -79,7 +93,9 @@ export default function Settings() {
                 <Shield className="w-4 h-4 text-muted-foreground group-hover:text-gold" />
                 <div className="text-left">
                   <p className="text-sm text-foreground">Two-Factor Authentication</p>
-                  <p className="text-xs text-success mt-0.5">✓ Enabled</p>
+                  <p className="text-xs text-success mt-0.5 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Enabled
+                  </p>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -94,6 +110,25 @@ export default function Settings() {
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
+            <div className="flex items-center justify-between p-3 rounded-lg border border-border/30">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                <div className="text-left">
+                  <p className="text-sm text-foreground">KYC Verification</p>
+                  <p className={`text-xs mt-0.5 ${state.kycComplete ? "text-success" : "text-warning"}`}>
+                    {state.kycComplete ? "Approved" : state.kyc.status === "pending" ? "Pending Review" : "Not Started"}
+                  </p>
+                </div>
+              </div>
+              {!state.kycComplete && (
+                <button
+                  onClick={() => navigate("/kyc")}
+                  className="text-xs text-gold hover:text-gold-bright transition-colors"
+                >
+                  Complete
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
 
@@ -125,17 +160,17 @@ export default function Settings() {
             Account Activity
           </h3>
           <div className="space-y-3">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Account Created</p>
-              <p className="text-sm font-medium text-foreground mt-1">Today at 2:30 PM</p>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
+              <p className="text-xs text-muted-foreground">Account Created</p>
+              <p className="text-sm font-medium text-foreground">Today at 2:30 PM</p>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Last Login</p>
-              <p className="text-sm font-medium text-foreground mt-1">Just now</p>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
+              <p className="text-xs text-muted-foreground">Last Login</p>
+              <p className="text-sm font-medium text-foreground">Just now</p>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Deposits</p>
-              <p className="text-sm font-medium text-foreground mt-1">{state.transactions.length} transaction{state.transactions.length !== 1 ? "s" : ""}</p>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
+              <p className="text-xs text-muted-foreground">Total Deposits</p>
+              <p className="text-sm font-medium text-foreground">{state.transactions.length} transaction{state.transactions.length !== 1 ? "s" : ""}</p>
             </div>
           </div>
         </motion.div>

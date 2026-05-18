@@ -1,14 +1,15 @@
 /**
  * DepositAddress — System issues a deposit wallet address from the custodian.
- * Patron must first send a small test payment before the main deposit.
+ * User proceeds to unified deposit session (verification + main deposit).
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { Copy, Check, AlertTriangle, QrCode, ArrowRight } from "lucide-react";
+import { Copy, Check, AlertTriangle, QrCode, ArrowRight, Info } from "lucide-react";
 import { toast } from "sonner";
+import { getHKDEquivalent } from "@/lib/currency";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
@@ -48,7 +49,7 @@ export default function DepositAddress() {
   };
 
   return (
-    <Shell showBack backTo="/wallet-screening" title="Deposit Address" subtitle="Send your test payment to this address">
+    <Shell showBack backTo="/wallet-screening" title="Deposit Address" subtitle="Your assigned deposit address">
       <div className="space-y-6">
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -113,14 +114,14 @@ export default function DepositAddress() {
           </motion.div>
         )}
 
-        {/* Test payment instruction */}
+        {/* Verification step instruction */}
         <div className="card-wine rounded-xl px-4 py-3 space-y-2">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+            <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-xs text-foreground font-medium">Test Payment Required</p>
+              <p className="text-xs text-foreground font-medium">Verification Required</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Before making your full deposit, you must send a small test amount (e.g., 1-5 {state.selectedAsset}) to verify the address and network are correct. Once confirmed, you will be prompted to send the full amount.
+                On the next screen, you'll first send a <span className="text-gold font-medium">1 {state.selectedAsset}</span> verification transfer (≈ {getHKDEquivalent("1", state.selectedAsset)}) to confirm the address, then proceed with your full deposit amount.
               </p>
             </div>
           </div>
@@ -129,11 +130,11 @@ export default function DepositAddress() {
 
       <div className="mt-8">
         <button
-          onClick={() => navigate("/test-payment")}
+          onClick={() => navigate("/main-deposit")}
           disabled={loading}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          I've Sent the Test Payment
+          Proceed to Deposit
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

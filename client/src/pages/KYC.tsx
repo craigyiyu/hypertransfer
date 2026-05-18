@@ -1,6 +1,7 @@
 /**
- * KYC — Know Your Customer. Patron submits identity documents and personal information.
+ * KYC — Know Your Customer. User submits identity documents and personal information.
  * This is a blocking step before any deposits can be made.
+ * Travel Rule is now conditional — shown only when KYC approved + amount threshold.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -32,7 +33,8 @@ export default function KYC() {
         kycComplete: true,
         kyc: { status: "approved", retryCount: 0 },
       });
-      navigate("/travel-rule");
+      // Navigate to dashboard — Travel Rule is conditional and shown later during deposit if needed
+      navigate("/dashboard");
     }, 2000);
   };
 

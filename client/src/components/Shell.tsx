@@ -115,6 +115,16 @@ export default function Shell({
                       }}
                       className="w-full px-4 py-2.5 text-sm text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
                     >
+                      <User className="w-4 h-4" />
+                      Profile
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        navigate("/settings");
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
+                    >
                       <Settings className="w-4 h-4" />
                       Settings
                     </button>
@@ -167,7 +177,7 @@ export default function Shell({
         {/* Minimal footer */}
         <div className="mt-auto pt-6 pb-2 text-center">
           <p className="text-[10px] text-muted-foreground/50">
-            Secured by HyperTransfer &middot; Licensed Custodian Partner
+            Secured by HyperTransfer
           </p>
         </div>
       </div>

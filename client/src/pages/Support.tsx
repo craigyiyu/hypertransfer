@@ -1,5 +1,5 @@
 /**
- * Support — Help and contact page. Patron can reach their host or support team.
+ * Support — Help and contact page. User can reach HyperTransfer Support.
  */
 import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
@@ -10,7 +10,6 @@ import { toast } from "sonner";
 
 export default function Support() {
   const { state } = useDemo();
-  const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
   const [contactForm, setContactForm] = useState({ subject: "", message: "" });
 
   const handleAction = (label: string) => {
@@ -26,20 +25,20 @@ export default function Support() {
   return (
     <Shell showBack backTo="/dashboard" title="Support" subtitle="Get help with your account or deposits">
       <div className="space-y-4">
-        {/* Host contact */}
+        {/* Support contact */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="card-gold rounded-xl p-4 space-y-3"
         >
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Your Host</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">HyperTransfer Support</p>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold font-semibold text-sm">
-              MC
+              HT
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground">{state.hostName}</p>
-              <p className="text-xs text-muted-foreground font-mono">{state.hostCode}</p>
+              <p className="text-sm font-medium text-foreground">Support Team</p>
+              <p className="text-xs text-muted-foreground">Available 9am–6pm HKT</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -63,9 +62,9 @@ export default function Support() {
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Common Questions</p>
           {[
             { q: "How long does a deposit take?", a: "Most deposits are confirmed within 5-30 minutes depending on the network." },
-            { q: "What if my test payment fails?", a: "Verify the address and network, then retry. Contact your host if the issue persists." },
+            { q: "What if my verification transfer fails?", a: "Verify the address and network, then retry. Contact HyperTransfer Support if the issue persists." },
             { q: "Which networks are supported?", a: "We support all major networks including Ethereum, Tron, BSC, Polygon, Solana, and more." },
-            { q: "Is my data secure?", a: "All data is encrypted with 256-bit SSL and stored with our licensed custodian partner." },
+            { q: "Is my data secure?", a: "All data is encrypted with 256-bit SSL. Your personal information is used solely for regulatory compliance and is never shared for marketing purposes." },
           ].map((faq, i) => (
             <motion.details
               key={i}

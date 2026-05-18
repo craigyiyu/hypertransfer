@@ -1,6 +1,7 @@
 /**
- * Setup2FA — Patron sets up two-factor authentication after registration.
+ * Setup2FA — User sets up two-factor authentication after registration.
  * Shows a mock QR code for authenticator app, then asks for verification code.
+ * Includes "Skip for now" button for users without an authenticator app.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -28,6 +29,10 @@ export default function Setup2FA() {
     if (code.length === 6) {
       navigate("/kyc");
     }
+  };
+
+  const handleSkip = () => {
+    navigate("/kyc");
   };
 
   return (
@@ -80,7 +85,7 @@ export default function Setup2FA() {
         </div>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-8 space-y-3">
         <button
           onClick={handleVerify}
           disabled={code.length < 6}
@@ -88,6 +93,15 @@ export default function Setup2FA() {
         >
           Verify & Continue
         </button>
+        <button
+          onClick={handleSkip}
+          className="w-full rounded-xl py-3 text-xs text-muted-foreground hover:text-gold transition-colors"
+        >
+          Skip for now
+        </button>
+        <p className="text-[10px] text-muted-foreground/50 text-center">
+          You can set up 2FA later from your profile settings
+        </p>
       </div>
     </Shell>
   );

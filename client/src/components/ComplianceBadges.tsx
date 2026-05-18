@@ -1,8 +1,8 @@
 /**
  * ComplianceBadges — Display security certifications and compliance indicators.
- * Shows SSL, KYC, Travel Rule, and custodian status.
+ * Shows SSL, KYC, Travel Rule, and custody status.
  */
-import { Shield, CheckCircle2, Lock, AlertCircle } from "lucide-react";
+import { Shield, CheckCircle2, Lock } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface ComplianceBadgesProps {
@@ -18,13 +18,13 @@ export default function ComplianceBadges({
     {
       icon: Shield,
       label: "256-bit SSL",
-      description: "Military-grade encryption",
+      description: "End-to-end encryption",
       status: "verified",
     },
     {
       icon: CheckCircle2,
-      label: "KYC Verified",
-      description: "Identity confirmed",
+      label: "KYC Compliant",
+      description: "Identity verification",
       status: "verified",
     },
     {
@@ -35,8 +35,8 @@ export default function ComplianceBadges({
     },
     {
       icon: Shield,
-      label: "Licensed Custodian",
-      description: "Hex Trust Partner",
+      label: "Secure Custody",
+      description: "Hex Trust",
       status: "verified",
     },
   ];
@@ -50,12 +50,12 @@ export default function ComplianceBadges({
         </div>
         <span>&middot;</span>
         <div className="flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3" />
-          Licensed Custodian
+          <Shield className="w-3 h-3" />
+          Secure Custody
         </div>
         <span>&middot;</span>
         <div className="flex items-center gap-1">
-          <Shield className="w-3 h-3" />
+          <CheckCircle2 className="w-3 h-3" />
           Hong Kong
         </div>
       </div>

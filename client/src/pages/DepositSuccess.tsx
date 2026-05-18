@@ -1,19 +1,23 @@
 /**
  * DepositSuccess — Final confirmation screen after a successful deposit session.
- * Shows summary and next steps.
+ * Shows summary with HKD equivalent and next steps.
  */
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, ArrowRight, Clock, Banknote } from "lucide-react";
-import { SuccessCelebration } from "@/components/SuccessCelebration";
+import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/currency";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
 export default function DepositSuccess() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
+
+  const depositAmount = parseFloat(state.mainDepositAmount) || 0;
+  const networkFee = getNetworkFee(state.selectedNetwork);
+  const netReceive = Math.max(0, depositAmount - networkFee);
 
   return (
     <Shell showProgress={false}>
@@ -38,6 +42,9 @@ export default function DepositSuccess() {
           <p className="text-sm text-muted-foreground max-w-[280px]">
             Your {state.mainDepositAmount} {state.selectedAsset} deposit has been confirmed and is being processed.
           </p>
+          <p className="text-xs text-gold">
+            ≈ {getHKDEquivalent(state.mainDepositAmount, state.selectedAsset)}
+          </p>
         </motion.div>
 
         {/* Summary card */}
@@ -48,10 +55,23 @@ export default function DepositSuccess() {
           className="w-full card-gold rounded-xl p-5 mt-8 space-y-3"
         >
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Amount</span>
+            <span className="text-muted-foreground">Amount Sent</span>
             <span className="text-foreground font-semibold">
               {state.mainDepositAmount} {state.selectedAsset}
             </span>
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Network Fee</span>
+            <span className="text-foreground">−{networkFee.toFixed(2)} {state.selectedAsset}</span>
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">You'll Receive</span>
+            <div className="text-right">
+              <span className="text-gold font-semibold">{netReceive.toFixed(2)} {state.selectedAsset}</span>
+              <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
+            </div>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
@@ -60,9 +80,9 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Test Payment</span>
+            <span className="text-muted-foreground">Verification</span>
             <span className="text-success flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Verified
+              <CheckCircle2 className="w-3 h-3" /> Confirmed
             </span>
           </div>
           <div className="h-px bg-border" />
@@ -86,7 +106,7 @@ export default function DepositSuccess() {
             <div className="text-left">
               <p className="text-xs text-foreground font-medium">What happens next</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Your host will be notified of the deposit. Once the funds are cleared by the custodian, the equivalent amount will be credited to your casino account. You will receive a notification when this is complete.
+                Once the funds are cleared by the custodian, the equivalent HKD amount will be credited to your account. You will receive a notification when settlement is complete.
               </p>
             </div>
           </div>

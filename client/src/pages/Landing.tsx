@@ -1,7 +1,7 @@
 /**
  * Landing — The entry point. Premium dark canvas with the HyperTransfer brand.
- * Two paths: Register (new patron) or Sign In (returning patron).
- * Host QR code entry is implicit — the URL itself carries the host code.
+ * Two paths: Register (new user) or Sign In (returning user).
+ * Referral code is implicit — the URL itself carries the referral code.
  */
 import { motion } from "framer-motion";
 import { Shield, QrCode, UserPlus, LogIn } from "lucide-react";
@@ -47,7 +47,7 @@ export default function Landing() {
           </p>
         </motion.div>
 
-        {/* Host referral badge */}
+        {/* Referral badge */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -60,7 +60,7 @@ export default function Landing() {
             className="w-10 h-10 rounded-lg object-cover"
           />
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground">Invited by your host</p>
+            <p className="text-xs text-muted-foreground">Referred by</p>
             <p className="text-sm font-medium text-foreground truncate">
               Michael Chen &middot; <span className="text-gold font-mono text-xs">HC-8842</span>
             </p>

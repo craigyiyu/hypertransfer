@@ -21,7 +21,7 @@ export default function Login() {
   };
 
   return (
-    <Shell showBack backTo="/" title="Welcome Back" subtitle="Sign in to your patron account">
+    <Shell showBack backTo="/" title="Welcome Back" subtitle="Sign in to your account">
       <div className="space-y-5">
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">

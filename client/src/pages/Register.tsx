@@ -1,6 +1,8 @@
 /**
- * Register — Patron creates an account with form validation.
+ * Register — User creates an account with form validation.
  * Fields: name, email, password with real-time validation feedback.
+ * Password meter: 3 clear states — red, yellow, green.
+ * "Strong" only appears when ALL requirements pass.
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -63,17 +65,24 @@ export default function Register() {
     navigate("/setup-2fa");
   };
 
-  const passwordStrength = (() => {
-    let strength = 0;
-    if (password.length >= 8) strength++;
-    if (/[A-Z]/.test(password)) strength++;
-    if (/[0-9]/.test(password)) strength++;
-    if (/[!@#$%^&*]/.test(password)) strength++;
-    return strength;
-  })();
+  // Password strength: count how many requirements pass
+  const requirements = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: /[!@#$%^&*]/.test(password),
+  };
+  const passedCount = Object.values(requirements).filter(Boolean).length;
+  const allPassed = passedCount === 4;
+
+  // 3 clear states: red (weak), yellow (fair), green (strong)
+  const strengthLevel: "weak" | "fair" | "strong" = allPassed ? "strong" : passedCount >= 2 ? "fair" : "weak";
+  const strengthColor = strengthLevel === "strong" ? "bg-success" : strengthLevel === "fair" ? "bg-warning" : "bg-destructive";
+  const strengthTextColor = strengthLevel === "strong" ? "text-success" : strengthLevel === "fair" ? "text-warning" : "text-destructive";
+  const strengthLabel = strengthLevel === "strong" ? "Strong" : strengthLevel === "fair" ? "Fair" : "Weak";
 
   return (
-    <Shell showBack backTo="/" title="Create Account" subtitle="Set up your secure patron profile">
+    <Shell showBack backTo="/" title="Create Account" subtitle="Set up your secure account profile">
       <div className="space-y-5">
         {/* Name */}
         <FormField
@@ -131,34 +140,32 @@ export default function Register() {
             </button>
           </div>
 
-          {/* Password strength indicator */}
+          {/* Password strength indicator — 3 bars */}
           {password.length > 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
-              <div className="flex gap-1">
-                {[1, 2, 3, 4].map((i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ scaleX: 0 }}
-                    animate={{ scaleX: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                    className={`h-1 flex-1 rounded-full transition-colors duration-300 origin-left ${
-                      passwordStrength >= i
-                        ? i <= 2
-                          ? "bg-warning"
-                          : "bg-success"
-                        : "bg-border"
-                    }`}
-                  />
-                ))}
+              <div className="flex gap-1.5">
+                {[1, 2, 3].map((i) => {
+                  const filled =
+                    (strengthLevel === "weak" && i <= 1) ||
+                    (strengthLevel === "fair" && i <= 2) ||
+                    (strengthLevel === "strong" && i <= 3);
+                  return (
+                    <motion.div
+                      key={i}
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: 1 }}
+                      transition={{ delay: i * 0.05 }}
+                      className={`h-1.5 flex-1 rounded-full transition-colors duration-300 origin-left ${
+                        filled ? strengthColor : "bg-border"
+                      }`}
+                    />
+                  );
+                })}
               </div>
               <p className="text-xs text-muted-foreground/60">
                 Strength:{" "}
-                <span className={
-                  passwordStrength <= 1 ? "text-destructive" :
-                  passwordStrength <= 2 ? "text-warning" :
-                  "text-success"
-                }>
-                  {passwordStrength <= 1 ? "Weak" : passwordStrength <= 2 ? "Fair" : "Strong"}
+                <span className={strengthTextColor}>
+                  {strengthLabel}
                 </span>
               </p>
             </motion.div>
@@ -185,20 +192,20 @@ export default function Register() {
           >
             <p className="text-xs font-medium text-foreground">Password requirements:</p>
             <ul className="space-y-1 text-xs">
-              <li className={`flex items-center gap-2 ${password.length >= 8 ? "text-success" : "text-muted-foreground/60"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${password.length >= 8 ? "bg-success" : "bg-border"}`} />
+              <li className={`flex items-center gap-2 ${requirements.length ? "text-success" : "text-muted-foreground/60"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${requirements.length ? "bg-success" : "bg-border"}`} />
                 At least 8 characters
               </li>
-              <li className={`flex items-center gap-2 ${/[A-Z]/.test(password) ? "text-success" : "text-muted-foreground/60"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(password) ? "bg-success" : "bg-border"}`} />
+              <li className={`flex items-center gap-2 ${requirements.uppercase ? "text-success" : "text-muted-foreground/60"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${requirements.uppercase ? "bg-success" : "bg-border"}`} />
                 One uppercase letter
               </li>
-              <li className={`flex items-center gap-2 ${/[0-9]/.test(password) ? "text-success" : "text-muted-foreground/60"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(password) ? "bg-success" : "bg-border"}`} />
+              <li className={`flex items-center gap-2 ${requirements.number ? "text-success" : "text-muted-foreground/60"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${requirements.number ? "bg-success" : "bg-border"}`} />
                 One number
               </li>
-              <li className={`flex items-center gap-2 ${/[!@#$%^&*]/.test(password) ? "text-success" : "text-muted-foreground/60"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${/[!@#$%^&*]/.test(password) ? "bg-success" : "bg-border"}`} />
+              <li className={`flex items-center gap-2 ${requirements.special ? "text-success" : "text-muted-foreground/60"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${requirements.special ? "bg-success" : "bg-border"}`} />
                 One special character (!@#$%^&*)
               </li>
             </ul>
@@ -216,7 +223,7 @@ export default function Register() {
           Continue to 2FA Setup
         </button>
         <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
-          Your data is encrypted and stored with our licensed custodian partner
+          Your data is encrypted end-to-end and stored securely
         </p>
       </div>
     </Shell>

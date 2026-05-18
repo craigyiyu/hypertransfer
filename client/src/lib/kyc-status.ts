@@ -21,7 +21,7 @@ export interface KYCEligibility {
 }
 
 /**
- * Determine if patron can proceed to deposit based on KYC status
+ * Determine if user can proceed to deposit based on KYC status
  */
 export function canProceedToDeposit(kycState: KYCState): boolean {
   return kycState.status === 'approved';

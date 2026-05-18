@@ -1,5 +1,5 @@
 /**
- * WalletScreening — Patron submits their source wallet address for KYT (Know Your Transaction) screening.
+ * WalletScreening — User submits their source wallet address for KYT (Know Your Transaction) screening.
  * The system verifies the wallet is clean before issuing a deposit address.
  */
 import { useState } from "react";
@@ -146,7 +146,7 @@ export default function WalletScreening() {
               </div>
               <p className="text-sm font-semibold text-destructive">Screening Failed</p>
               <p className="text-xs text-muted-foreground mt-1">
-                This wallet address did not pass our compliance screening. Please use a different wallet or contact your host for assistance.
+                This wallet address did not pass our compliance screening. Please use a different wallet or contact HyperTransfer Support for assistance.
               </p>
             </motion.div>
           )}

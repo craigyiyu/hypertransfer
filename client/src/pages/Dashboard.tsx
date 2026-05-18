@@ -1,5 +1,5 @@
 /**
- * Dashboard — Main patron hub. Shows status, recent activity, and the primary "New Deposit" CTA.
+ * Dashboard — Main account hub. Shows status, recent activity, and the primary "Start Deposit" CTA.
  * Design: Dark canvas, gold accents, single-column layout.
  */
 import { useLocation } from "wouter";
@@ -53,7 +53,7 @@ export default function Dashboard() {
     }, []);
 
   return (
-    <Shell title={`Welcome, ${state.patronName || "Patron"}`} subtitle="Manage your crypto deposits">
+    <Shell title={`Welcome, ${state.patronName || "User"}`} subtitle="Manage your crypto deposits">
       <div className="space-y-5">
         {/* Session recovery alert */}
         {incompleteSessions.length > 0 && (
@@ -73,10 +73,10 @@ export default function Dashboard() {
           />
         )}
 
-        {/* Security status */}
+        {/* Account status */}
         <SecurityStatus
           twoFAEnabled={true}
-          kycVerified={state.kycComplete}
+          kycStatus={state.kyc.status}
           travelRuleComplete={state.travelRuleComplete || false}
           compact={false}
         />
@@ -87,14 +87,25 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="card-gold rounded-xl p-4"
+            className="card-gold rounded-xl p-4 cursor-pointer hover:border-gold/30 transition-all"
+            onClick={() => {
+              if (!state.kycComplete) navigate("/kyc");
+            }}
           >
             <div className="flex items-center gap-2 mb-2">
-              <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">KYC Status</span>
+              {state.kycComplete ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+              ) : state.kyc.status === "pending" ? (
+                <Clock className="w-3.5 h-3.5 text-warning" />
+              ) : (
+                <AlertCircle className="w-3.5 h-3.5 text-warning" />
+              )}
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">KYC Verification</span>
             </div>
-            <p className={`text-sm font-semibold ${state.kycComplete ? "text-success" : "text-warning"}`}>
-              {state.kycComplete ? "Verified" : "Pending"}
+            <p className={`text-sm font-semibold ${
+              state.kycComplete ? "text-success" : state.kyc.status === "pending" ? "text-warning" : "text-warning"
+            }`}>
+              {state.kycComplete ? "Approved" : state.kyc.status === "pending" ? "Pending" : "Required"}
             </p>
           </motion.div>
 
@@ -128,12 +139,13 @@ export default function Dashboard() {
           </motion.div>
         )}
 
-        {/* KYC Blocker Alert */}
+        {/* KYC Blocker Alert — clickable, routes to /kyc */}
         {!canDeposit && (
-          <motion.div
+          <motion.button
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
+            onClick={() => navigate("/kyc")}
+            className="w-full card-wine rounded-xl px-4 py-3 flex items-start gap-3 text-left hover:border-gold/30 transition-all"
           >
             <Lock className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -143,23 +155,23 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground">
                 {kycEligibility.actionRequired}
               </p>
+              <p className="text-[10px] text-gold mt-1">Tap to complete verification →</p>
             </div>
-          </motion.div>
+          </motion.button>
         )}
 
-        {/* Main CTA — New Deposit */}
+        {/* Main CTA — Start Deposit */}
         <motion.button
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           onClick={() => {
             if (!canDeposit) {
-              navigate("/kyc-status");
+              navigate("/kyc");
             } else {
               navigate("/new-deposit");
             }
           }}
-          disabled={!canDeposit}
           className={`w-full rounded-xl p-5 flex items-center gap-4 transition-all duration-200 group ${
             canDeposit
               ? "card-gold hover:border-gold/40"
@@ -177,14 +189,14 @@ export default function Dashboard() {
                 ? "text-foreground group-hover:text-gold"
                 : "text-slate-400"
             }`}>
-              New Crypto Deposit
+              Start Deposit
             </p>
             <p className={`text-xs mt-0.5 ${
               canDeposit ? "text-muted-foreground" : "text-slate-500"
             }`}>
               {canDeposit
-                ? "Transfer crypto to your casino account"
-                : "Complete KYC to proceed"}
+                ? "Initiate a new crypto deposit"
+                : "Complete KYC verification to proceed"}
             </p>
           </div>
           <Plus className={`w-5 h-5 ${
@@ -276,7 +288,7 @@ export default function Dashboard() {
             <span className="text-[10px]">Support</span>
           </button>
           <button
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/settings")}
             className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border/50 hover:border-gold/20 transition-all text-muted-foreground hover:text-gold"
           >
             <User className="w-4 h-4" />

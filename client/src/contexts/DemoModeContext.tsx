@@ -19,14 +19,14 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
   const [isDemoMode, setIsDemoMode] = useState(false);
 
   const demoData = {
-    email: "demo.patron@hypercrypto.com",
+    email: "demo.user@hypercrypto.com",
     password: "Demo@12345",
     firstName: "Demo",
-    lastName: "Patron",
+    lastName: "User",
     phone: "+852 9876 5432",
     idNumber: "A123456789",
     walletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f8bEb0",
-    beneficiaryName: "Demo Casino Account",
+    beneficiaryName: "Demo Account",
     beneficiaryAddress: "123 Demo Street, Hong Kong",
     sourceOfFunds: "Employment Income",
     occupationIndustry: "Finance",

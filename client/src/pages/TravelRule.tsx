@@ -38,7 +38,7 @@ export default function TravelRule() {
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Under the Financial Action Task Force (FATF) Travel Rule, we are required to collect originator information for crypto transfers. This data is shared only with the receiving institution.
+            Under the Financial Action Task Force (FATF) Travel Rule, we are required to collect originator information for crypto transfers. This data is used solely for regulatory compliance and is never shared for marketing or other purposes.
           </p>
         </div>
 
