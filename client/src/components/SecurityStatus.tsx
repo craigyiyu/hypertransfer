@@ -1,10 +1,12 @@
 /**
  * SecurityStatus — Shows the account status.
- * Displays 2FA status, KYC verification, and Travel Rule completion.
+ * Displays 2FA status and KYC verification only.
+ * Travel Rule is NOT shown here — it's conditional on transfer amount (>8,000 USD),
+ * not a fixed account setup step.
  * Uses amber/clock for pending, green/check for approved.
  */
 import { motion } from "framer-motion";
-import { CheckCircle2, AlertCircle, Clock, Shield } from "lucide-react";
+import { CheckCircle2, AlertCircle, Clock } from "lucide-react";
 import type { KYCStatus } from "@/lib/kyc-status";
 
 interface SecurityStatusProps {
@@ -12,6 +14,7 @@ interface SecurityStatusProps {
   kycStatus?: KYCStatus;
   /** @deprecated use kycStatus instead */
   kycVerified?: boolean;
+  /** @deprecated Travel Rule is no longer shown in Account Status */
   travelRuleComplete?: boolean;
   compact?: boolean;
 }
@@ -20,7 +23,6 @@ export default function SecurityStatus({
   twoFAEnabled = true,
   kycStatus,
   kycVerified = false,
-  travelRuleComplete = false,
   compact = false,
 }: SecurityStatusProps) {
   // Determine KYC state from kycStatus prop (preferred) or legacy kycVerified
@@ -35,10 +37,6 @@ export default function SecurityStatus({
     {
       label: "KYC Verification",
       status: kycApproved ? "verified" : kycPending ? "pending" : "not_started",
-    },
-    {
-      label: "Travel Rule",
-      status: travelRuleComplete ? "verified" : "pending",
     },
   ];
 
