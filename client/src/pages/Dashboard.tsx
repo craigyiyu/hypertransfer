@@ -15,7 +15,9 @@ import {
   Plus,
   User,
   HelpCircle,
+  Lock,
 } from "lucide-react";
+import { canProceedToDeposit, getKYCEligibility } from "@/lib/kyc-status";
 import SessionRecovery from "@/components/SessionRecovery";
 import SecurityStatus from "@/components/SecurityStatus";
 import { useState } from "react";
@@ -26,6 +28,9 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
+  
+  const canDeposit = canProceedToDeposit(state.kyc);
+  const kycEligibility = getKYCEligibility(state.kyc);
 
   const pendingTx = state.transactions.filter((t) => t.status === "pending").length;
   const confirmedTx = state.transactions.filter((t) => t.status === "confirmed" || t.status === "cleared").length;
@@ -123,13 +128,43 @@ export default function Dashboard() {
           </motion.div>
         )}
 
+        {/* KYC Blocker Alert */}
+        {!canDeposit && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
+          >
+            <Lock className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-destructive mb-1">
+                {kycEligibility.blockerMessage}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {kycEligibility.actionRequired}
+              </p>
+            </div>
+          </motion.div>
+        )}
+
         {/* Main CTA — New Deposit */}
         <motion.button
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          onClick={() => navigate("/new-deposit")}
-          className="w-full card-gold rounded-xl p-5 flex items-center gap-4 hover:border-gold/40 transition-all duration-200 group"
+          onClick={() => {
+            if (!canDeposit) {
+              navigate("/kyc-status");
+            } else {
+              navigate("/new-deposit");
+            }
+          }}
+          disabled={!canDeposit}
+          className={`w-full rounded-xl p-5 flex items-center gap-4 transition-all duration-200 group ${
+            canDeposit
+              ? "card-gold hover:border-gold/40"
+              : "bg-slate-800/50 border border-slate-700/50 opacity-60"
+          }`}
         >
           <img
             src={WALLET_IMG}
@@ -137,14 +172,24 @@ export default function Dashboard() {
             className="w-14 h-14 rounded-xl object-cover"
           />
           <div className="flex-1 text-left">
-            <p className="text-sm font-semibold text-foreground group-hover:text-gold transition-colors">
+            <p className={`text-sm font-semibold transition-colors ${
+              canDeposit
+                ? "text-foreground group-hover:text-gold"
+                : "text-slate-400"
+            }`}>
               New Crypto Deposit
             </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Transfer crypto to your casino account
+            <p className={`text-xs mt-0.5 ${
+              canDeposit ? "text-muted-foreground" : "text-slate-500"
+            }`}>
+              {canDeposit
+                ? "Transfer crypto to your casino account"
+                : "Complete KYC to proceed"}
             </p>
           </div>
-          <Plus className="w-5 h-5 text-gold" />
+          <Plus className={`w-5 h-5 ${
+            canDeposit ? "text-gold" : "text-slate-500"
+          }`} />
         </motion.button>
 
         {/* Recent Activity */}

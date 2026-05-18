@@ -1,10 +1,12 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode } from "react";
+import { KYCState } from "@/lib/kyc-status";
 
 interface DemoState {
   patronName: string;
   patronEmail: string;
   patronId: string;
   kycComplete: boolean;
+  kyc: KYCState;
   travelRuleComplete: boolean;
   selectedAsset: string;
   selectedNetwork: string;
@@ -45,6 +47,10 @@ const defaultState: DemoState = {
   patronEmail: "",
   patronId: "VIP-" + Math.random().toString(36).substring(2, 6).toUpperCase(),
   kycComplete: false,
+  kyc: {
+    status: "not_started",
+    retryCount: 0,
+  },
   travelRuleComplete: false,
   selectedAsset: "USDT",
   selectedNetwork: "",

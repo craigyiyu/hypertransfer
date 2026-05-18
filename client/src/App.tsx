@@ -14,6 +14,7 @@ import Setup2FA from "./pages/Setup2FA";
 import Login from "./pages/Login";
 import Verify2FA from "./pages/Verify2FA";
 import KYC from "./pages/KYC";
+import KYCStatus from "./pages/KYCStatus";
 import TravelRule from "./pages/TravelRule";
 import Dashboard from "./pages/Dashboard";
 import NewDeposit from "./pages/NewDeposit";
@@ -34,8 +35,9 @@ function Router() {
       <Route path="/setup-2fa" component={Setup2FA} />
       <Route path="/login" component={Login} />
       <Route path="/verify-2fa" component={Verify2FA} />
-      <Route path="/kyc" component={KYC} />
-      <Route path="/travel-rule" component={TravelRule} />
+      <Route path={"/kyc"} component={KYC} />
+      <Route path={"/kyc-status"} component={KYCStatus} />
+      <Route path={"/travel-rule"} component={TravelRule} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/new-deposit" component={NewDeposit} />
       <Route path="/wallet-screening" component={WalletScreening} />
