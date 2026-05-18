@@ -1,9 +1,11 @@
 /**
  * MainDeposit — Unified deposit session combining verification step (1 USDT test)
- * and main deposit into a single screen. Shows HKD equivalent and network fees.
- * Travel Rule check: if amount >= 8,000 USDT and not completed, redirect to /travel-rule.
+ * and main deposit into a single screen.
+ *
+ * Travel Rule: strictly triggered when deposit amount >= 8,000 USDT.
+ * Platform Fee: 0.03% (Hex Trust), shown as single line deducted from "You'll Receive".
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
@@ -12,11 +14,15 @@ import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
-import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
+import { getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
 
 type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming" | "main_confirmed";
 
-const TRAVEL_RULE_THRESHOLD = 8000; // USD equivalent
+// Travel Rule threshold: 8,000 USDT (USDT is pegged 1:1 to USD)
+const TRAVEL_RULE_THRESHOLD_USDT = 8000;
+
+// Platform fee rate (Hex Trust): 0.03%
+const PLATFORM_FEE_RATE = 0.0003;
 
 export default function MainDeposit() {
   const [, navigate] = useLocation();
@@ -29,12 +35,14 @@ export default function MainDeposit() {
   const [confirmations, setConfirmations] = useState(0);
   const sessionId = useState(() => "sess-" + Date.now())[0];
 
-  const networkFee = getNetworkFee(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
-  const netReceive = Math.max(0, mainAmount - networkFee);
 
-  // Convert mainAmount to USD equivalent for Travel Rule check
-  const mainAmountInUSD = mainAmount * 100; // Mock: assume 1 USDT ≈ 100 HKD, so 1 USDT ≈ $1 USD (simplified)
+  // Platform fee calculation (0.03% of deposit amount)
+  const platformFee = mainAmount * PLATFORM_FEE_RATE;
+  const netReceive = Math.max(0, mainAmount - platformFee);
+
+  // Travel Rule: strictly >= 8,000 USDT (USDT ≈ 1 USD)
+  const travelRuleRequired = mainAmount >= TRAVEL_RULE_THRESHOLD_USDT;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(state.depositAddress);
@@ -46,7 +54,6 @@ export default function MainDeposit() {
   // Handle verification step confirmation
   const handleVerificationSent = () => {
     setPhase("verification_monitoring");
-    // Simulate blockchain confirmation for 1 USDT test
     setTimeout(() => setConfirmations(1), 2000);
     setTimeout(() => setConfirmations(2), 3000);
     setTimeout(() => {
@@ -67,11 +74,12 @@ export default function MainDeposit() {
     }, 4000);
   };
 
-  // Handle main deposit confirmation with Travel Rule check
+  // Handle main deposit — Travel Rule check uses USDT amount directly
   const handleMainDepositSent = () => {
-    // Check if Travel Rule is required and not yet completed
-    if (mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && !state.travelRuleComplete) {
-      // Redirect to Travel Rule form
+    if (!amount || mainAmount <= 0) return;
+
+    // Strict Travel Rule check: only if >= 8,000 USDT and not yet completed
+    if (travelRuleRequired && !state.travelRuleComplete) {
       navigate("/travel-rule");
       return;
     }
@@ -259,20 +267,6 @@ export default function MainDeposit() {
               </div>
             </motion.div>
 
-            {/* Travel Rule notice (if applicable) */}
-            {mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
-              >
-                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD 8,000 or above require additional compliance information. You will be asked to provide this before proceeding.
-                </p>
-              </motion.div>
-            )}
-
             {/* Amount input */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -284,7 +278,7 @@ export default function MainDeposit() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-14 rounded-xl text-lg font-semibold pr-16"
+                  className="h-14 rounded-xl text-lg font-semibold pr-16"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gold font-medium">
                   {state.selectedAsset}
@@ -297,31 +291,50 @@ export default function MainDeposit() {
               )}
             </div>
 
-            {/* Fee breakdown */}
+            {/* Fee summary — single platform fee line */}
             {mainAmount > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="card-gold rounded-xl p-4 space-y-3"
               >
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Fee Summary</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Summary</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Deposit Amount</span>
-                    <span className="text-foreground font-medium">{state.selectedAsset} {mainAmount.toFixed(2)}</span>
+                    <span className="text-foreground font-medium">{mainAmount.toFixed(2)} {state.selectedAsset}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Network Fee</span>
-                    <span className="text-foreground font-medium">−{state.selectedAsset} {networkFee.toFixed(2)}</span>
+                    <span className="text-muted-foreground">Platform Fee (0.03%)</span>
+                    <span className="text-muted-foreground">
+                      −{platformFee.toFixed(4)} {state.selectedAsset}
+                      <span className="text-muted-foreground/60 ml-1">
+                        (≈ {formatHKD(convertToHKD(platformFee, state.selectedAsset))})
+                      </span>
+                    </span>
                   </div>
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
                     <span className="text-foreground font-semibold">You'll Receive</span>
                     <div className="text-right">
-                      <span className="text-gold font-semibold">{state.selectedAsset} {netReceive.toFixed(2)}</span>
+                      <span className="text-gold font-semibold">{netReceive.toFixed(4)} {state.selectedAsset}</span>
                       <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {/* Travel Rule notice — only shown when >= 8,000 USDT */}
+            {travelRuleRequired && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
+              >
+                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of 8,000 USDT or above require additional compliance information. You will be asked to provide this before proceeding.
+                </p>
               </motion.div>
             )}
 
@@ -428,7 +441,7 @@ export default function MainDeposit() {
                 ≈ {getHKDEquivalent(amount, state.selectedAsset)}
               </p>
               <p className="text-xs text-muted-foreground mt-3">
-                Your deposit has been received and is being processed. Funds will be credited after settlement.
+                You'll receive <span className="text-gold font-semibold">{netReceive.toFixed(4)} {state.selectedAsset}</span> after the 0.03% platform fee
               </p>
             </motion.div>
 
@@ -436,7 +449,7 @@ export default function MainDeposit() {
               onClick={() => navigate("/deposit-success")}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              Continue
+              View Deposit Summary
               <ArrowRight className="w-4 h-4" />
             </button>
           </>

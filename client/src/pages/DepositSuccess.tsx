@@ -1,23 +1,26 @@
 /**
  * DepositSuccess — Final confirmation screen after a successful deposit session.
- * Shows summary with HKD equivalent and next steps.
+ * Shows summary with HKD equivalent and 0.03% platform fee (Hex Trust).
  */
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, ArrowRight, Clock, Banknote } from "lucide-react";
-import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/currency";
+import { getHKDEquivalent, formatHKD, convertToHKD } from "@/lib/currency";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
+
+// Platform fee rate (Hex Trust): 0.03%
+const PLATFORM_FEE_RATE = 0.0003;
 
 export default function DepositSuccess() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
 
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
-  const networkFee = getNetworkFee(state.selectedNetwork);
-  const netReceive = Math.max(0, depositAmount - networkFee);
+  const platformFee = depositAmount * PLATFORM_FEE_RATE;
+  const netReceive = Math.max(0, depositAmount - platformFee);
 
   return (
     <Shell showProgress={false}>
@@ -38,11 +41,11 @@ export default function DepositSuccess() {
           transition={{ delay: 0.3 }}
           className="space-y-2"
         >
-          <h1 className="text-xl font-bold text-foreground">Deposit Complete</h1>
+          <h1 className="text-2xl font-bold text-foreground">Deposit Complete</h1>
           <p className="text-sm text-muted-foreground max-w-[280px]">
             Your {state.mainDepositAmount} {state.selectedAsset} deposit has been confirmed and is being processed.
           </p>
-          <p className="text-xs text-gold">
+          <p className="text-base font-semibold text-gold">
             ≈ {getHKDEquivalent(state.mainDepositAmount, state.selectedAsset)}
           </p>
         </motion.div>
@@ -62,14 +65,16 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Network Fee</span>
-            <span className="text-foreground">−{networkFee.toFixed(2)} {state.selectedAsset}</span>
+            <span className="text-muted-foreground">Platform Fee (0.03%)</span>
+            <span className="text-muted-foreground">
+              −{platformFee.toFixed(4)} {state.selectedAsset}
+            </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">You'll Receive</span>
+            <span className="text-foreground font-semibold">You'll Receive</span>
             <div className="text-right">
-              <span className="text-gold font-semibold">{netReceive.toFixed(2)} {state.selectedAsset}</span>
+              <span className="text-gold font-semibold">{netReceive.toFixed(4)} {state.selectedAsset}</span>
               <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
             </div>
           </div>
@@ -106,7 +111,7 @@ export default function DepositSuccess() {
             <div className="text-left">
               <p className="text-xs text-foreground font-medium">What happens next</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Once the funds are cleared by the custodian, the equivalent HKD amount will be credited to your account. You will receive a notification when settlement is complete.
+                Funds will settle in 1–2 hours. Once cleared, the HKD equivalent will be credited to your account. You'll receive a notification when complete.
               </p>
             </div>
           </div>
