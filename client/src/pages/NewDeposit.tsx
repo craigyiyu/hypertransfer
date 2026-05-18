@@ -1,106 +1,124 @@
 /**
- * NewDeposit — Start a new deposit session. Select network for USDT transfer.
- * USDT is the only supported asset. Users select network based on their wallet location.
- * Polygon is recommended as default (lowest fees, fastest).
+ * NewDeposit — Start a new deposit session. Select asset and network.
+ * Each deposit is treated as a session containing test + main deposit.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { Check, AlertTriangle, Zap, DollarSign } from "lucide-react";
+import { Check, AlertTriangle } from "lucide-react";
 
-const NETWORKS = [
-  { id: "polygon", name: "Polygon", fee: "~$0.01", time: "~2 min", recommended: true },
-  { id: "tron", name: "Tron (TRC-20)", fee: "~$1", time: "~3 min", recommended: false },
-  { id: "solana", name: "Solana", fee: "~$0.01", time: "~1 min", recommended: false },
-  { id: "arbitrum", name: "Arbitrum One", fee: "~$0.10", time: "~1 min", recommended: false },
-  { id: "bsc", name: "BNB Smart Chain (BEP-20)", fee: "~$0.50", time: "~1 min", recommended: false },
-  { id: "avalanche", name: "Avalanche (C-Chain)", fee: "~$0.10", time: "~2 min", recommended: false },
-  { id: "ethereum", name: "Ethereum (ERC-20)", fee: "~$5-15", time: "~5 min", recommended: false },
+const ASSETS = [
+  { id: "USDT", name: "Tether", symbol: "USDT", color: "#26A17B" },
+  { id: "USDC", name: "USD Coin", symbol: "USDC", color: "#2775CA" },
+  { id: "BTC", name: "Bitcoin", symbol: "BTC", color: "#F7931A" },
+  { id: "ETH", name: "Ethereum", symbol: "ETH", color: "#627EEA" },
 ];
+
+const NETWORKS: Record<string, { id: string; name: string; fee: string; time: string }[]> = {
+  USDT: [
+    { id: "tron", name: "Tron (TRC-20)", fee: "~$1", time: "~3 min" },
+    { id: "ethereum", name: "Ethereum (ERC-20)", fee: "~$5-15", time: "~5 min" },
+    { id: "bsc", name: "BNB Smart Chain (BEP-20)", fee: "~$0.50", time: "~1 min" },
+    { id: "polygon", name: "Polygon", fee: "~$0.01", time: "~2 min" },
+    { id: "avalanche", name: "Avalanche (C-Chain)", fee: "~$0.10", time: "~2 min" },
+    { id: "solana", name: "Solana", fee: "~$0.01", time: "~1 min" },
+    { id: "arbitrum", name: "Arbitrum One", fee: "~$0.10", time: "~1 min" },
+  ],
+  USDC: [
+    { id: "ethereum", name: "Ethereum (ERC-20)", fee: "~$5-15", time: "~5 min" },
+    { id: "solana", name: "Solana", fee: "~$0.01", time: "~1 min" },
+    { id: "polygon", name: "Polygon", fee: "~$0.01", time: "~2 min" },
+    { id: "arbitrum", name: "Arbitrum One", fee: "~$0.10", time: "~1 min" },
+    { id: "avalanche", name: "Avalanche (C-Chain)", fee: "~$0.10", time: "~2 min" },
+  ],
+  BTC: [
+    { id: "bitcoin", name: "Bitcoin Network", fee: "~$2-10", time: "~30 min" },
+    { id: "lightning", name: "Lightning Network", fee: "~$0.01", time: "~1 min" },
+  ],
+  ETH: [
+    { id: "ethereum", name: "Ethereum Mainnet", fee: "~$5-15", time: "~5 min" },
+    { id: "arbitrum", name: "Arbitrum One", fee: "~$0.10", time: "~1 min" },
+  ],
+};
 
 export default function NewDeposit() {
   const [, navigate] = useLocation();
   const { updateState, resetSession } = useDemo();
-  const [selectedNetwork, setSelectedNetwork] = useState("polygon");
+  const [selectedAsset, setSelectedAsset] = useState("USDT");
+  const [selectedNetwork, setSelectedNetwork] = useState("");
 
-  // Auto-select Polygon on mount
-  useEffect(() => {
-    setSelectedNetwork("polygon");
-  }, []);
+  const networks = NETWORKS[selectedAsset] || [];
 
   const handleContinue = () => {
     resetSession();
-    updateState({ selectedAsset: "USDT", selectedNetwork });
+    updateState({ selectedAsset, selectedNetwork });
     navigate("/wallet-screening");
   };
 
   return (
-    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="Select network for USDT transfer">
+    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="Select asset and network for this transfer">
       <div className="space-y-6">
-        {/* Asset Info */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card-gold rounded-xl p-4 flex items-center gap-3"
-        >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#26A17B] to-[#1a7a5a] flex items-center justify-center shrink-0">
-            <span className="text-white font-bold text-sm">U</span>
+        {/* Asset Selection */}
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Select Asset</p>
+          <div className="grid grid-cols-2 gap-2">
+            {ASSETS.map((asset) => (
+              <button
+                key={asset.id}
+                onClick={() => {
+                  setSelectedAsset(asset.id);
+                  setSelectedNetwork("");
+                }}
+                className={`rounded-xl p-3 flex items-center gap-3 border transition-all duration-200 ${
+                  selectedAsset === asset.id
+                    ? "border-gold/50 bg-gold/5"
+                    : "border-border hover:border-border/80"
+                }`}
+              >
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: asset.color }}
+                >
+                  {asset.symbol.charAt(0)}
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">{asset.symbol}</p>
+                  <p className="text-[10px] text-muted-foreground">{asset.name}</p>
+                </div>
+                {selectedAsset === asset.id && (
+                  <Check className="w-4 h-4 text-gold ml-auto" />
+                )}
+              </button>
+            ))}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Deposit Asset</p>
-            <p className="text-sm font-semibold text-foreground">Tether (USDT)</p>
-          </div>
-        </motion.div>
+        </div>
 
         {/* Network Selection */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Select Network</p>
-            <p className="text-xs text-gold font-medium">Choose where your wallet is located</p>
-          </div>
-
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Select Network</p>
           <div className="space-y-2">
-            {NETWORKS.map((net, idx) => (
-              <motion.button
+            {networks.map((net) => (
+              <button
                 key={net.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05 }}
                 onClick={() => setSelectedNetwork(net.id)}
                 className={`w-full rounded-xl px-4 py-3 flex items-center justify-between border transition-all duration-200 ${
                   selectedNetwork === net.id
                     ? "border-gold/50 bg-gold/5"
-                    : "border-border hover:border-border/30"
+                    : "border-border hover:border-border/80"
                 }`}
               >
-                <div className="flex-1 text-left min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-medium text-foreground">{net.name}</p>
-                    {net.recommended && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gold/10 border border-gold/30">
-                        <Zap className="w-3 h-3 text-gold" />
-                        <span className="text-[10px] font-semibold text-gold">Recommended</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <DollarSign className="w-3 h-3" />
-                      Fee: {net.fee}
-                    </span>
-                    <span>•</span>
-                    <span className="flex items-center gap-1">
-                      <Zap className="w-3 h-3" />
-                      {net.time}
-                    </span>
-                  </div>
+                <div className="text-left">
+                  <p className="text-sm text-foreground">{net.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Fee: {net.fee} &middot; Time: {net.time}
+                  </p>
                 </div>
                 {selectedNetwork === net.id && (
-                  <Check className="w-4 h-4 text-gold shrink-0 ml-3" />
+                  <Check className="w-4 h-4 text-gold" />
                 )}
-              </motion.button>
+              </button>
             ))}
           </div>
         </div>
@@ -121,7 +139,8 @@ export default function NewDeposit() {
       <div className="mt-8">
         <button
           onClick={handleContinue}
-          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
+          disabled={!selectedNetwork}
+          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Continue to Wallet Screening
         </button>

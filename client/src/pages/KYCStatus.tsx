@@ -1,9 +1,7 @@
-/**
- * KYCStatus — View KYC verification status with design token consistency.
- * Uses the same gold/wine color system as the rest of the app.
- */
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import Shell from '@/components/Shell';
 import { useDemo } from '@/contexts/DemoContext';
 import { useI18n } from '@/contexts/I18nContext';
@@ -22,7 +20,6 @@ import {
   AlertCircle,
   ChevronRight,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 const iconMap = {
   clock: Clock,
@@ -73,251 +70,208 @@ export default function KYCStatus() {
     setLocation('/dashboard');
   };
 
-  // Status-specific styling using design tokens
-  const getStatusStyles = () => {
-    switch (kycState.status) {
-      case 'approved':
-        return {
-          bgIcon: 'bg-success/10',
-          iconColor: 'text-success',
-          cardClass: 'card-gold',
-          borderClass: 'border-success/20',
-        };
-      case 'pending':
-        return {
-          bgIcon: 'bg-warning/10',
-          iconColor: 'text-warning',
-          cardClass: 'card-wine',
-          borderClass: 'border-warning/20',
-        };
-      case 'rejected':
-        return {
-          bgIcon: 'bg-destructive/10',
-          iconColor: 'text-destructive',
-          cardClass: 'card-gold',
-          borderClass: 'border-destructive/20',
-        };
-      default:
-        return {
-          bgIcon: 'bg-muted/10',
-          iconColor: 'text-muted-foreground',
-          cardClass: 'card-gold',
-          borderClass: 'border-border',
-        };
-    }
-  };
-
-  const statusStyles = getStatusStyles();
-
   return (
-    <Shell showBack backTo="/dashboard" title="KYC Verification Status">
-      <div className="space-y-6">
-        {/* Status Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center"
-        >
-          <div className="flex justify-center mb-6">
-            <div className={`w-20 h-20 rounded-full ${statusStyles.bgIcon} flex items-center justify-center`}>
-              <IconComponent className={`w-10 h-10 ${statusStyles.iconColor}`} />
+    <Shell>
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
+        <div className="max-w-2xl mx-auto">
+          {/* Status Header */}
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-6">
+              <div className="relative">
+                <div
+                  className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                    kycState.status === 'approved'
+                      ? 'bg-green-500/20'
+                      : kycState.status === 'rejected'
+                        ? 'bg-red-500/20'
+                        : kycState.status === 'pending'
+                          ? 'bg-yellow-500/20'
+                          : 'bg-slate-700/50'
+                  }`}
+                >
+                  <IconComponent
+                    className={`w-10 h-10 ${getStatusColor(kycState.status)}`}
+                  />
+                </div>
+              </div>
             </div>
+
+            <h1 className="text-3xl font-bold text-white mb-2">
+              {t('kycStatus.title')}
+            </h1>
+            <p className="text-lg font-semibold text-gold-400 mb-4">
+              {formatKYCStatus(kycState.status)}
+            </p>
+            <p className="text-slate-400 text-sm">
+              {eligibility.blockerMessage}
+            </p>
           </div>
 
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            {t('kycStatus.title')}
-          </h1>
-          <p className="text-sm text-gold font-semibold mb-2">
-            {formatKYCStatus(kycState.status)}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {eligibility.blockerMessage}
-          </p>
-        </motion.div>
-
-        {/* Status-Specific Content */}
-        <div className="space-y-4">
-          {/* Approved State */}
-          {kycState.status === 'approved' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`${statusStyles.cardClass} rounded-xl p-5 space-y-3`}
-            >
-              <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-success shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground text-sm">
-                    {t('kycStatus.approved.title')}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {t('kycStatus.approved.description')}
-                  </p>
+          {/* Status-Specific Content */}
+          <div className="space-y-6">
+            {/* Approved State */}
+            {kycState.status === 'approved' && (
+              <Card className="border-green-500/30 bg-green-500/10 p-6">
+                <div className="flex items-start gap-4">
+                  <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-1" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-2">
+                      {t('kycStatus.approved.title')}
+                    </h3>
+                    <p className="text-slate-300 text-sm">
+                      {t('kycStatus.approved.description')}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
+              </Card>
+            )}
 
-          {/* Pending State */}
-          {kycState.status === 'pending' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`${statusStyles.cardClass} rounded-xl p-5 space-y-3`}
-            >
-              <div className="flex items-start gap-3">
-                <Clock className="w-5 h-5 text-warning shrink-0 mt-0.5 animate-spin" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground text-sm">
-                    {t('kycStatus.pending.title')}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {t('kycStatus.pending.description')}
-                  </p>
+            {/* Pending State */}
+            {kycState.status === 'pending' && (
+              <Card className="border-yellow-500/30 bg-yellow-500/10 p-6">
+                <div className="flex items-start gap-4">
+                  <Clock className="w-6 h-6 text-yellow-500 flex-shrink-0 mt-1 animate-spin" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-2">
+                      {t('kycStatus.pending.title')}
+                    </h3>
+                    <p className="text-slate-300 text-sm mb-3">
+                      {t('kycStatus.pending.description')}
+                    </p>
+                    <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-300 mb-4">
+                      <p className="font-medium text-white mb-1">
+                        {t('kycStatus.pending.estimatedTime')}
+                      </p>
+                      <p>{getEstimatedReviewTime()}</p>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {t('kycStatus.pending.submittedAt')}:{' '}
+                      {kycState.submittedAt
+                        ? new Date(kycState.submittedAt).toLocaleDateString()
+                        : 'N/A'}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              </Card>
+            )}
 
-              <div className="bg-secondary/50 rounded-lg p-3 space-y-2">
-                <p className="font-medium text-foreground text-xs">
-                  {t('kycStatus.pending.estimatedTime')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {getEstimatedReviewTime()}
-                </p>
-              </div>
+            {/* Rejected State */}
+            {kycState.status === 'rejected' && (
+              <Card className="border-red-500/30 bg-red-500/10 p-6">
+                <div className="flex items-start gap-4">
+                  <XCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-1" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-2">
+                      {t('kycStatus.rejected.title')}
+                    </h3>
+                    <p className="text-slate-300 text-sm mb-4">
+                      {t('kycStatus.rejected.description')}
+                    </p>
 
-              <p className="text-xs text-muted-foreground/60">
-                {t('kycStatus.pending.submittedAt')}:{' '}
-                {kycState.submittedAt
-                  ? new Date(kycState.submittedAt).toLocaleDateString()
-                  : 'N/A'}
-              </p>
-            </motion.div>
-          )}
+                    {kycState.rejectionReason && (
+                      <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
+                        <p className="text-xs text-slate-400 font-medium mb-1">
+                          {t('kycStatus.rejected.reason')}
+                        </p>
+                        <p className="text-sm text-slate-300">
+                          {kycState.rejectionReason}
+                        </p>
+                      </div>
+                    )}
 
-          {/* Rejected State */}
-          {kycState.status === 'rejected' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`${statusStyles.cardClass} rounded-xl p-5 space-y-3`}
-            >
-              <div className="flex items-start gap-3">
-                <XCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground text-sm">
-                    {t('kycStatus.rejected.title')}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {t('kycStatus.rejected.description')}
-                  </p>
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                      <p className="text-xs text-blue-300 font-medium mb-1">
+                        {t('kycStatus.rejected.nextSteps')}
+                      </p>
+                      <ul className="text-sm text-blue-300 space-y-1 list-disc list-inside">
+                        <li>Review the rejection reason</li>
+                        <li>Gather required documents</li>
+                        <li>Resubmit your KYC</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </Card>
+            )}
 
-              {kycState.rejectionReason && (
-                <div className="bg-secondary/50 rounded-lg p-3 space-y-2">
-                  <p className="text-xs text-muted-foreground font-medium">
-                    {t('kycStatus.rejected.reason')}
-                  </p>
-                  <p className="text-xs text-foreground">
-                    {kycState.rejectionReason}
-                  </p>
+            {/* Not Started State */}
+            {kycState.status === 'not_started' && (
+              <Card className="border-slate-700/50 bg-slate-800/30 p-6">
+                <div className="flex items-start gap-4">
+                  <AlertCircle className="w-6 h-6 text-slate-400 flex-shrink-0 mt-1" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-2">
+                      {t('kycStatus.notStarted.title')}
+                    </h3>
+                    <p className="text-slate-300 text-sm">
+                      {t('kycStatus.notStarted.description')}
+                    </p>
+                  </div>
                 </div>
+              </Card>
+            )}
+
+            {/* Requirements Card */}
+            <Card className="border-slate-700/50 bg-slate-800/30 p-6">
+              <h3 className="font-semibold text-white mb-4">
+                {t('kycStatus.requirements.title')}
+              </h3>
+              <ul className="space-y-3">
+                <li className="flex items-center gap-3 text-sm text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-gold-400"></div>
+                  Valid government-issued ID
+                </li>
+                <li className="flex items-center gap-3 text-sm text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-gold-400"></div>
+                  Proof of address (utility bill, bank statement)
+                </li>
+                <li className="flex items-center gap-3 text-sm text-slate-300">
+                  <div className="w-2 h-2 rounded-full bg-gold-400"></div>
+                  Source of funds documentation
+                </li>
+              </ul>
+            </Card>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-3 pt-4">
+              {kycState.status === 'approved' && (
+                <Button
+                  onClick={handleProceedToDeposit}
+                  className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+                >
+                  {t('kycStatus.approved.button')}
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
               )}
 
-              <div className="card-wine rounded-lg p-3 space-y-2">
-                <p className="text-xs text-gold font-medium">
-                  {t('kycStatus.rejected.nextSteps')}
-                </p>
-                <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Review the rejection reason</li>
-                  <li>Gather required documents</li>
-                  <li>Resubmit your KYC</li>
-                </ul>
-              </div>
-            </motion.div>
-          )}
+              {kycState.status === 'pending' && (
+                <Button
+                  onClick={handleCheckStatus}
+                  className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg"
+                >
+                  {t('kycStatus.pending.checkButton')}
+                </Button>
+              )}
 
-          {/* Not Started State */}
-          {kycState.status === 'not_started' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`${statusStyles.cardClass} rounded-xl p-5 space-y-3`}
-            >
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground text-sm">
-                    {t('kycStatus.notStarted.title')}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {t('kycStatus.notStarted.description')}
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
+              {kycState.status === 'rejected' && canRetryKYC(kycState) && (
+                <Button
+                  onClick={handleRetryKYC}
+                  disabled={isRetrying}
+                  className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg disabled:opacity-50"
+                >
+                  {isRetrying ? 'Resubmitting...' : t('kycStatus.rejected.retryButton')}
+                </Button>
+              )}
 
-          {/* Requirements Card */}
-          <div className={`${statusStyles.cardClass} rounded-xl p-5 space-y-3`}>
-            <h3 className="font-semibold text-foreground text-sm">
-              {t('kycStatus.requirements.title')}
-            </h3>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"></div>
-                Valid government-issued ID
-              </li>
-              <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"></div>
-                Proof of address (utility bill, bank statement)
-              </li>
-              <li className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"></div>
-                Source of funds documentation
-              </li>
-            </ul>
+              <Button
+                onClick={() => setLocation('/support')}
+                variant="outline"
+                className="w-full border-slate-700 text-slate-300 hover:bg-slate-800/50 py-3 rounded-lg"
+              >
+                {t('kycStatus.supportButton')}
+              </Button>
+            </div>
           </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-3 pt-4">
-          {kycState.status === 'approved' && (
-            <button
-              onClick={handleProceedToDeposit}
-              className="w-full btn-gold rounded-xl py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2"
-            >
-              {t('kycStatus.approved.button')}
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
-
-          {kycState.status === 'pending' && (
-            <button
-              onClick={handleCheckStatus}
-              className="w-full btn-gold rounded-xl py-3 px-4 text-sm font-semibold"
-            >
-              {t('kycStatus.pending.checkButton')}
-            </button>
-          )}
-
-          {kycState.status === 'rejected' && canRetryKYC(kycState) && (
-            <button
-              onClick={handleRetryKYC}
-              disabled={isRetrying}
-              className="w-full btn-gold rounded-xl py-3 px-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {isRetrying ? 'Resubmitting...' : t('kycStatus.rejected.retryButton')}
-            </button>
-          )}
-
-          <button
-            onClick={() => setLocation('/support')}
-            className="w-full rounded-xl py-3 px-4 text-sm font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all"
-          >
-            {t('kycStatus.supportButton')}
-          </button>
         </div>
       </div>
     </Shell>
