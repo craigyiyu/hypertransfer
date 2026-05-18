@@ -28,7 +28,10 @@ export default function KYC() {
   const handleSubmit = () => {
     setVerifying(true);
     setTimeout(() => {
-      updateState({ kycComplete: true });
+      updateState({
+        kycComplete: true,
+        kyc: { status: "approved", retryCount: 0 },
+      });
       navigate("/travel-rule");
     }, 2000);
   };
