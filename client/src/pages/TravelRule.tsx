@@ -1,6 +1,7 @@
 /**
  * TravelRule — Collects FATF Travel Rule data (originator info).
- * Conditional step based on jurisdiction and transaction amount.
+ * Triggered conditionally during the deposit flow when amount >= 8,000 USD.
+ * After submission, returns to /main-deposit to complete the deposit.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -23,22 +24,18 @@ export default function TravelRule() {
 
   const handleSubmit = () => {
     updateState({ travelRuleComplete: true });
-    navigate("/dashboard");
-  };
-
-  const handleSkip = () => {
-    updateState({ travelRuleComplete: true });
-    navigate("/dashboard");
+    // Return to deposit flow to complete the main deposit
+    navigate("/main-deposit");
   };
 
   return (
-    <Shell showBack backTo="/kyc" title="Travel Rule Information" subtitle="Required under FATF regulations for crypto transfers">
+    <Shell showBack backTo="/main-deposit" title="Travel Rule Information" subtitle="Required for transfers of USD 8,000 or above">
       <div className="space-y-5">
         {/* Info */}
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Under the Financial Action Task Force (FATF) Travel Rule, we are required to collect originator information for crypto transfers. This data is used solely for regulatory compliance and is never shared for marketing or other purposes.
+            Under the Financial Action Task Force (FATF) Travel Rule, we are required to collect originator information for crypto transfers of USD 8,000 or above. This data is used solely for regulatory compliance and is never shared for marketing or other purposes.
           </p>
         </div>
 
@@ -102,19 +99,13 @@ export default function TravelRule() {
         </div>
       </div>
 
-      <div className="mt-8 space-y-3">
+      <div className="mt-8">
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          Submit & Continue
-        </button>
-        <button
-          onClick={handleSkip}
-          className="w-full text-xs text-muted-foreground hover:text-gold transition-colors py-2"
-        >
-          Skip for now (may be required before deposit)
+          Submit & Continue to Deposit
         </button>
       </div>
     </Shell>

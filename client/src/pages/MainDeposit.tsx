@@ -1,6 +1,7 @@
 /**
  * MainDeposit — Unified deposit session combining verification step (1 USDT test)
  * and main deposit into a single screen. Shows HKD equivalent and network fees.
+ * Travel Rule check: if amount >= 8,000 USDT and not completed, redirect to /travel-rule.
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -14,6 +15,8 @@ import { toast } from "sonner";
 import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
 
 type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming" | "main_confirmed";
+
+const TRAVEL_RULE_THRESHOLD = 8000; // USD equivalent
 
 export default function MainDeposit() {
   const [, navigate] = useLocation();
@@ -29,6 +32,9 @@ export default function MainDeposit() {
   const networkFee = getNetworkFee(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
   const netReceive = Math.max(0, mainAmount - networkFee);
+
+  // Convert mainAmount to USD equivalent for Travel Rule check
+  const mainAmountInUSD = mainAmount * 100; // Mock: assume 1 USDT ≈ 100 HKD, so 1 USDT ≈ $1 USD (simplified)
 
   const handleCopy = () => {
     navigator.clipboard.writeText(state.depositAddress);
@@ -61,8 +67,15 @@ export default function MainDeposit() {
     }, 4000);
   };
 
-  // Handle main deposit confirmation
+  // Handle main deposit confirmation with Travel Rule check
   const handleMainDepositSent = () => {
+    // Check if Travel Rule is required and not yet completed
+    if (mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && !state.travelRuleComplete) {
+      // Redirect to Travel Rule form
+      navigate("/travel-rule");
+      return;
+    }
+
     updateState({ mainDepositAmount: amount });
     setPhase("main_monitoring");
     setConfirmations(0);
@@ -245,6 +258,20 @@ export default function MainDeposit() {
                 </p>
               </div>
             </motion.div>
+
+            {/* Travel Rule notice (if applicable) */}
+            {mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
+              >
+                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD 8,000 or above require additional compliance information. You will be asked to provide this before proceeding.
+                </p>
+              </motion.div>
+            )}
 
             {/* Amount input */}
             <div className="space-y-2">
