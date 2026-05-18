@@ -38,6 +38,17 @@ export function formatHKD(amount: number): string {
   return `HKD ${amount.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export function formatAssetAmount(amount: number | string, decimals: number = 2): string {
+  const numAmount = typeof amount === "string" ? parseFloat(amount.replace(/,/g, "")) : amount;
+
+  if (isNaN(numAmount)) return decimals > 0 ? "0.00" : "0";
+
+  return numAmount.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
 /**
  * Returns the HKD equivalent string for a given crypto amount.
  * Uses Hex Trust fiatRates for conversion.

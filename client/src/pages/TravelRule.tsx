@@ -14,23 +14,50 @@ import { Scale, Info } from "lucide-react";
 
 export default function TravelRule() {
   const [, navigate] = useLocation();
-  const { updateState } = useDemo();
-  const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [country, setCountry] = useState("");
-  const [sourceOfFunds, setSourceOfFunds] = useState("");
+  const { state, updateState } = useDemo();
+  const [address, setAddress] = useState(state.travelRuleInfo.address);
+  const [city, setCity] = useState(state.travelRuleInfo.city);
+  const [country, setCountry] = useState(state.travelRuleInfo.country);
+  const [sourceOfFunds, setSourceOfFunds] = useState(state.travelRuleInfo.sourceOfFunds);
 
   const canSubmit = address && city && country && sourceOfFunds;
 
   const handleSubmit = () => {
-    updateState({ travelRuleComplete: true });
+    updateState({
+      travelRuleComplete: true,
+      travelRuleInfo: {
+        address,
+        city,
+        country,
+        sourceOfFunds,
+      },
+    });
     // Return to deposit flow to complete the main deposit
     navigate("/main-deposit");
   };
 
   return (
-    <Shell showBack backTo="/main-deposit" title="Travel Rule Information" subtitle="Required for transfers of USD 8,000 or above">
+    <Shell
+      showBack
+      backTo="/main-deposit"
+      title="Travel Rule Information"
+      subtitle={state.travelRuleComplete ? "Review or update your compliance information" : "Required for transfers of USD 8,000 or above"}
+    >
       <div className="space-y-5">
+        {state.mainDepositAmount && (
+          <div className="card-gold rounded-xl px-4 py-3">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Pending Deposit
+            </p>
+            <p className="text-sm font-semibold text-foreground mt-1">
+              {Number(state.mainDepositAmount).toLocaleString()} {state.selectedAsset}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              This amount will be restored when you return to the deposit screen.
+            </p>
+          </div>
+        )}
+
         {/* Info */}
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />

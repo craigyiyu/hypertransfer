@@ -1,5 +1,5 @@
 /**
- * Dashboard — Main account hub. Shows status, recent activity, and the primary "Start Deposit" CTA.
+ * Dashboard — Main account hub. Shows account status, deposit overview, and recent activity.
  * Design: Dark canvas, gold accents, single-column layout.
  */
 import { useLocation } from "wouter";
@@ -12,25 +12,68 @@ import {
   CheckCircle2,
   AlertCircle,
   History,
-  Plus,
   User,
   HelpCircle,
   Lock,
 } from "lucide-react";
-import { canProceedToDeposit, getKYCEligibility } from "@/lib/kyc-status";
+import { formatAssetAmount } from "@/lib/currency";
 import SessionRecovery from "@/components/SessionRecovery";
-import SecurityStatus from "@/components/SecurityStatus";
 import { useState } from "react";
-
-const WALLET_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/wallet-illustration-UrVobqFRocWM8UQXYryQQw.webp";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
   
-  const canDeposit = canProceedToDeposit(state.kyc);
-  const kycEligibility = getKYCEligibility(state.kyc);
+  const accountStatus = (() => {
+    switch (state.kyc.status) {
+      case "approved":
+        return {
+          label: "Verified",
+          title: "Deposits enabled",
+          description: "Your account is verified and ready for crypto deposits.",
+          icon: CheckCircle2,
+          color: "text-success",
+          bg: "bg-success/10",
+          action: "Start Deposit",
+          path: "/new-deposit",
+        };
+      case "pending":
+        return {
+          label: "Under Review",
+          title: "KYC is being reviewed",
+          description: "Your documents are under review. Deposits will unlock once approved.",
+          icon: Clock,
+          color: "text-warning",
+          bg: "bg-warning/10",
+          action: "View Review Status",
+          path: "/kyc-status",
+        };
+      case "rejected":
+        return {
+          label: "Action Required",
+          title: "KYC needs attention",
+          description: "Please update your verification information to continue.",
+          icon: AlertCircle,
+          color: "text-destructive",
+          bg: "bg-destructive/10",
+          action: "Update KYC",
+          path: "/kyc",
+        };
+      default:
+        return {
+          label: "On Hold",
+          title: "KYC verification required",
+          description: "Complete identity verification before making a deposit.",
+          icon: Lock,
+          color: "text-destructive",
+          bg: "bg-destructive/10",
+          action: "Start KYC Verification",
+          path: "/kyc",
+        };
+    }
+  })();
+  const AccountStatusIcon = accountStatus.icon;
 
   const pendingTx = state.transactions.filter((t) => t.status === "pending").length;
   const confirmedTx = state.transactions.filter((t) => t.status === "confirmed" || t.status === "cleared").length;
@@ -74,56 +117,65 @@ export default function Dashboard() {
         )}
 
         {/* Account status */}
-        <SecurityStatus
-          twoFAEnabled={true}
-          kycStatus={state.kyc.status}
-          travelRuleComplete={state.travelRuleComplete || false}
-          compact={false}
-        />
-
-        {/* Status cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="card-gold rounded-xl p-4 cursor-pointer hover:border-gold/30 transition-all"
-            onClick={() => {
-              if (!state.kycComplete) navigate("/kyc");
-            }}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              {state.kycComplete ? (
-                <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-              ) : state.kyc.status === "pending" ? (
-                <Clock className="w-3.5 h-3.5 text-warning" />
-              ) : (
-                <AlertCircle className="w-3.5 h-3.5 text-warning" />
-              )}
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">KYC Verification</span>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card-gold rounded-xl p-5 space-y-4"
+        >
+          <div className="flex items-start gap-4">
+            <div className={`w-11 h-11 rounded-xl ${accountStatus.bg} flex items-center justify-center shrink-0`}>
+              <AccountStatusIcon className={`w-5 h-5 ${accountStatus.color}`} />
             </div>
-            <p className={`text-sm font-semibold ${
-              state.kycComplete ? "text-success" : state.kyc.status === "pending" ? "text-warning" : "text-warning"
-            }`}>
-              {state.kycComplete ? "Approved" : state.kyc.status === "pending" ? "Pending" : "Required"}
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="card-gold rounded-xl p-4"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <ArrowUpRight className="w-3.5 h-3.5 text-gold" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposits</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Account Status</p>
+                <span className={`text-xs font-semibold ${accountStatus.color}`}>
+                  {accountStatus.label}
+                </span>
+              </div>
+              <h2 className="text-base font-semibold text-foreground mt-1">
+                {accountStatus.title}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                {accountStatus.description}
+              </p>
             </div>
-            <p className="text-sm font-semibold text-foreground">
-              {confirmedTx} <span className="text-muted-foreground font-normal">completed</span>
-            </p>
-          </motion.div>
-        </div>
+          </div>
+          <button
+            onClick={() => navigate(accountStatus.path)}
+            className="w-full rounded-xl py-3 text-xs font-semibold border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all"
+          >
+            {accountStatus.action}
+          </button>
+        </motion.div>
+
+        {/* Deposit overview */}
+        <motion.button
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          onClick={() => navigate("/history")}
+          className="w-full card-gold rounded-xl p-4 text-left hover:border-gold/30 transition-all"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <ArrowUpRight className="w-3.5 h-3.5 text-gold" />
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposit Overview</span>
+              </div>
+              <p className="text-sm font-semibold text-foreground">
+                {confirmedTx} completed
+                {pendingTx > 0 && <span className="text-warning"> · {pendingTx} pending</span>}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {pendingTx > 0 ? "You have an active deposit session." : "No active deposit session."}
+              </p>
+            </div>
+            <div className="w-9 h-9 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+              <History className="w-4 h-4 text-gold" />
+            </div>
+          </div>
+        </motion.button>
 
         {/* Pending alert */}
         {pendingTx > 0 && (
@@ -138,71 +190,6 @@ export default function Dashboard() {
             </p>
           </motion.div>
         )}
-
-        {/* KYC Blocker Alert — clickable, routes to /kyc */}
-        {!canDeposit && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            onClick={() => navigate("/kyc")}
-            className="w-full card-wine rounded-xl px-4 py-3 flex items-start gap-3 text-left hover:border-gold/30 transition-all"
-          >
-            <Lock className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-xs font-medium text-destructive mb-1">
-                {kycEligibility.blockerMessage}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {kycEligibility.actionRequired}
-              </p>
-              <p className="text-[10px] text-gold mt-1">Tap to complete verification →</p>
-            </div>
-          </motion.button>
-        )}
-
-        {/* Main CTA — Start Deposit */}
-        <motion.button
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          onClick={() => {
-            if (!canDeposit) {
-              navigate("/kyc");
-            } else {
-              navigate("/new-deposit");
-            }
-          }}
-          className={`w-full rounded-xl p-5 flex items-center gap-4 transition-all duration-200 group ${
-            canDeposit
-              ? "card-gold hover:border-gold/40"
-              : "bg-slate-800/50 border border-slate-700/50 opacity-60"
-          }`}
-        >
-          <img
-            src={WALLET_IMG}
-            alt="Deposit"
-            className="w-14 h-14 rounded-xl object-cover"
-          />
-          <div className="flex-1 text-left">
-            <p className={`text-sm font-semibold transition-colors ${
-              canDeposit
-                ? "text-foreground group-hover:text-gold"
-                : "text-slate-400"
-            }`}>
-              Start Deposit
-            </p>
-            <p className={`text-xs mt-0.5 ${
-              canDeposit ? "text-muted-foreground" : "text-slate-500"
-            }`}>
-              {canDeposit
-                ? "Initiate a new crypto deposit"
-                : "Complete KYC verification to proceed"}
-            </p>
-          </div>
-          <Plus className={`w-5 h-5 ${
-            canDeposit ? "text-gold" : "text-slate-500"
-          }`} />
-        </motion.button>
 
         {/* Recent Activity */}
         <div className="space-y-3">
@@ -250,7 +237,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-foreground">
-                      {tx.type === "test" ? "Test Deposit" : "Deposit"} &middot; {tx.amount} {tx.asset}
+                      {tx.type === "test" ? "Test Deposit" : "Deposit"} &middot; {formatAssetAmount(tx.amount, tx.type === "test" ? 2 : 0)} {tx.asset}
                     </p>
                     <p className="text-[10px] text-muted-foreground font-mono truncate">
                       {tx.txHash}

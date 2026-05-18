@@ -11,6 +11,12 @@ import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
+const formatAssetAmount = (value: number, decimals = 2) =>
+  value.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+
 export default function DepositSuccess() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
@@ -18,6 +24,9 @@ export default function DepositSuccess() {
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
   const networkFee = getNetworkFee(state.selectedNetwork);
   const netReceive = Math.max(0, depositAmount - networkFee);
+  const displayDepositAmount = depositAmount > 0
+    ? formatAssetAmount(depositAmount, 0)
+    : state.mainDepositAmount;
 
   return (
     <Shell showProgress={false}>
@@ -40,7 +49,7 @@ export default function DepositSuccess() {
         >
           <h1 className="text-xl font-bold text-foreground">Deposit Complete</h1>
           <p className="text-sm text-muted-foreground max-w-[280px]">
-            Your {state.mainDepositAmount} {state.selectedAsset} deposit has been confirmed and is being processed.
+            Your {displayDepositAmount} {state.selectedAsset} deposit has been confirmed and is being processed.
           </p>
           <p className="text-xs text-gold">
             ≈ {getHKDEquivalent(state.mainDepositAmount, state.selectedAsset)}
@@ -57,19 +66,19 @@ export default function DepositSuccess() {
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Amount Sent</span>
             <span className="text-foreground font-semibold">
-              {state.mainDepositAmount} {state.selectedAsset}
+              {displayDepositAmount} {state.selectedAsset}
             </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Network Fee</span>
-            <span className="text-foreground">−{networkFee.toFixed(2)} {state.selectedAsset}</span>
+            <span className="text-foreground">−{formatAssetAmount(networkFee)} {state.selectedAsset}</span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">You'll Receive</span>
             <div className="text-right">
-              <span className="text-gold font-semibold">{netReceive.toFixed(2)} {state.selectedAsset}</span>
+              <span className="text-gold font-semibold">{formatAssetAmount(netReceive)} {state.selectedAsset}</span>
               <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
             </div>
           </div>
@@ -80,16 +89,16 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Verification</span>
+            <span className="text-muted-foreground">Payment Status</span>
             <span className="text-success flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Confirmed
+              <CheckCircle2 className="w-3 h-3" /> Received
             </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Status</span>
+            <span className="text-muted-foreground">Settlement</span>
             <span className="text-gold flex items-center gap-1">
-              <Clock className="w-3 h-3" /> Clearing
+              <Clock className="w-3 h-3" /> In progress
             </span>
           </div>
         </motion.div>

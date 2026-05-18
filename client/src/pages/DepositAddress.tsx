@@ -1,17 +1,14 @@
 /**
- * DepositAddress — System issues a deposit wallet address from the custodian.
- * User proceeds to unified deposit session (verification + main deposit).
+ * DepositAddress — Explains the verification deposit rule before exposing the address.
+ * The actual address is shown in the Step 1 deposit session only.
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { Copy, Check, AlertTriangle, QrCode, ArrowRight, Info } from "lucide-react";
-import { toast } from "sonner";
+import { AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 import { getHKDEquivalent } from "@/lib/currency";
-
-const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
 // Generate a mock deposit address based on network
 function generateAddress(network: string): string {
@@ -28,7 +25,6 @@ function generateAddress(network: string): string {
 export default function DepositAddress() {
   const [, navigate] = useLocation();
   const { state, updateState } = useDemo();
-  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,15 +37,8 @@ export default function DepositAddress() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(state.depositAddress);
-    setCopied(true);
-    toast.success("Address copied to clipboard");
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <Shell showBack backTo="/wallet-screening" title="Deposit Address" subtitle="Your assigned deposit address">
+    <Shell showBack backTo="/wallet-screening" title="Deposit Verification" subtitle="Review the required first step">
       <div className="space-y-6">
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -60,72 +49,75 @@ export default function DepositAddress() {
           <span className="capitalize">{state.selectedNetwork} Network</span>
         </div>
 
-        {/* Address card */}
-        {loading ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="card-gold rounded-xl p-6 flex flex-col items-center"
-          >
-            <img src={SUCCESS_IMG} alt="Loading" className="w-16 h-16 mb-3 opacity-50 animate-pulse" />
-            <p className="text-sm text-muted-foreground">Requesting address from custodian...</p>
-          </motion.div>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="card-gold rounded-xl p-5 space-y-4"
-          >
-            {/* QR Code area */}
-            <div className="flex justify-center">
-              <div className="w-36 h-36 bg-white rounded-xl p-2 flex items-center justify-center">
-                <QrCode className="w-24 h-24 text-gray-800" />
-              </div>
-            </div>
-
-            {/* Address */}
-            <div className="space-y-2">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider text-center">
-                Deposit Address
-              </p>
-              <div className="flex items-center gap-2 bg-input rounded-lg px-3 py-2.5">
-                <code className="font-mono text-xs text-gold flex-1 break-all leading-relaxed">
-                  {state.depositAddress}
-                </code>
-                <button
-                  onClick={handleCopy}
-                  className="text-muted-foreground hover:text-gold transition-colors shrink-0"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Network badge */}
-            <div className="flex justify-center">
-              <div className="px-3 py-1 rounded-full bg-gold/10 text-gold text-[10px] font-medium">
-                {state.selectedNetwork.toUpperCase()} Network Only
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Verification step instruction */}
-        <div className="card-wine rounded-xl px-4 py-3 space-y-2">
+        {/* Important verification rule */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card-wine rounded-xl px-4 py-4 border-warning/40"
+        >
           <div className="flex items-start gap-3">
-            <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="text-xs text-foreground font-medium">Verification Required</p>
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+            <div className="space-y-1.5">
+              <p className="text-xs text-warning font-semibold uppercase tracking-wider">
+                Important
+              </p>
+              <p className="text-sm text-foreground font-semibold">
+                Send only 1 {state.selectedAsset} first
+              </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                On the next screen, you'll first send a <span className="text-gold font-medium">1 {state.selectedAsset}</span> verification transfer (≈ {getHKDEquivalent("1", state.selectedAsset)}) to confirm the address, then proceed with your full deposit amount.
+                For payment security, we ask you to make a <span className="text-gold font-medium">1 {state.selectedAsset}</span> verification deposit first (≈ {getHKDEquivalent("1", state.selectedAsset)}). Please do not send your full deposit amount until the verification transfer is confirmed.
               </p>
             </div>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Process rules */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="card-gold rounded-xl p-5 space-y-4"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4 text-gold" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">How this deposit works</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                The deposit address will be shown on the next screen for the verification transfer only.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">1</span>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Send exactly <span className="text-foreground font-medium">1 {state.selectedAsset}</span> to verify the address and network.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">2</span>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Wait for confirmation. The 1 {state.selectedAsset} verification deposit will be credited to your account.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">3</span>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                After verification, enter and send your full deposit amount.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-secondary/20 px-3 py-2 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+            <p className="text-[10px] text-muted-foreground">
+              Address details are hidden until the next step to prevent accidental full-amount transfers.
+            </p>
+          </div>
+        </motion.div>
       </div>
 
       <div className="mt-8">
@@ -134,7 +126,7 @@ export default function DepositAddress() {
           disabled={loading}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          Proceed to Deposit
+          {loading ? "Preparing Secure Deposit Session..." : "Continue to Verification Deposit"}
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

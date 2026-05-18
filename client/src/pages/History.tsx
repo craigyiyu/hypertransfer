@@ -8,6 +8,9 @@ import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, XCircle, ArrowUpRight, Filter, Play, ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
+import { canProceedToDeposit } from "@/lib/kyc-status";
+import { formatAssetAmount } from "@/lib/currency";
 
 interface SessionGroup {
   sessionId: string;
@@ -25,6 +28,7 @@ export default function History() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const canDeposit = canProceedToDeposit(state.kyc);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -93,6 +97,24 @@ export default function History() {
     }
   };
 
+  const handleMakeDeposit = () => {
+    if (canDeposit) {
+      navigate("/new-deposit");
+      return;
+    }
+
+    toast.error("Account on hold", {
+      description: "Complete KYC verification before making a deposit.",
+      action: {
+        label: "Start KYC",
+        onClick: () => navigate("/kyc"),
+      },
+    });
+  };
+
+  const formatSessionAmount = (amount: string, isTestDeposit = false) =>
+    formatAssetAmount(amount, isTestDeposit ? 2 : 0);
+
   return (
     <Shell showBack backTo="/dashboard" title="Transaction History" subtitle="All your deposit records">
       <div className="space-y-4">
@@ -123,7 +145,7 @@ export default function History() {
               Your deposit history will appear here
             </p>
             <button
-              onClick={() => navigate("/new-deposit")}
+              onClick={handleMakeDeposit}
               className="mt-4 px-4 py-2 rounded-lg bg-gold/10 text-gold text-xs font-medium hover:bg-gold/20 transition-colors"
             >
               Make a Deposit
@@ -156,7 +178,7 @@ export default function History() {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground/60 mt-0.5">
-                        {session.totalAmount} {session.asset} • {formatDate(session.createdAt)}
+                        {formatSessionAmount(session.totalAmount, !session.mainTx)} {session.asset} • {formatDate(session.createdAt)}
                       </p>
                     </div>
                   </div>
@@ -200,7 +222,7 @@ export default function History() {
                           <div>
                             <p className="text-muted-foreground/60">Amount</p>
                             <p className="text-foreground font-medium">
-                              {session.testTx.amount} {session.testTx.asset}
+                              {formatSessionAmount(session.testTx.amount, true)} {session.testTx.asset}
                             </p>
                           </div>
                           <div>
@@ -231,7 +253,7 @@ export default function History() {
                             <div>
                               <p className="text-muted-foreground/60">Amount</p>
                               <p className="text-foreground font-medium">
-                                {session.mainTx.amount} {session.mainTx.asset}
+                                {formatSessionAmount(session.mainTx.amount)} {session.mainTx.asset}
                               </p>
                             </div>
                             <div>

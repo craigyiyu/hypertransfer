@@ -9,6 +9,12 @@ interface DemoState {
   kycComplete: boolean;
   kyc: KYCState;
   travelRuleComplete: boolean;
+  travelRuleInfo: {
+    address: string;
+    city: string;
+    country: string;
+    sourceOfFunds: string;
+  };
   selectedAsset: string;
   selectedNetwork: string;
   sourceWallet: string;
@@ -54,6 +60,12 @@ const defaultState: DemoState = {
     retryCount: 0,
   },
   travelRuleComplete: false,
+  travelRuleInfo: {
+    address: "",
+    city: "",
+    country: "",
+    sourceOfFunds: "",
+  },
   selectedAsset: "USDT",
   selectedNetwork: "",
   sourceWallet: "",

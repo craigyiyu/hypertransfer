@@ -25,7 +25,7 @@ export default function MainDeposit() {
   const [phase, setPhase] = useState<SessionPhase>(
     state.testPaymentConfirmed ? "main_input" : "verification"
   );
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(state.mainDepositAmount || "");
   const [copied, setCopied] = useState(false);
   const [confirmations, setConfirmations] = useState(0);
   const sessionId = useState(() => "sess-" + Date.now())[0];
@@ -33,6 +33,24 @@ export default function MainDeposit() {
   const networkFee = getNetworkFee(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
   const netReceive = Math.max(0, mainAmount - networkFee);
+  const formatAssetAmount = (value: number, decimals = 2) =>
+    value.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  const formatInputAmount = (value: string) => {
+    if (!value) return "";
+    const [whole, decimal] = value.split(".");
+    const formattedWhole = Number(whole || "0").toLocaleString("en-US");
+    return decimal !== undefined ? `${formattedWhole}.${decimal}` : formattedWhole;
+  };
+  const handleAmountChange = (value: string) => {
+    const normalized = value.replace(/,/g, "");
+    if (/^\d*\.?\d{0,6}$/.test(normalized)) {
+      setAmount(normalized);
+    }
+  };
+  const displayAmount = mainAmount > 0 ? formatAssetAmount(mainAmount, 0) : "";
 
   // Stablecoin demo flow treats the entered deposit amount as USD-equivalent.
   const isTravelRuleRequired = mainAmount >= TRAVEL_RULE_THRESHOLD;
@@ -72,7 +90,7 @@ export default function MainDeposit() {
   const handleMainDepositSent = () => {
     // Check if Travel Rule is required and not yet completed
     if (isTravelRuleRequired && !state.travelRuleComplete) {
-      // Redirect to Travel Rule form
+      updateState({ mainDepositAmount: amount });
       navigate("/travel-rule");
       return;
     }
@@ -107,16 +125,23 @@ export default function MainDeposit() {
     setConfirmations(0);
   };
 
+  const shellTitle = phase === "verification" ? "Verification Deposit" : "Deposit Session";
+  const shellSubtitle = phase === "verification"
+    ? `Step 1 of 2: send only 1 ${state.selectedAsset}`
+    : "Complete your deposit in one session";
+
   return (
-    <Shell showBack backTo="/deposit-address" title="Deposit Session" subtitle="Complete your deposit in one session">
+    <Shell showBack backTo="/deposit-address" title={shellTitle} subtitle={shellSubtitle}>
       <div className="space-y-5">
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className="px-2 py-1 rounded-md bg-gold/10 text-gold font-mono text-[10px]">
+          <div className="px-2 py-1 rounded-md bg-gold/10 text-gold font-mono text-[10px] font-medium">
             {state.selectedAsset}
           </div>
           <span>&middot;</span>
-          <span className="capitalize">{state.selectedNetwork}</span>
+          <div className="px-2 py-1 rounded-md bg-gold/10 text-gold text-[10px] font-medium">
+            <span className="capitalize">{state.selectedNetwork}</span> Network
+          </div>
           {(phase === "main_input" || phase === "main_monitoring" || phase === "main_confirming" || phase === "main_confirmed") && (
             <>
               <span>&middot;</span>
@@ -134,24 +159,30 @@ export default function MainDeposit() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="card-wine rounded-xl px-4 py-3 space-y-2"
+              className="card-wine rounded-xl px-4 py-4 border-warning/40 space-y-3"
             >
               <div className="flex items-start gap-3">
-                <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="text-xs text-foreground font-medium">Step 1: Verification Transfer</p>
+                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-warning font-semibold uppercase tracking-wider">Step 1 of 2</p>
+                  <p className="text-sm text-foreground font-semibold">Verification deposit only</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Send exactly <span className="text-gold font-semibold">1 {state.selectedAsset}</span> to verify the deposit address is correct. This is a verification step — the 1 {state.selectedAsset} will be credited to your account.
+                    Send exactly <span className="text-gold font-semibold">1 {state.selectedAsset}</span> to the address below. Do not send your full deposit amount yet. After this transfer is confirmed, you will continue to Step 2 for the main deposit.
                   </p>
                 </div>
               </div>
             </motion.div>
 
             {/* Deposit address */}
-            <div className="card-gold rounded-xl p-4 space-y-2">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Send 1 {state.selectedAsset} to this address
-              </p>
+            <div className="card-gold rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Send only 1 {state.selectedAsset} to this address
+                </p>
+                <span className="px-2 py-1 rounded-md bg-warning/10 text-warning text-[10px] font-semibold whitespace-nowrap">
+                  Step 1
+                </span>
+              </div>
               <div className="flex items-center gap-2 bg-input rounded-lg px-3 py-2">
                 <code className="font-mono text-[10px] text-gold flex-1 break-all">
                   {state.depositAddress}
@@ -170,7 +201,7 @@ export default function MainDeposit() {
               onClick={handleVerificationSent}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              I've Sent 1 {state.selectedAsset}
+              Confirm I've Sent 1&nbsp;{state.selectedAsset}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
@@ -267,10 +298,36 @@ export default function MainDeposit() {
                 animate={{ opacity: 1, y: 0 }}
                 className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
               >
-                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                {state.travelRuleComplete ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 space-y-2">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD 8,000 or above require additional compliance information. You will be asked to provide this before proceeding.
+                  {state.travelRuleComplete ? (
+                    <>
+                      <span className="text-success font-medium">Travel Rule Complete:</span> This {displayAmount} {state.selectedAsset} deposit will use your submitted compliance information.
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD 8,000 or above require additional compliance information. You will be asked to provide this before proceeding.
+                    </>
+                  )}
                 </p>
+                  {state.travelRuleComplete && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateState({ mainDepositAmount: amount });
+                        navigate("/travel-rule");
+                      }}
+                      className="text-xs font-medium text-gold hover:text-gold-bright transition-colors"
+                    >
+                      Edit info
+                    </button>
+                  )}
+                </div>
               </motion.div>
             )}
 
@@ -281,9 +338,9 @@ export default function MainDeposit() {
               </Label>
               <div className="relative">
                 <Input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  value={formatInputAmount(amount)}
+                  onChange={(e) => handleAmountChange(e.target.value)}
                   placeholder="0.00"
                   className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-14 rounded-xl text-lg font-semibold pr-16"
                 />
@@ -309,16 +366,16 @@ export default function MainDeposit() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Deposit Amount</span>
-                    <span className="text-foreground font-medium">{state.selectedAsset} {mainAmount.toFixed(2)}</span>
+                    <span className="text-foreground font-medium">{state.selectedAsset} {formatAssetAmount(mainAmount)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Network Fee</span>
-                    <span className="text-foreground font-medium">−{state.selectedAsset} {networkFee.toFixed(2)}</span>
+                    <span className="text-foreground font-medium">−{state.selectedAsset} {formatAssetAmount(networkFee)}</span>
                   </div>
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
                     <span className="text-foreground font-semibold">You'll Receive</span>
                     <div className="text-right">
-                      <span className="text-gold font-semibold">{state.selectedAsset} {netReceive.toFixed(2)}</span>
+                      <span className="text-gold font-semibold">{state.selectedAsset} {formatAssetAmount(netReceive)}</span>
                       <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
                     </div>
                   </div>
@@ -349,7 +406,9 @@ export default function MainDeposit() {
               disabled={!amount || mainAmount <= 0}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Proceed to Send {amount ? `${amount} ${state.selectedAsset}` : "Deposit"}
+              {state.travelRuleComplete && isTravelRuleRequired
+                ? `Continue with ${displayAmount} ${state.selectedAsset}`
+                : `Proceed to Send ${displayAmount ? `${displayAmount} ${state.selectedAsset}` : "Deposit"}`}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
@@ -384,7 +443,7 @@ export default function MainDeposit() {
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {phase === "main_monitoring"
-                ? `Scanning for your ${amount} ${state.selectedAsset} deposit...`
+                ? `Scanning for your ${displayAmount} ${state.selectedAsset} deposit...`
                 : `${confirmations}/3 confirmations`}
             </p>
             {phase === "main_confirming" && (
@@ -400,7 +459,7 @@ export default function MainDeposit() {
               </div>
             )}
             <p className="text-xs text-muted-foreground/60 mt-3">
-              Amount: {amount} {state.selectedAsset} ≈ {getHKDEquivalent(amount, state.selectedAsset)}
+              Amount: {displayAmount} {state.selectedAsset} ≈ {getHKDEquivalent(amount, state.selectedAsset)}
             </p>
           </motion.div>
         )}
@@ -423,7 +482,7 @@ export default function MainDeposit() {
               </motion.div>
               <p className="text-lg font-bold text-success">Deposit Confirmed</p>
               <p className="text-2xl font-bold text-foreground mt-2">
-                {amount} <span className="text-gold">{state.selectedAsset}</span>
+                {displayAmount} <span className="text-gold">{state.selectedAsset}</span>
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 ≈ {getHKDEquivalent(amount, state.selectedAsset)}

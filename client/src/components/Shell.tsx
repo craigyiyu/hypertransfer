@@ -80,6 +80,8 @@ export default function Shell({
             {showBack && (
               <button
                 onClick={() => (backTo ? navigate(backTo) : window.history.back())}
+                aria-label={backTo === "/dashboard" ? "Back to dashboard" : "Back"}
+                title={backTo === "/dashboard" ? "Back to dashboard" : "Back"}
                 className="w-8 h-8 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
               >
                 <ArrowLeft className="w-4 h-4" />

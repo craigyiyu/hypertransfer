@@ -126,6 +126,11 @@ export default function Settings() {
                   <p className={`text-xs mt-0.5 ${state.kycComplete ? "text-success" : "text-warning"}`}>
                     {state.kycComplete ? "Approved" : state.kyc.status === "pending" ? "Pending Review" : "Not Started"}
                   </p>
+                  {state.kycComplete && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Valid until May 1, 2027
+                    </p>
+                  )}
                 </div>
               </div>
               {!state.kycComplete && (
@@ -174,7 +179,7 @@ export default function Settings() {
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
               <p className="text-xs text-muted-foreground">Last Login</p>
-              <p className="text-sm font-medium text-foreground">Just now</p>
+              <p className="text-sm font-medium text-foreground">May 1, 2025 13:54</p>
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
               <p className="text-xs text-muted-foreground">Total Deposits</p>
