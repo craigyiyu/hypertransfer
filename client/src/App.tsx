@@ -5,6 +5,9 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { DemoProvider } from "./contexts/DemoContext";
+import { DemoModeProvider } from "./contexts/DemoModeContext";
+import DemoModeToggle from "./components/DemoModeToggle";
+import { I18nProvider } from "./contexts/I18nContext";
 import Landing from "./pages/Landing";
 import Register from "./pages/Register";
 import Setup2FA from "./pages/Setup2FA";
@@ -53,20 +56,25 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
-        <DemoProvider>
-          <TooltipProvider>
-            <Toaster
-              toastOptions={{
-                style: {
-                  background: "oklch(0.18 0.008 20)",
-                  border: "1px solid oklch(0.25 0.01 20)",
-                  color: "oklch(0.93 0.005 85)",
-                },
-              }}
-            />
-            <Router />
-          </TooltipProvider>
+        <I18nProvider>
+          <DemoProvider>
+            <DemoModeProvider>
+            <TooltipProvider>
+              <Toaster
+                toastOptions={{
+                  style: {
+                    background: "oklch(0.18 0.008 20)",
+                    border: "1px solid oklch(0.25 0.01 20)",
+                    color: "oklch(0.93 0.005 85)",
+                  },
+                }}
+              />
+              <Router />
+              <DemoModeToggle />
+            </TooltipProvider>
+          </DemoModeProvider>
         </DemoProvider>
+        </I18nProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

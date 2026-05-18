@@ -2,9 +2,10 @@
  * Register — Patron creates an account with form validation.
  * Fields: name, email, password with real-time validation feedback.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { useDemoMode } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import FormField from "@/components/FormField";
 import { User, Mail, Lock, Eye, EyeOff } from "lucide-react";
@@ -14,12 +15,23 @@ import { motion } from "framer-motion";
 export default function Register() {
   const [, navigate] = useLocation();
   const { updateState } = useDemo();
+  const { isDemoMode, getDemoValue } = useDemoMode();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [touched, setTouched] = useState({ name: false, email: false, password: false });
   const [errors, setErrors] = useState({ name: "", email: "", password: "" });
+
+  // Auto-fill demo mode
+  useEffect(() => {
+    if (isDemoMode) {
+      setName(getDemoValue("firstName") + " " + getDemoValue("lastName"));
+      setEmail(getDemoValue("email"));
+      setPassword(getDemoValue("password"));
+      setTouched({ name: true, email: true, password: true });
+    }
+  }, [isDemoMode]);
 
   // Validation checks
   const nameValidation = touched.name ? validateFullName(name) : { valid: true };

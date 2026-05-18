@@ -4,7 +4,9 @@
  */
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import Shell from "@/components/Shell";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { motion } from "framer-motion";
 import {
   Shield,
@@ -12,11 +14,13 @@ import {
   Clock,
   LogOut,
   ChevronRight,
+  Globe,
 } from "lucide-react";
 
 export default function Settings() {
   const [, navigate] = useLocation();
   const { state, resetAll } = useDemo();
+  const { t } = useI18n();
 
   const handleLogout = () => {
     resetAll();
@@ -25,8 +29,8 @@ export default function Settings() {
 
   return (
     <Shell
-      title="Account Settings"
-      subtitle="Manage your profile and security"
+      title={t("settings.title")}
+      subtitle={t("settings.profile")}
       showBack
       backTo="/dashboard"
     >
@@ -93,11 +97,27 @@ export default function Settings() {
           </div>
         </motion.div>
 
-        {/* Account Activity Section */}
+        {/* Language Section */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
+          className="card-gold rounded-xl p-5"
+        >
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Globe className="w-4 h-4 text-gold" />
+            {t("settings.language")}
+          </h3>
+          <div className="flex justify-center">
+            <LanguageSwitcher />
+          </div>
+        </motion.div>
+
+        {/* Account Activity Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
           className="card-gold rounded-xl p-5"
         >
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -124,7 +144,7 @@ export default function Settings() {
         <motion.button
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
+          transition={{ delay: 0.3 }}
           onClick={handleLogout}
           className="w-full card-wine rounded-xl p-4 flex items-center justify-center gap-2 hover:border-destructive/40 transition-all duration-200 group"
         >

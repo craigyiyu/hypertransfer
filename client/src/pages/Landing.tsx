@@ -7,12 +7,14 @@ import { motion } from "framer-motion";
 import { Shield, QrCode, UserPlus, LogIn } from "lucide-react";
 import { useLocation } from "wouter";
 import ComplianceBadges from "@/components/ComplianceBadges";
+import { useI18n } from "@/contexts/I18nContext";
 
 const HERO_BG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/hero-bg-62bvwNpUn3XWmYV9fDibfk.webp";
 const QR_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/qr-illustration-RPGHKcS3GRqKk2oQmNPeCn.webp";
 
 export default function Landing() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
 
   return (
     <div
@@ -38,10 +40,10 @@ export default function Landing() {
             <Shield className="w-7 h-7 text-background" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            HyperTransfer
+            {t("landing.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 tracking-wide">
-            Secure Crypto Transfers
+            {t("landing.subtitle")}
           </p>
         </motion.div>
 
