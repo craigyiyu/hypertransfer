@@ -18,6 +18,7 @@ import {
   Globe,
   User,
   Mail,
+  Phone,
   Hash,
   CheckCircle2,
 } from "lucide-react";
@@ -64,6 +65,13 @@ export default function Settings() {
               <div className="flex-1">
                 <p className="text-xs text-muted-foreground">Email</p>
                 <p className="text-sm font-medium text-foreground">{state.patronEmail || "Not provided"}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
+              <Phone className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Mobile Number</p>
+                <p className="text-sm font-medium text-foreground">{state.patronPhone || "Not provided"}</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">

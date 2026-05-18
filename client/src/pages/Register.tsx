@@ -10,8 +10,8 @@ import { useDemo } from "@/contexts/DemoContext";
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import FormField from "@/components/FormField";
-import { User, Mail, Lock, Eye, EyeOff } from "lucide-react";
-import { validateFullName, validateEmail, validatePassword, ValidationResult } from "@/lib/validation";
+import { User, Mail, Lock, Eye, EyeOff, Phone, MessageSquare } from "lucide-react";
+import { validateFullName, validateEmail, validatePassword, validatePhoneNumber, ValidationResult } from "@/lib/validation";
 import { motion } from "framer-motion";
 
 export default function Register() {
@@ -20,40 +20,52 @@ export default function Register() {
   const { isDemoMode, getDemoValue } = useDemoMode();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [touched, setTouched] = useState({ name: false, email: false, password: false });
-  const [errors, setErrors] = useState({ name: "", email: "", password: "" });
+  const [touched, setTouched] = useState({ name: false, email: false, phone: false, password: false });
+  const [errors, setErrors] = useState({ name: "", email: "", phone: "", password: "" });
 
   // Auto-fill demo mode
   useEffect(() => {
     if (isDemoMode) {
       setName(getDemoValue("firstName") + " " + getDemoValue("lastName"));
       setEmail(getDemoValue("email"));
+      setPhone(getDemoValue("phone"));
+      setVerificationCode(getDemoValue("twoFACode"));
+      setCodeSent(true);
       setPassword(getDemoValue("password"));
-      setTouched({ name: true, email: true, password: true });
+      setTouched({ name: true, email: true, phone: true, password: true });
     }
   }, [isDemoMode]);
 
   // Validation checks
   const nameValidation = touched.name ? validateFullName(name) : { valid: true };
   const emailValidation = touched.email ? validateEmail(email) : { valid: true };
+  const phoneValidation = touched.phone ? validatePhoneNumber(phone) : { valid: true };
   const passwordValidation = touched.password ? validatePassword(password) : { valid: true };
+  const mobileVerified = codeSent && /^\d{6}$/.test(verificationCode);
 
   const canSubmit =
     nameValidation.valid &&
     emailValidation.valid &&
+    phoneValidation.valid &&
     passwordValidation.valid &&
+    mobileVerified &&
     name.length > 0 &&
     email.length > 0 &&
+    phone.length > 0 &&
     password.length > 0;
 
-  const handleFieldBlur = (field: "name" | "email" | "password") => {
+  const handleFieldBlur = (field: "name" | "email" | "phone" | "password") => {
     setTouched({ ...touched, [field]: true });
     
     let validation: ValidationResult = { valid: true };
     if (field === "name") validation = validateFullName(name);
     if (field === "email") validation = validateEmail(email);
+    if (field === "phone") validation = validatePhoneNumber(phone);
     if (field === "password") validation = validatePassword(password);
 
     setErrors({ ...errors, [field]: validation.error || "" });
@@ -61,7 +73,7 @@ export default function Register() {
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    updateState({ patronName: name, patronEmail: email });
+    updateState({ patronName: name, patronEmail: email, patronPhone: phone });
     navigate("/setup-2fa");
   };
 
@@ -111,6 +123,69 @@ export default function Register() {
           required
         />
 
+        {/* Mobile number */}
+        <FormField
+          label="Mobile Number"
+          type="tel"
+          value={phone}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            setCodeSent(false);
+            setVerificationCode("");
+          }}
+          onBlur={() => handleFieldBlur("phone")}
+          placeholder="+852 9876 5432"
+          icon={<Phone className="w-4 h-4" />}
+          error={touched.phone ? errors.phone : undefined}
+          success={touched.phone && phoneValidation.valid && mobileVerified}
+          hint={codeSent ? "Demo: enter any 6 digits" : "A verification code will be sent to this number"}
+          required
+        />
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              const validation = validatePhoneNumber(phone);
+              setTouched({ ...touched, phone: true });
+              setErrors({ ...errors, phone: validation.error || "" });
+              if (validation.valid) setCodeSent(true);
+            }}
+            disabled={!phone || (touched.phone && !phoneValidation.valid)}
+            className="w-full rounded-xl py-3 text-xs font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {codeSent ? "Resend Verification Code" : "Send Verification Code"}
+          </button>
+
+          {codeSent && (
+            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+              <label className="text-sm font-medium text-foreground flex items-center gap-1">
+                Verification Code <span className="text-destructive">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="Enter 6-digit code"
+                  className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
+                    ${mobileVerified ? "border-success/50 focus:border-success" : "border-border/50 focus:border-gold/50"}
+                    focus:outline-none focus:ring-1 focus:ring-offset-0
+                    ${mobileVerified ? "focus:ring-success/30" : "focus:ring-gold/30"}
+                    placeholder:text-muted-foreground/40`}
+                />
+                <MessageSquare className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                {mobileVerified && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-success">
+                    Verified
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </div>
+
         {/* Password */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground flex items-center gap-1">
@@ -122,7 +197,7 @@ export default function Register() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onBlur={() => handleFieldBlur("password")}
-              placeholder="Min. 8 characters with uppercase, number, and special char"
+              placeholder="Create a secure password"
               className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
                 ${errors.password && touched.password ? "border-destructive/50 focus:border-destructive" : passwordValidation.valid && touched.password ? "border-success/50 focus:border-success" : "border-border/50 focus:border-gold/50"}
                 focus:outline-none focus:ring-1 focus:ring-offset-0
@@ -220,7 +295,7 @@ export default function Register() {
           disabled={!canSubmit}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:shadow-none transition-all"
         >
-          Continue to 2FA Setup
+          Continue
         </button>
         <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
           Your data is encrypted end-to-end and stored securely

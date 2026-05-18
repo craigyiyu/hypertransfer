@@ -1,7 +1,8 @@
 /**
  * MainDeposit — Unified deposit session combining verification step (1 USDT test)
  * and main deposit into a single screen. Shows HKD equivalent and network fees.
- * Travel Rule check: if amount >= 8,000 USDT and not completed, redirect to /travel-rule.
+ * Travel Rule check: if entered deposit amount is USD 8,000 or above and not completed,
+ * redirect to /travel-rule.
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -33,8 +34,8 @@ export default function MainDeposit() {
   const mainAmount = parseFloat(amount) || 0;
   const netReceive = Math.max(0, mainAmount - networkFee);
 
-  // Convert mainAmount to USD equivalent for Travel Rule check
-  const mainAmountInUSD = mainAmount * 100; // Mock: assume 1 USDT ≈ 100 HKD, so 1 USDT ≈ $1 USD (simplified)
+  // Stablecoin demo flow treats the entered deposit amount as USD-equivalent.
+  const isTravelRuleRequired = mainAmount >= TRAVEL_RULE_THRESHOLD;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(state.depositAddress);
@@ -70,7 +71,7 @@ export default function MainDeposit() {
   // Handle main deposit confirmation with Travel Rule check
   const handleMainDepositSent = () => {
     // Check if Travel Rule is required and not yet completed
-    if (mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && !state.travelRuleComplete) {
+    if (isTravelRuleRequired && !state.travelRuleComplete) {
       // Redirect to Travel Rule form
       navigate("/travel-rule");
       return;
@@ -254,13 +255,13 @@ export default function MainDeposit() {
               <div className="flex items-start gap-3">
                 <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  <span className="text-foreground font-medium">Step 2: Main Deposit</span> — Enter the amount you wish to deposit and confirm once sent.
+                  <span className="text-foreground font-medium">Step 2: Main Deposit</span> — Enter the amount you wish to deposit and proceed to the send instructions.
                 </p>
               </div>
             </motion.div>
 
             {/* Travel Rule notice (if applicable) */}
-            {mainAmountInUSD >= TRAVEL_RULE_THRESHOLD && (
+            {isTravelRuleRequired && (
               <motion.div
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -348,7 +349,7 @@ export default function MainDeposit() {
               disabled={!amount || mainAmount <= 0}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              I've Sent {amount ? `${amount} ${state.selectedAsset}` : "the Deposit"}
+              Proceed to Send {amount ? `${amount} ${state.selectedAsset}` : "Deposit"}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>

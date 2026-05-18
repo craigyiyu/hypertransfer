@@ -4,6 +4,7 @@ import { KYCState } from "@/lib/kyc-status";
 interface DemoState {
   patronName: string;
   patronEmail: string;
+  patronPhone: string;
   patronId: string;
   kycComplete: boolean;
   kyc: KYCState;
@@ -45,6 +46,7 @@ interface DemoContextType {
 const defaultState: DemoState = {
   patronName: "",
   patronEmail: "",
+  patronPhone: "",
   patronId: "VIP-" + Math.random().toString(36).substring(2, 6).toUpperCase(),
   kycComplete: false,
   kyc: {

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { MessageCircle, Phone, Mail, HelpCircle, ExternalLink } from "lucide-react";
+import { MessageCircle, Phone, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Support() {
@@ -43,10 +43,10 @@ export default function Support() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => handleAction("Chat")}
+              onClick={() => handleAction("Chat Bot")}
               className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border hover:border-gold/30 text-xs text-muted-foreground hover:text-gold transition-all"
             >
-              <MessageCircle className="w-3.5 h-3.5" /> Chat
+              <MessageCircle className="w-3.5 h-3.5" /> Chat Bot
             </button>
             <button
               onClick={() => handleAction("Call")}
@@ -62,6 +62,7 @@ export default function Support() {
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Common Questions</p>
           {[
             { q: "How long does a deposit take?", a: "Most deposits are confirmed within 5-30 minutes depending on the network." },
+            { q: "How long does KYC verification take?", a: "KYC review is usually completed within 24 hours. You can continue using your account while the review is in progress, but deposits may remain locked until approval." },
             { q: "What if my verification transfer fails?", a: "Verify the address and network, then retry. Contact HyperTransfer Support if the issue persists." },
             { q: "Which networks are supported?", a: "We support all major networks including Ethereum, Tron, BSC, Polygon, Solana, and more." },
             { q: "Is my data secure?", a: "All data is encrypted with 256-bit SSL. Your personal information is used solely for regulatory compliance and is never shared for marketing purposes." },
@@ -82,45 +83,6 @@ export default function Support() {
               </div>
             </motion.details>
           ))}
-        </div>
-
-        {/* Contact Methods */}
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Contact Us</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <motion.button
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              onClick={() => handleAction("Live Chat")}
-              className="card-gold rounded-xl px-4 py-3 flex flex-col items-center gap-2 hover:border-gold/30 transition-all"
-            >
-              <MessageCircle className="w-5 h-5 text-gold" />
-              <span className="text-xs font-medium text-foreground">Live Chat</span>
-              <span className="text-[10px] text-muted-foreground">9am-6pm HKT</span>
-            </motion.button>
-            <motion.button
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 }}
-              onClick={() => (window.location.href = "tel:+85212345678")}
-              className="card-gold rounded-xl px-4 py-3 flex flex-col items-center gap-2 hover:border-gold/30 transition-all"
-            >
-              <Phone className="w-5 h-5 text-gold" />
-              <span className="text-xs font-medium text-foreground">Phone</span>
-              <span className="text-[10px] text-muted-foreground">+852 1234 5678</span>
-            </motion.button>
-            <motion.button
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              onClick={() => (window.location.href = "mailto:support@hypertransfer.io")}
-              className="card-gold rounded-xl px-4 py-3 flex flex-col items-center gap-2 hover:border-gold/30 transition-all"
-            >
-              <Mail className="w-5 h-5 text-gold" />
-              <span className="text-xs font-medium text-foreground">Email</span>
-              <span className="text-[10px] text-muted-foreground">support@hypertransfer.io</span>
-            </motion.button>
-          </div>
         </div>
 
         {/* Contact Form */}
@@ -156,7 +118,7 @@ export default function Support() {
             </div>
             <button
               type="submit"
-              className="w-full bg-gold-500 hover:bg-gold-600 text-black text-sm font-medium py-2 rounded-lg transition-colors"
+              className="w-full btn-gold rounded-xl py-3 text-sm font-semibold"
             >
               Send Message
             </button>
