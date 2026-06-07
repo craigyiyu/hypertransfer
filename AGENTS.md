@@ -135,11 +135,17 @@ Provider adapter 约定：
   - diff 中没有 `.env*`、DB、Office 临时文件、node_modules、日志、真实手机号、PII 或密钥。
   - HyperTransfer 前端至少通过 `cd hypertransfer-main && corepack pnpm run check`。
   - 涉及业务术语、Travel Rule、Hex Trust、报价或会议纪要时，相关文档已同步。
-- GitHub `main` 保护策略：
+- GitHub `main` 目标保护策略：
   - 禁止直接 push，必须通过 PR。
   - 禁止 force push 和删除分支。
   - 要求分支与 `main` 保持最新后合并。
   - 必须通过 `HyperTransfer Typecheck` GitHub Actions 检查。
+- 当前 GitHub private repo 的已落地设置：
+  - 已启用 squash merge。
+  - 已禁用 merge commit 和 rebase merge。
+  - 已启用合并 PR 后自动删除 head branch。
+  - 已启用 PR update branch。
+  - `main` branch protection 因当前 GitHub private repo/账号限制暂不能强制开启；不要把仓库改成 public 来绕过，因为本项目含客户材料。升级 GitHub Pro 后再启用上述保护策略。
 - 合并方式优先使用 Squash merge，让 `main` 历史保持简洁。
 
 ## 维护本文件
@@ -153,4 +159,4 @@ Provider adapter 约定：
 - 业务术语、合规口径、监管边界变化。
 - 完成重要 TODO 或新增关键技术债。
 
-最后更新：2026-06-07，补充分支/PR/main 保护策略，并新增 `HyperTransfer Typecheck` 作为 GitHub Actions 合并检查。
+最后更新：2026-06-07，补充分支/PR/main 目标保护策略，新增 `HyperTransfer Typecheck` GitHub Actions 检查，并记录当前 private repo 下 branch protection 受 GitHub 账号限制暂不能强制开启。
