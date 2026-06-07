@@ -121,6 +121,27 @@ Provider adapter 约定：
 - 改文件不少于 3 个或跨多模块改动时，先列简短计划。
 - 完成改动后，按风险运行最小必要验证；无法运行时说明原因。
 
+## 代码管理策略
+
+- `main` 是稳定主线，只放可演示、可交付、可回滚的版本。
+- 日常开发不要直接推 `main`；从最新 `main` 新建任务分支，完成后通过 GitHub PR 合并。
+- 分支命名：
+  - `feature/<scope>`：新功能。
+  - `fix/<scope>`：bug 修复。
+  - `docs/<scope>`：会议纪要、报价、商业方案、项目文档。
+  - `ops/<scope>`：部署、CI、GitHub 设置、环境配置。
+  - `codex/<scope>`：Codex 代办任务分支。
+- 合并 `main` 前必须确认：
+  - diff 中没有 `.env*`、DB、Office 临时文件、node_modules、日志、真实手机号、PII 或密钥。
+  - HyperTransfer 前端至少通过 `cd hypertransfer-main && corepack pnpm run check`。
+  - 涉及业务术语、Travel Rule、Hex Trust、报价或会议纪要时，相关文档已同步。
+- GitHub `main` 保护策略：
+  - 禁止直接 push，必须通过 PR。
+  - 禁止 force push 和删除分支。
+  - 要求分支与 `main` 保持最新后合并。
+  - 必须通过 `HyperTransfer Typecheck` GitHub Actions 检查。
+- 合并方式优先使用 Squash merge，让 `main` 历史保持简洁。
+
 ## 维护本文件
 
 出现以下变化时更新 `AGENTS.md`：
@@ -132,4 +153,4 @@ Provider adapter 约定：
 - 业务术语、合规口径、监管边界变化。
 - 完成重要 TODO 或新增关键技术债。
 
-最后更新：2026-06-07，改为 Codex/OpenAI agents 可直接执行的项目级说明，并登记最新客户会议纪要。
+最后更新：2026-06-07，补充分支/PR/main 保护策略，并新增 `HyperTransfer Typecheck` 作为 GitHub Actions 合并检查。
