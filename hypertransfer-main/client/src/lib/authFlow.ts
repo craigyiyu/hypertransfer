@@ -1,0 +1,42 @@
+/**
+ * authFlow — 注册/登录两步流程之间的临时态(sessionStorage 键 + 类型)。
+ * 仅在跨页跳转的短暂窗口存在,完成或失败后清除。
+ */
+export const PENDING_REGISTER_KEY = "ht_pending_register";
+export const LOGIN_CHALLENGE_KEY = "ht_login_challenge";
+
+export interface PendingRegister {
+  areaCode: string;
+  phoneNumber: string;
+  name: string;
+  email: string;
+  qr: string;
+  secret: string;
+  otpauth: string;
+  expiresAt: number; // 绑定会话截止(Unix 秒)
+}
+
+export interface LoginChallenge {
+  challenge: string;
+  label: string; // 展示用:登录的账号
+}
+
+export function readPendingRegister(): PendingRegister | null {
+  const raw = sessionStorage.getItem(PENDING_REGISTER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PendingRegister;
+  } catch {
+    return null;
+  }
+}
+
+export function readLoginChallenge(): LoginChallenge | null {
+  const raw = sessionStorage.getItem(LOGIN_CHALLENGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as LoginChallenge;
+  } catch {
+    return null;
+  }
+}

@@ -1,0 +1,30 @@
+node_modules/
+dist/
+build/
+.next/
+tsconfig.tsbuildinfo
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Local agent/editor state
+.claude/
+.tmp/
+
+# Python local runtime artifacts
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local/demo databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Office temporary lock files
+~$*.xlsx
+~$*.docx
+~$*.pptx

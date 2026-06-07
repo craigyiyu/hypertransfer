@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+.git
+.manus-logs
+*.log
+backend/.venv
+backend/__pycache__
+backend/*.db
+**/*.sqlite
+**/*.sqlite3
+.DS_Store
