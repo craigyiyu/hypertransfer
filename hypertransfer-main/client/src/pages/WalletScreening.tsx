@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Shield, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { requiresTravelRule } from "@/lib/compliance";
 
 type ScreeningState = "idle" | "scanning" | "passed" | "failed";
 
@@ -18,6 +19,8 @@ export default function WalletScreening() {
   const { state, updateState } = useDemo();
   const [walletAddress, setWalletAddress] = useState("");
   const [screening, setScreening] = useState<ScreeningState>("idle");
+  const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
+  const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
 
   const handleScreen = () => {
     if (!walletAddress) return;
@@ -31,13 +34,16 @@ export default function WalletScreening() {
         setScreening("failed");
       } else {
         setScreening("passed");
-        updateState({ screeningPassed: true });
+        updateState({
+          screeningPassed: true,
+          travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+        });
       }
     }, 3000);
   };
 
   const handleContinue = () => {
-    navigate("/deposit-address");
+    navigate(travelRuleRequired && !state.travelRuleComplete ? "/travel-rule" : "/deposit-address");
   };
 
   const handleRetry = () => {
@@ -124,7 +130,7 @@ export default function WalletScreening() {
               </div>
               <p className="text-sm font-semibold text-success">Wallet Approved</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Your wallet has passed all compliance checks. You may proceed to receive a deposit address.
+                Your wallet has passed source-wallet KYT. {travelRuleRequired ? "Travel Rule information must be accepted before address issuance." : "You may proceed to receive a deposit address."}
               </p>
               <div className="mt-3 px-3 py-1.5 rounded-lg bg-input">
                 <code className="font-mono text-[10px] text-muted-foreground break-all">
@@ -168,7 +174,9 @@ export default function WalletScreening() {
             onClick={handleContinue}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
           >
-            Get Deposit Address
+            {travelRuleRequired && !state.travelRuleComplete
+              ? "Continue to Travel Rule"
+              : "Get Deposit Address"}
           </button>
         )}
         {screening === "failed" && (

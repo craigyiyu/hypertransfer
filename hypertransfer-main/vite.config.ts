@@ -227,7 +227,7 @@ export default defineConfig({
     proxy: {
       // 把认证等 API 转发到 FastAPI 后端
       "/api": {
-        target: "http://localhost:8000",
+        target: process.env.VITE_API_PROXY_TARGET || "http://localhost:8000",
         changeOrigin: true,
       },
     },

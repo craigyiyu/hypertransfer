@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { CheckCircle2, ArrowRight, Clock, Banknote } from "lucide-react";
+import { CheckCircle2, Clock, Banknote } from "lucide-react";
 import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/currency";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
@@ -125,10 +125,9 @@ export default function DepositSuccess() {
       <div className="space-y-3 pb-4">
         <button
           onClick={() => navigate("/new-deposit")}
-          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
+          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
         >
           Make Another Deposit
-          <ArrowRight className="w-4 h-4" />
         </button>
         <button
           onClick={() => navigate("/dashboard")}

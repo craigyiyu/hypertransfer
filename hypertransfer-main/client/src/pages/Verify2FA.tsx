@@ -36,7 +36,7 @@ export default function Verify2FA() {
       // 同步到 DemoContext,供后续页面使用
       updateState({ patronName: data.user.name, patronEmail: data.user.email, patronPhone: data.user.phone });
       sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
-      toast.success("登录成功");
+      toast.success("Signed in successfully.");
       navigate("/dashboard");
     } catch (e) {
       toast.error(apiError(e));

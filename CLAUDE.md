@@ -4,6 +4,8 @@
 >
 > 项目级覆盖用户级——比如本项目演示账号 `va.host.demo@wynn.example` 是 demo 内置数据，**不视为** PII / 凭据违规。
 >
+> **配套文件 `AGENTS.md`**（仓库根）：Codex/OpenAI agents 的项目级工作入口，是**最新可测试版本的 Release Notes、本地测试入口清单、代码管理/分支/PR/GitHub 策略**的权威来源。本 `CLAUDE.md` 是长版领域记忆；两者冲突时以 `AGENTS.md` 为业务/运营口径基准，并回写同步本文件。改动业务流/版本时**两份都要看**。
+>
 > 维护原则见文末「更新机制」。
 
 ---
@@ -16,7 +18,7 @@
 | 性质 | **虚拟资产合规入金编排系统** — 包含 Wynn 员工端 Demo + HyperTransfer 客户端产品 + 香港商业化规划 |
 | 阶段 | Wynn Demo 已完成；HyperTransfer Phase 1 报价已出（USD 146,250）；香港公司商业方案已制定 |
 | 仓库路径 | `/Users/yiweichen/Documents/Code/VirtualAsset` |
-| Git 状态 | 已 `git init`，**当前主分支 `main` 尚无任何 commit** |
+| Git 状态 | 已接 GitHub private repo `origin → github.com/eason36/Hyper-Transfer`；`main` 为稳定主线，走**任务分支 + PR + Squash merge**（策略见 `AGENTS.md`）；日常不直推 `main` |
 | **商业化主体** | **Heypervelocity**（香港公司，计划注册） |
 | **对外产品名** | **HyperTransfer**（客户端 H5 应用，站点 `h5.hypercypto.com`） |
 
@@ -86,6 +88,7 @@ VirtualAsset/
 │   ├── plan.md                   # 项目实施计划
 │   ├── design.md                 # 1.4k 行完整设计文档（业务术语权威来源）
 │   ├── virtual-asset-ppt.{md,pptx}# 项目 PPT
+│   ├── Wynn_Macau_VA_Hex_Trust_Clarification_Request_Completed_04_June.pdf  # ★客户提供的 Hex Trust 36 问澄清回复（Phase1 网络/确认数/Webhook/API/TR 平台边界/KYT/冷存储/资质，权威核对）
 │   └── 截屏*.png                  # 永利原型截图
 ├── ProjectReference/             # 外部参考资料（PDF）
 ├── ClientMeetings/               # 客户会议材料 + 报价单
@@ -104,15 +107,23 @@ VirtualAsset/
 │   ├── client/src/               # React 应用（pages/ components/ contexts/ lib/）；黑金风 + i18n + OTP 组件
 │   │                             #   已接真实认证：lib/api.ts、contexts/AuthContext.tsx、components/ProtectedRoute.tsx、lib/authFlow.ts
 │   │                             #   认证页 pages/{Register,Setup2FA,Login,Verify2FA}.tsx 已接后端
+│   │   ├── lib/compliance.ts     #   ★Phase1 网络白名单 + Travel Rule threshold + 链上确认数 + HT Markets OTC fee 计算
+│   │   ├── lib/travel-rule.ts    #   ★Travel Rule 数据模型/状态机/provider adapter mock（接 Hex Trust/Sumsub/Notabene/Sygna/TRP 从这扩展）
+│   │   ├── lib/hex-safe.ts       #   ★Hex Safe deposit status/确认数/vault 余额/交易日志 mock API+webhook 模型
+│   │   ├── lib/treasury-ops.ts   #   ★后台运营 mock：OTC 兑换/脱锚清算/对账/澳门访问隔离/托管证据
+│   │   ├── lib/demo-auth.ts      #   ★本地 demo session（Use Demo Account）
+│   │   └── pages/CasinoOpsPortal.tsx # ★澳门赌场工作人员后台运营站点（路由 /casino-ops，旧 /treasury-controls 为别名）
+│   ├── docs/                     # ★HyperTransfer app 流程图：app-flow.{svg,png,md} + gen_flow.py（品牌化矢量，客户可发）
 │   ├── backend/                  # ★真实认证后端 FastAPI：send-otp / register / confirm-totp / login(start+verify 两步) / me / logout + CORS
 │   │   └── server.py · requirements.txt · run.sh
 │   ├── dev.sh                    # 一键起 后端(8000)+前端(3000) 并打印手机访问地址（用 corepack pnpm）
 │   ├── docker-compose.yml        # ★运维一键部署:web(nginx静态+反代/api)+backend(uvicorn)+SQLite持久卷 ht-db
 │   ├── Dockerfile.frontend       #   前端多阶段构建(pnpm build→nginx);后端 Dockerfile 在 backend/
 │   ├── deploy/nginx.conf         #   nginx:静态+SPA回退+ /api→backend:8000 反代
-│   ├── .env.example · DEPLOY.md  #   WEB_PORT(默认8080) 配置样例;DEPLOY.md=给运维的部署文档(已 docker 实测)
+│   ├── .env.example · DEPLOY.md  #   ★env 可配:WEB_PORT/HT_ALLOWED_ORIGINS(CORS)/SMS_API_URL/HT_DB_PATH(默认仍为 demo 值);DEPLOY.md=给运维的部署文档(docker 实测 + GitHub Actions 自动部署 §5)
 │   ├── AUTH_INTEGRATION.md       # 认证模块集成说明（架构/流程/文件/生产化待办）
 │   └── server/index.ts           # 原 Manus 静态文件服务占位（生产由 backend/ 取代）
+├── .github/workflows/            # ★CI/CD：hypertransfer-check.yml(typecheck+build,PR/合并 main 门禁) + hypertransfer-deploy-hk.yml(SSH/rsync 自动部署香港服务器,需配 HK_* secrets,详见 DEPLOY.md §5)
 ├── next.config.ts                # reactStrictMode: true
 ├── tsconfig.json                 # 严格模式 + @/* 路径别名
 └── package.json
@@ -205,12 +216,44 @@ draft
 - **TOTP 恢复码(备用码)**:confirm-totp 激活时生成 10 个一次性码(明文仅返回一次,库存 sha256;`recovery_codes` 表)。前端 `pages/RecoveryCodes.tsx` 一次性展示(复制/下载/勾选已保存才进 KYC)。`/login/recovery`(challenge+恢复码,消费即作废,大小写/横线归一化)替代 TOTP;Verify2FA 有「用恢复码登录」切换。
 - 安全:OTP 限频(60s/日上限/试错上限)+用后即焚、TOTP 防重放、challenge 一次性、登录错误模糊化、会话 token(12h)、CORS
 - 存储:SQLite（`hypertransfer_auth.db`，演示用）；前端 token 存 localStorage
+- **生产可配置化（已做，默认值不变）**:`HT_ALLOWED_ORIGINS`(CORS,默认`*`)、`SMS_API_URL`/`SMS_SIGN_CN`/`SMS_SIGN_INTL`(短信网关,默认 QA)、`HT_DB_PATH`(DB 路径)均读环境变量;docker-compose / GitHub Actions secrets 注入。**上线前必须**把 CORS 收窄到正式域名、短信切正式网关（部署 workflow 在 production 下若仍是 `*`/QA 会拒绝部署）
 - **短信 OTP 一键填入(已实测确认)**:验证码框已加 `autocomplete="one-time-code"`(`Register.tsx` / `ForgotPassword.tsx`)。实测:
   - **iOS Safari**:即使 `http://<局域网IP>:3000` 也能弹"从短信粘贴验证码" ✅ —— 证明代码正确
   - **iOS Chrome**:常**不弹**,是 Chrome-iOS 自身限制(已知现象),非 bug、非代码问题
   - 想进一步提升各浏览器命中率:上线后把短信文案加苹果 domain-bound 格式末行 `@h5.hypercypto.com #验证码`(待域名确定再做)
 - **其他需 secure context(HTTPS)的能力**:WebAuthn/Passkey、剪贴板、地理位置、Service Worker/PWA 等在 `http://<局域网IP>` 下不可用;`http://localhost` 是例外(算 secure context)。真机测这些需临时 HTTPS(Cloudflare Tunnel/ngrok)或部署到 HTTPS 域名
 - **排查口诀**:某浏览器/系统能力不生效时,先分清是 **secure context(HTTPS)** 要求,还是**特定浏览器差异**——别把两者混为一谈(本次教训:OTP 填充其实是 Chrome-iOS 差异,我一度误归因为 HTTPS)
+
+### 4.4c HyperTransfer 客户端业务 mock 模型 + 赌场后台（`hypertransfer-main/client/src/`）
+
+> 这是 2026-06-08 由 Codex 大幅扩展的一层——把 HyperTransfer 从纯认证原型扩成**带合规入金流 + 赌场工作人员后台**的产品 demo。Wynn Demo（`src/domain/`）与本层是**两套独立模型**，枚举/规则不要互相套用。
+
+**新增 mock 库（外部能力先走这里的 adapter，未来接真实 provider 保持同边界）**：
+
+| 文件 | 职责 |
+|---|---|
+| `lib/compliance.ts` | Phase 1 网络白名单、Travel Rule threshold、链上确认数、HT Markets OTC fee 计算 |
+| `lib/travel-rule.ts` | Travel Rule 数据模型 + 状态机 + provider adapter mock（接 Hex Trust/Sumsub/Notabene/Sygna/TRP 从这扩展） |
+| `lib/hex-safe.ts` | Hex Safe deposit status / 确认数 / vault 余额 / 交易日志 的 mock API + webhook 模型 |
+| `lib/treasury-ops.ts` | 后台运营 mock：OTC 兑换、脱锚清算、对账、澳门访问隔离、托管证据 |
+| `lib/demo-auth.ts` | 本地 demo session（`Use Demo Account`） |
+
+**关键业务规则（HyperTransfer 客户端，口径来源：客户 Hex Trust 36 问澄清 PDF + design.md）**：
+
+- **HyperTransfer 客户端 Travel Rule 状态枚举**（≠ Wynn Demo）：`not_required` / `travel_rule_required` / `travel_rule_submitted` / `travel_rule_accepted` / `travel_rule_rejected` / `manual_review`
+- **`canIssueAddress` 三条同时满足**才请求 Hex Safe 地址：`KYC approved` + `source wallet KYT passed` + `Travel Rule gate passed`（失败/EDD 绝不发址）
+- **Phase 1 网络白名单**：仅 `USDT on Ethereum/Tron` + `USDC on Ethereum`，其他网络先走例外审批
+- **链上确认数**（按链定义，不能承诺 Wynn 自定义值）：EVM 5 confirmations、Tron 4 confirmations
+- **HT Markets OTC**：USDT/USDC ↔ USD 双向兑换，0.50% all-in fee，USD 150 minimum fee
+- **脱锚（depeg）响应**：0.95 触发阈值 → HT Markets 24/7 OTC 通道
+- **Travel Rule gate 由 HyperTransfer/WML 在 Hex Safe 发址前执行**；不要假设当前香港 Hex Trust Limited 合同下平台层会自动 hard-freeze 等待 TR
+
+**客户端 vs 赌场后台的边界（重要）**：
+
+- **客户端**（澳门赌场客户/玩家用）：Landing/注册/2FA/KYC/入金流/History/Support/Settings。**不暴露** WTA、OTC、Hex Safe webhook/API、Macau operator access、custody evidence 等后台控制
+- **赌场工作人员后台**：`pages/CasinoOpsPortal.tsx`，路由 **`/casino-ops`**（标题 `Wynn VA Operations Portal`，面向 treasury/compliance/finance/audit staff）。承载 WTA settlement、HT Markets OTC、depeg、Hex Safe webhook/API、reconciliation、Macau access exclusion、Hex Trust custody evidence
+- 旧 `/treasury-controls` 仅作后台**别名**保留；**不要**从客户 Dashboard / Deposit Success 链接过去（旧 `TreasuryControls.tsx` 已删）
+- custody evidence（冷存储/RBAC/quorum/maker-checker/保险 SLA）明确标注为 **Hex Trust provided controls**，不是 HyperTransfer 自营托管
 
 ### 4.5 Hex Safe REST API 接入要点
 
@@ -260,6 +303,7 @@ Password: Wynn#2026!
 - 全部 mock provider；内置 5 个客户（含 expired / missing KYC 状态演示）
 - **Treasury WTA 页面**、**Refund / Payout 模块**、Compliance Case **Request Documents** 动作
 - **HyperTransfer 认证模块**（`hypertransfer-main/`）：注册 / 短信 OTP / TOTP MFA / 两步登录，已接真实 FastAPI 后端 + 真实短信
+- **HyperTransfer 客户端入金流 + 赌场后台**（见 §4.4c）：客户端 KYC→KYT→Travel Rule→发址→确认→入金成功（全 mock）；赌场工作人员后台 `/casino-ops`（WTA settlement / HT Markets OTC / depeg / Hex Safe webhook / reconciliation / Macau access exclusion / custody evidence，全 mock）
 
 **不包含**（**不要在当前版本加这些**）：
 
@@ -337,6 +381,8 @@ Password: Wynn#2026!
 | 最新报价（Phase 1） | **USD 146,250**（325 人天 × USD 450/人天），另 10% 年维护费 USD 14,625 |
 | 报价文件 | `ClientMeetings/HyperTransfer-Development-Quotation.xlsx` |
 | 最新客户会议纪要 | `ClientMeetings/2026-06-05-Crypto-Compliance-KYC-Rollout-Meeting-Notes.md`（2026-06-05 Granola 摘要整理；涉及 Hex Trust / KYC / Travel Rule / testing timeline；具体细节以该文件为准） |
+| 客户 Hex Trust 澄清回复 | `ProjectInfo/Wynn_Macau_VA_Hex_Trust_Clarification_Request_Completed_04_June.pdf`（36 问澄清；Phase1 网络/确认数 EVM5·Tron4/Webhook·API/TR 平台边界/KYT/冷存储/资质——客户端业务规则的权威口径来源） |
+| HT Markets OTC 口径 | USDT/USDC ↔ USD 双向，**0.50% all-in fee，USD 150 minimum**；脱锚阈值 0.95 触发 24/7 OTC（详见 §4.4c） |
 | 商业方案 | `CompanyPlan/HyperTransfer-HK-Business-Plan.md` |
 | 牌照路线图 | `CompanyPlan/HK-Licensing-Roadmap.md`（各阶段时间/投入/解锁能力，权威来源） |
 | 第三方服务成本 | `CompanyPlan/Third-Party-Services-Cost.md`（客户自采，非我方报价） |
@@ -356,9 +402,11 @@ Password: Wynn#2026!
 |---|---|
 | 用户说"评估一下" | 只输出方案 / 风险 / 成本，不动文件 |
 | 用户说"动手 / 开干 / 做吧" | 直接执行 |
-| 用户说"提交 / commit" | 才能 `git add` + `git commit`；本仓库**当前还没有任何 commit**，首次 commit 前先确认 commit message 风格 |
-| 用户说"推送 / push" | 才能 `git push`；当前**未配置 remote**，需先确认 |
-| 修改业务流 / 术语 | 同步检查并更新 `ProjectInfo/design.md` 与本 `CLAUDE.md`「业务术语」表 |
+| 用户说"提交 / commit" | 才能 `git add` + `git commit`；**不要直接提交到 `main`**，从最新 `main` 新建任务分支（`feature/` `fix/` `docs/` `ops/` `codex/<scope>`）再提交 |
+| 用户说"推送 / push" | 才能 `git push`；remote 已配 `origin → github.com/eason36/Hyper-Transfer`；**经 GitHub PR + Squash merge 合并 `main`**，别直推。完整分支/PR/GitHub 保护策略见 `AGENTS.md`「代码管理策略」 |
+| 合并前自检 | diff 无 `.env*`/DB/Office 临时文件/node_modules/日志/真实手机号/PII/密钥；HyperTransfer 至少过 `corepack pnpm run check`；动到术语/TR/Hex Trust/报价/纪要时相关文档已同步 |
+| 完成可测试批次 | 在 `AGENTS.md`「Release Notes」追加该版本入口/功能/文件/验证/已知限制 |
+| 修改业务流 / 术语 | 同步检查并更新 `ProjectInfo/design.md`、本 `CLAUDE.md`「业务术语」表、以及 `AGENTS.md` |
 | 新增依赖 | Wynn Demo 用 `npm install`；HyperTransfer 用 `corepack pnpm add`；不要手写版本号 |
 | 改文件 ≥ 3 处 / 改 ≥ 3 个文件 | 先 `TodoWrite` 列计划 |
 
@@ -390,7 +438,8 @@ Password: Wynn#2026!
 
 ---
 
-*最后更新：2026-06-07（§3 + §8.5 补登 `ClientMeetings/2026-06-05-Crypto-Compliance-KYC-Rollout-Meeting-Notes.md`，作为最新客户会议纪要索引；纪要主题为 Hex Trust / KYC / Travel Rule / testing timeline，具体会议内容以该文件为准）*
+*最后更新：2026-06-19（§3 补 `.github/workflows/` 顶级目录(hypertransfer-check CI 门禁 + hypertransfer-deploy-hk 自动部署)；§3 + §4.4b 记后端**生产可配置化**(CORS `HT_ALLOWED_ORIGINS` / 短信 `SMS_API_URL` / `HT_DB_PATH` 走环境变量,默认仍 demo 值,production 部署对 `*`/QA 会拒绝)。对应已推送 commit `afb216c`。AGENTS.md 已自带这些,无需改）*
+*历史：2026-06-08（**按 `AGENTS.md`(Codex 2026-06-08 大改)同步至最新**：顶部新增 AGENTS.md 交叉引用；§1+§9 修正 Git 口径——实际已接 `origin → github.com/eason36/Hyper-Transfer`、走任务分支+PR+Squash（非"无 commit/无 remote"）；§3 补 HyperTransfer 新 lib(`compliance/travel-rule/hex-safe/treasury-ops/demo-auth.ts`)、`CasinoOpsPortal.tsx`(/casino-ops)、`docs/app-flow.*`、ProjectInfo 客户 Hex Trust 澄清 PDF；新增 §4.4c HyperTransfer 客户端 mock 模型+赌场后台（含**新 TR 状态枚举**、`canIssueAddress`三条件、Phase1 网络白名单、确认数 EVM5/Tron4、HT Markets OTC 0.50%/USD150、客户端 vs /casino-ops 边界）；§5 补客户端入金流+casino-ops；§8.5 补澄清 PDF+OTC 口径。注：Wynn Demo 的 `src/domain/types.ts` TR 枚举仍是旧版`pending/submitted`，未动）*
 *历史：2026-05-31（§6.1 新增移动端约定:全高容器用 `100svh` 而非 `100dvh`,修复 HyperTransfer 前端软键盘弹起时页面上下抖动 —— `Shell.tsx`×2 + `Landing.tsx` + `ProtectedRoute.tsx` 已 dvh→svh,typecheck 通过。同日:§3 为 `hypertransfer-main/` 新增运维一键部署:`docker-compose.yml`+`Dockerfile.frontend`+`backend/Dockerfile`+`deploy/nginx.conf`+`.env.example`+`DEPLOY.md`。架构=nginx 服务前端静态产物并反代 `/api`→backend:8000(uvicorn),SQLite 落命名卷 `ht-db` 持久化;已本地 docker 实测全链路通过。配套源码微调:移除 index.html 坏掉的 Manus analytics 脚本、server.py 的 `DB_PATH` 改读 `HT_DB_PATH` 环境变量(本地行为不变)。给运维的干净 tar 包打在 `~/Downloads/hypertransfer-deploy-<date>.tar.gz`(剔除 node_modules/.venv/*.db/日志)。注:CORS=`["*"]` 与 QA 短信网关仍为演示态,DEPLOY.md §5 已标注上线前必改）*
 *历史：2026-05-31（§3 + §8.5 补登 `CompanyPlan/` 两份文档：`HK-Licensing-Roadmap.md` 香港牌照三阶段路线图、`Third-Party-Services-Cost.md` 客户自采第三方服务成本估算；并将 §8.5 牌照路线编号对齐路线图文档为 Phase 0–3，与报价 Phase 编号区分）*
 *历史：2026-05-30（接入 `hypertransfer-main/` 真实产品前端 = React19+Vite+Tailwind4+shadcn/ui+Wouter，配合 FastAPI 认证后端 `backend/` 打通 注册 / 短信OTP第一因子 / TOTP第二因子 / 两步登录;新增 api.ts+AuthContext+ProtectedRoute+authFlow，vite proxy /api→8000，dev.sh 一键起全栈。更正 §8.5：HyperTransfer 实际前端为 React 非 Vue。另含早期独立原型 `hypertransfer-auth-demo/` 与短信网关接入要点 §4.5b）*

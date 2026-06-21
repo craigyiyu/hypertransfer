@@ -125,13 +125,21 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
  */
 export const NETWORK_FEES: Record<string, number> = {
   "Ethereum": 2.5,
+  "ethereum": 2.5,
   "Bitcoin": 15.0,
+  "bitcoin": 15.0,
   "Tron": 0.5,
+  "tron": 0.5,
   "Polygon": 0.1,
+  "polygon": 0.1,
   "BNB Chain": 0.3,
+  "bsc": 0.3,
   "Avalanche": 0.2,
+  "avalanche": 0.2,
   "Arbitrum": 0.1,
+  "arbitrum": 0.1,
   "Optimism": 0.1,
+  "optimism": 0.1,
 };
 
 export function getNetworkFee(network: string): number {

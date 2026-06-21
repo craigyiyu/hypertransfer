@@ -1,10 +1,10 @@
 /**
  * MainDeposit — Unified deposit session combining verification step (1 USDT test)
  * and main deposit into a single screen. Shows HKD equivalent and network fees.
- * Travel Rule check: if entered deposit amount is USD 8,000 or above and not completed,
- * redirect to /travel-rule.
+ * Travel Rule is expected to be cleared before address issuance; this screen keeps a
+ * defensive check in case the amount changes later.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
@@ -14,10 +14,14 @@ import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
+import { getRequiredConfirmations, requiresTravelRule } from "@/lib/compliance";
+import {
+  createCustodyLogs,
+  createHexSafeStatus,
+  createVaultBalance,
+} from "@/lib/hex-safe";
 
 type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming" | "main_confirmed";
-
-const TRAVEL_RULE_THRESHOLD = 8000; // USD equivalent
 
 export default function MainDeposit() {
   const [, navigate] = useLocation();
@@ -31,6 +35,7 @@ export default function MainDeposit() {
   const sessionId = useState(() => "sess-" + Date.now())[0];
 
   const networkFee = getNetworkFee(state.selectedNetwork);
+  const requiredConfirmations = getRequiredConfirmations(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
   const netReceive = Math.max(0, mainAmount - networkFee);
   const formatAssetAmount = (value: number, decimals = 2) =>
@@ -53,7 +58,7 @@ export default function MainDeposit() {
   const displayAmount = mainAmount > 0 ? formatAssetAmount(mainAmount, 0) : "";
 
   // Stablecoin demo flow treats the entered deposit amount as USD-equivalent.
-  const isTravelRuleRequired = mainAmount >= TRAVEL_RULE_THRESHOLD;
+  const isTravelRuleRequired = requiresTravelRule(state.selectedAsset, mainAmount);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(state.depositAddress);
@@ -65,11 +70,11 @@ export default function MainDeposit() {
   // Handle verification step confirmation
   const handleVerificationSent = () => {
     setPhase("verification_monitoring");
-    // Simulate blockchain confirmation for 1 USDT test
-    setTimeout(() => setConfirmations(1), 2000);
-    setTimeout(() => setConfirmations(2), 3000);
+    for (let i = 1; i <= requiredConfirmations; i += 1) {
+      setTimeout(() => setConfirmations(i), 1200 + i * 650);
+    }
     setTimeout(() => {
-      setConfirmations(3);
+      setConfirmations(requiredConfirmations);
       setPhase("verification_confirmed");
       updateState({ testPaymentConfirmed: true });
       addTransaction({
@@ -83,7 +88,7 @@ export default function MainDeposit() {
         txHash: "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join(""),
         sessionId,
       });
-    }, 4000);
+    }, 1600 + requiredConfirmations * 650);
   };
 
   // Handle main deposit confirmation with Travel Rule check
@@ -100,12 +105,27 @@ export default function MainDeposit() {
     setConfirmations(0);
 
     setTimeout(() => setPhase("main_confirming"), 3000);
-    setTimeout(() => setConfirmations(1), 4000);
-    setTimeout(() => setConfirmations(2), 5000);
+    for (let i = 1; i <= requiredConfirmations; i += 1) {
+      setTimeout(() => setConfirmations(i), 3000 + i * 650);
+    }
     setTimeout(() => {
-      setConfirmations(3);
+      setConfirmations(requiredConfirmations);
       setPhase("main_confirmed");
-      updateState({ mainDepositConfirmed: true });
+      const hexSafeStatus = createHexSafeStatus({
+        asset: state.selectedAsset,
+        network: state.selectedNetwork,
+        amount: parseFloat(amount) || 0,
+        receivingAddress: state.depositAddress,
+        sourceWallet: state.sourceWallet,
+      });
+      const vaultBalance = createVaultBalance(hexSafeStatus);
+      const custodyLogs = createCustodyLogs(hexSafeStatus);
+      updateState({
+        mainDepositConfirmed: true,
+        hexSafeStatus,
+        vaultBalance,
+        custodyLogs,
+      });
       addTransaction({
         id: "tx-main-" + Date.now(),
         type: "main",
@@ -114,10 +134,10 @@ export default function MainDeposit() {
         amount: amount,
         status: "confirmed",
         date: new Date().toISOString(),
-        txHash: "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join(""),
+        txHash: hexSafeStatus.txHash,
         sessionId,
       });
-    }, 6000);
+    }, 3400 + requiredConfirmations * 650);
   };
 
   const proceedToMainDeposit = () => {
@@ -227,7 +247,7 @@ export default function MainDeposit() {
             </p>
             {confirmations > 0 && (
               <div className="w-full mt-4 flex gap-2">
-                {[0, 1, 2].map((i) => (
+                {Array.from({ length: requiredConfirmations }, (_, i) => i).map((i) => (
                   <div
                     key={i}
                     className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
@@ -238,7 +258,7 @@ export default function MainDeposit() {
               </div>
             )}
             <p className="text-[10px] text-muted-foreground/60 mt-2">
-              {confirmations}/3 confirmations
+              {confirmations}/{requiredConfirmations} confirmations
             </p>
           </motion.div>
         )}
@@ -444,11 +464,11 @@ export default function MainDeposit() {
             <p className="text-xs text-muted-foreground mt-1">
               {phase === "main_monitoring"
                 ? `Scanning for your ${displayAmount} ${state.selectedAsset} deposit...`
-                : `${confirmations}/3 confirmations`}
+                : `${confirmations}/${requiredConfirmations} confirmations`}
             </p>
             {phase === "main_confirming" && (
               <div className="w-full mt-4 flex gap-2">
-                {[0, 1, 2].map((i) => (
+                {Array.from({ length: requiredConfirmations }, (_, i) => i).map((i) => (
                   <div
                     key={i}
                     className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${

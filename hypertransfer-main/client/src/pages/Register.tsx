@@ -91,7 +91,7 @@ export default function Register() {
       const { data } = await authApi.sendOtp(areaCode, phone);
       setCodeSent(true);
       setCooldown(data.cooldown || 60);
-      toast.success("验证码已发送，请查收短信");
+      toast.success("Verification code sent. Please check your SMS.");
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -190,7 +190,7 @@ export default function Register() {
             className="w-full rounded-xl py-3 text-xs font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {sending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {cooldown > 0 ? `${cooldown}s 后重发` : codeSent ? "Resend Verification Code" : "Send Verification Code"}
+            {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? "Resend Verification Code" : "Send Verification Code"}
           </button>
 
           {codeSent && (
@@ -212,7 +212,9 @@ export default function Register() {
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-success">Ready</span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground/60">验证码已发送至 +{areaCode} {phone}</p>
+              <p className="text-xs text-muted-foreground/60">
+                Verification code sent to +{areaCode} {phone}
+              </p>
             </motion.div>
           )}
         </div>

@@ -68,7 +68,7 @@ export default function ForgotPassword() {
       const { data } = await authApi.passwordSendOtp(areaCode, phone);
       setStep("reset");
       setCooldown(data.cooldown || 60);
-      toast.success("若该手机号已注册,验证码已发送");
+      toast.success("If this mobile number is registered, a verification code has been sent.");
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -82,7 +82,7 @@ export default function ForgotPassword() {
     try {
       const { data } = await authApi.passwordSendOtp(areaCode, phone);
       setCooldown(data.cooldown || 60);
-      toast.success("验证码已重新发送");
+      toast.success("Verification code resent.");
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -104,7 +104,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <Shell showBack backTo="/login" title="Reset Password" subtitle="通过手机号验证身份并设置新密码">
+    <Shell showBack backTo="/login" title="Reset Password" subtitle="Verify your mobile number and set a new password">
       {/* 步骤指示 */}
       {step !== "done" && (
         <div className="flex items-center gap-2 mb-6">
@@ -118,7 +118,7 @@ export default function ForgotPassword() {
                   {doneStep ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
                 </div>
                 <span className={`text-xs ${active ? "text-foreground" : "text-muted-foreground"}`}>
-                  {s === "phone" ? "验证手机号" : "设置新密码"}
+                  {s === "phone" ? "Verify mobile" : "Set new password"}
                 </span>
                 {i === 0 && <div className="flex-1 h-px bg-border" />}
               </div>
@@ -133,7 +133,7 @@ export default function ForgotPassword() {
           <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
             <ShieldCheck className="w-4 h-4 text-gold shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              输入注册时的手机号,我们将发送验证码核验身份。重置仅更改密码,你的双重验证(TOTP)保持不变。
+              Enter the mobile number you used to register. Password reset only changes your password; your authenticator app remains required.
             </p>
           </div>
 
@@ -157,7 +157,7 @@ export default function ForgotPassword() {
           <button onClick={handleSendCode} disabled={!phoneValid || sending || cooldown > 0}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {sending && <Loader2 className="w-4 h-4 animate-spin" />}
-            {cooldown > 0 ? `${cooldown}s 后重发` : "发送验证码"}
+            {cooldown > 0 ? `Resend in ${cooldown}s` : "Send Verification Code"}
           </button>
         </motion.div>
       )}
@@ -166,22 +166,22 @@ export default function ForgotPassword() {
       {step === "reset" && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
           <p className="text-xs text-muted-foreground">
-            验证码已发送至 <span className="text-foreground font-medium">+{areaCode} {phone}</span>
+            Verification code sent to <span className="text-foreground font-medium">+{areaCode} {phone}</span>
           </p>
 
           {/* 验证码 */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <MessageSquare className="w-3 h-3" /> 短信验证码
+              <MessageSquare className="w-3 h-3" /> SMS Verification Code
             </Label>
             <div className="flex gap-2">
               <Input inputMode="numeric" autoComplete="one-time-code" name="otp" maxLength={6} value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="6 位验证码"
+                placeholder="6-digit code"
                 className="flex-1 bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl tracking-widest" />
               <button onClick={handleResend} disabled={cooldown > 0 || sending}
                 className="w-[110px] shrink-0 rounded-xl text-xs border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                {cooldown > 0 ? `${cooldown}s` : "重新发送"}
+                {cooldown > 0 ? `${cooldown}s` : "Resend"}
               </button>
             </div>
           </div>
@@ -189,12 +189,12 @@ export default function ForgotPassword() {
           {/* 新密码 */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Lock className="w-3 h-3" /> 新密码
+              <Lock className="w-3 h-3" /> New Password
             </Label>
             <div className="relative">
               <Input type={showPw ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="设置新密码"
+                placeholder="Set a new password"
                 className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl pr-10" />
               <button type="button" onClick={() => setShowPw(!showPw)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold transition-colors">
@@ -220,7 +220,7 @@ export default function ForgotPassword() {
           <button onClick={handleReset} disabled={!otpValid || !pwValidation.valid || submitting}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            重置密码
+            Reset Password
           </button>
         </motion.div>
       )}
@@ -232,16 +232,16 @@ export default function ForgotPassword() {
           <div className="w-16 h-16 rounded-full bg-success/15 flex items-center justify-center mb-5">
             <CheckCircle2 className="w-8 h-8 text-success" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-1">密码已重置</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-1">Password Reset</h2>
           <p className="text-sm text-muted-foreground mb-2 max-w-[280px]">
-            你的密码已更新,所有旧的登录会话已失效。
+            Your password has been updated and all previous sessions have been signed out.
           </p>
           <p className="text-xs text-muted-foreground/60 mb-8 max-w-[280px]">
-            请用新密码 + 验证器 6 位码重新登录。
+            Sign in again with your new password and 6-digit authenticator code.
           </p>
           <button onClick={() => navigate("/login")}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2">
-            前往登录 <ArrowRight className="w-4 h-4" />
+            Go to Sign In <ArrowRight className="w-4 h-4" />
           </button>
         </motion.div>
       )}

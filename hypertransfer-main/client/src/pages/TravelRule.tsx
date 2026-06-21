@@ -1,7 +1,7 @@
 /**
  * TravelRule — Collects FATF Travel Rule data (originator info).
- * Triggered conditionally during the deposit flow when amount >= 8,000 USD.
- * After submission, returns to /main-deposit to complete the deposit.
+ * Triggered before Hex Safe address issuance when threshold or policy requires it.
+ * HyperTransfer owns this gate even when the external messaging provider changes.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -10,7 +10,19 @@ import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Scale, Info } from "lucide-react";
+import { Scale, Info, ShieldCheck } from "lucide-react";
+import {
+  TRAVEL_RULE_PROVIDER_OPTIONS,
+  TRAVEL_RULE_THRESHOLD_USD,
+  requiresTravelRule,
+} from "@/lib/compliance";
+import { getHKDEquivalent } from "@/lib/currency";
+import {
+  canPassTravelRuleGate,
+  createTravelRuleRecord,
+  mockTravelRuleProvider,
+} from "@/lib/travel-rule";
+import { toast } from "sonner";
 
 export default function TravelRule() {
   const [, navigate] = useLocation();
@@ -19,52 +31,126 @@ export default function TravelRule() {
   const [city, setCity] = useState(state.travelRuleInfo.city);
   const [country, setCountry] = useState(state.travelRuleInfo.country);
   const [sourceOfFunds, setSourceOfFunds] = useState(state.travelRuleInfo.sourceOfFunds);
+  const [originatorVasp, setOriginatorVasp] = useState(state.travelRuleInfo.originatorVasp);
+  const [beneficiaryVasp, setBeneficiaryVasp] = useState(state.travelRuleInfo.beneficiaryVasp);
+  const [provider, setProvider] = useState(state.travelRuleInfo.provider);
+  const [submitting, setSubmitting] = useState(false);
+  const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
+  const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
 
-  const canSubmit = address && city && country && sourceOfFunds;
+  const canSubmit = address && city && country && sourceOfFunds && originatorVasp && beneficiaryVasp && provider;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    const baseRecord = createTravelRuleRecord({
+      patronName: state.patronName,
+      sourceWallet: state.sourceWallet,
+      address,
+      city,
+      country,
+      sourceOfFunds,
+      originatorVasp,
+      beneficiaryVasp,
+      provider,
+      asset: state.selectedAsset,
+      network: state.selectedNetwork,
+      amount: plannedAmount,
+    });
+
     updateState({
-      travelRuleComplete: true,
+      travelRuleStatus: baseRecord.required ? "travel_rule_submitted" : "not_required",
+      travelRuleRecord: baseRecord,
+    });
+
+    const providerRecord = await mockTravelRuleProvider.submit(baseRecord);
+    const canPass = canPassTravelRuleGate(providerRecord.status, providerRecord.required);
+
+    updateState({
+      travelRuleComplete: canPass,
+      travelRuleStatus: providerRecord.status,
+      travelRuleRecord: providerRecord,
       travelRuleInfo: {
         address,
         city,
         country,
         sourceOfFunds,
+        originatorVasp,
+        beneficiaryVasp,
+        provider,
+        providerReference: providerRecord.providerReference,
       },
     });
-    // Return to deposit flow to complete the main deposit
-    navigate("/main-deposit");
+
+    setSubmitting(false);
+
+    if (canPass) {
+      toast.success("Travel Rule gate accepted", {
+        description: providerRecord.providerReference,
+      });
+      navigate("/deposit-address");
+      return;
+    }
+
+    toast.error(providerRecord.status === "manual_review" ? "Manual review required" : "Travel Rule rejected", {
+      description: providerRecord.rejectionReason,
+    });
   };
 
   return (
     <Shell
       showBack
-      backTo="/main-deposit"
+      backTo="/wallet-screening"
       title="Travel Rule Information"
-      subtitle={state.travelRuleComplete ? "Review or update your compliance information" : "Required for transfers of USD 8,000 or above"}
+      subtitle={travelRuleRequired ? "Required before custody address issuance" : "Optional audit record for this deposit session"}
     >
       <div className="space-y-5">
-        {state.mainDepositAmount && (
-          <div className="card-gold rounded-xl px-4 py-3">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              Pending Deposit
-            </p>
-            <p className="text-sm font-semibold text-foreground mt-1">
-              {Number(state.mainDepositAmount).toLocaleString()} {state.selectedAsset}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              This amount will be restored when you return to the deposit screen.
-            </p>
-          </div>
-        )}
+        <div className="card-gold rounded-xl px-4 py-3">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            DepositRequest Gate
+          </p>
+          <p className="text-sm font-semibold text-foreground mt-1">
+            {plannedAmount.toLocaleString()} {state.selectedAsset} on {state.selectedNetwork}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            ≈ {getHKDEquivalent(plannedAmount, state.selectedAsset)}
+          </p>
+        </div>
 
         {/* Info */}
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Under the Financial Action Task Force (FATF) Travel Rule, we are required to collect originator information for crypto transfers of USD 8,000 or above. This data is used solely for regulatory compliance and is never shared for marketing or other purposes.
+            HyperTransfer collects and gates Travel Rule data before requesting a Hex Safe deposit address. Hex Trust has Sumsub-powered Travel Rule capability, but this gate remains controlled by WML / HyperTransfer for the current Hong Kong Hex Trust Limited setup.
           </p>
         </div>
+
+        {!travelRuleRequired && (
+          <div className="rounded-xl px-4 py-3 bg-secondary/20 border border-border/40 flex items-start gap-3">
+            <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This amount is below USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()}, so Travel Rule messaging may not be mandatory for this session. Completing the record still strengthens audit readiness.
+            </p>
+          </div>
+        )}
+
+        {state.travelRuleRecord && (
+          <div className="rounded-xl px-4 py-3 bg-secondary/20 border border-border/40">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Travel Rule State Machine
+            </p>
+            <p className="text-sm text-foreground font-semibold mt-1">
+              {state.travelRuleStatus.replaceAll("_", " ")}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Provider ref: {state.travelRuleRecord.providerReference || "pending"}
+            </p>
+            {state.travelRuleRecord.rejectionReason && (
+              <p className="text-xs text-warning mt-2">
+                {state.travelRuleRecord.rejectionReason}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Residential Address */}
         <div className="space-y-2">
@@ -104,6 +190,48 @@ export default function TravelRule() {
           </div>
         </div>
 
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Originating VASP / Wallet Provider</Label>
+          <Input
+            value={originatorVasp}
+            onChange={(e) => setOriginatorVasp(e.target.value)}
+            placeholder="e.g. Binance, Coinbase, private wallet"
+            className="bg-input border-border h-11 rounded-xl text-sm"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Beneficiary Route</Label>
+          <Input
+            value={beneficiaryVasp}
+            onChange={(e) => setBeneficiaryVasp(e.target.value)}
+            placeholder="WML Logistics via Hex Trust / Hex Safe"
+            className="bg-input border-border h-11 rounded-xl text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground/60">
+            This should be system-configured in production, not typed by an operator.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+            Provider Strategy
+            <ShieldCheck className="w-3 h-3 text-muted-foreground/50" />
+          </Label>
+          <Select value={provider} onValueChange={setProvider}>
+            <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+              <SelectValue placeholder="Select provider route" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover border-border">
+              {TRAVEL_RULE_PROVIDER_OPTIONS.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Source of Funds */}
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -129,10 +257,10 @@ export default function TravelRule() {
       <div className="mt-8">
         <button
           onClick={handleSubmit}
-          disabled={!canSubmit}
+          disabled={!canSubmit || submitting}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          Submit & Continue to Deposit
+          {submitting ? "Submitting Provider Adapter..." : "Accept Gate & Request Hex Safe Address"}
         </button>
       </div>
     </Shell>

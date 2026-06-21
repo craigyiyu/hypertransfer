@@ -12,6 +12,7 @@ import {
   useCallback,
 } from "react";
 import { authApi, getToken, setToken, clearToken, AuthUser } from "@/lib/api";
+import { DEMO_AUTH_USER, isDemoAuthToken } from "@/lib/demo-auth";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -34,8 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) {
+    const token = getToken();
+    if (!token) {
       setUser(null);
+      return;
+    }
+    if (isDemoAuthToken(token)) {
+      setUser(DEMO_AUTH_USER);
       return;
     }
     try {

@@ -10,6 +10,21 @@ services:
     environment:
       # SQLite 落在持久化卷,容器重建数据不丢
       HT_DB_PATH: /data/hypertransfer_auth.db
+      # 生产环境请在 .env 中收窄到正式域名,例如 https://h5.hypercypto.com
+      HT_ALLOWED_ORIGINS: "${HT_ALLOWED_ORIGINS:-*}"
+      # 本地默认仍使用 QA 短信网关;生产通过 .env / GitHub Secrets 注入正式配置
+      SMS_API_URL: "${SMS_API_URL:-https://hv-test.hypervelocity.cn/api/sms/simpleSend}"
+      SMS_SIGN_CN: "${SMS_SIGN_CN:-【武汉极数信息技术】}"
+      SMS_SIGN_INTL: "${SMS_SIGN_INTL:-[Hypervelocity]}"
+      # Sumsub provider secrets are optional locally; set these to enable live WebSDK/API calls.
+      SUMSUB_BASE_URL: "${SUMSUB_BASE_URL:-https://api.sumsub.com}"
+      SUMSUB_ENVIRONMENT: "${SUMSUB_ENVIRONMENT:-sandbox}"
+      SUMSUB_APP_TOKEN: "${SUMSUB_APP_TOKEN:-}"
+      SUMSUB_SECRET_KEY: "${SUMSUB_SECRET_KEY:-}"
+      SUMSUB_WEBHOOK_SECRET_KEY: "${SUMSUB_WEBHOOK_SECRET_KEY:-}"
+      SUMSUB_KYC_LEVEL_NAME: "${SUMSUB_KYC_LEVEL_NAME:-basic-kyc-level}"
+      SUMSUB_TR_LEVEL_NAME: "${SUMSUB_TR_LEVEL_NAME:-travel-rule-basic}"
+      SUMSUB_WEBSDK_TTL: "${SUMSUB_WEBSDK_TTL:-600}"
     volumes:
       - ht-db:/data
     healthcheck:

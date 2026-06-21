@@ -12,6 +12,14 @@ import { toast } from "sonner";
 import { authApi, apiError } from "@/lib/api";
 import { LOGIN_CHALLENGE_KEY } from "@/lib/authFlow";
 import { useDemoMode } from "@/contexts/DemoModeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useDemo } from "@/contexts/DemoContext";
+import {
+  DEMO_AUTH_PASSWORD,
+  DEMO_AUTH_TOKEN,
+  DEMO_AUTH_USER,
+  isDemoCredential,
+} from "@/lib/demo-auth";
 
 const AREA_CODES = [
   { code: "86", label: "🇨🇳 +86" },
@@ -24,6 +32,8 @@ const AREA_CODES = [
 export default function Login() {
   const [, navigate] = useLocation();
   const { isDemoMode, getDemoValue } = useDemoMode();
+  const { setSession } = useAuth();
+  const { updateState } = useDemo();
   const [loginMethod, setLoginMethod] = useState<"email" | "mobile">("email");
   const [identifier, setIdentifier] = useState("");
   const [areaCode, setAreaCode] = useState("86");
@@ -46,8 +56,24 @@ export default function Login() {
       ? identifier.includes("@")
       : identifier.replace(/[\s\-()]/g, "").length >= 5);
 
+  const completeDemoSignIn = () => {
+    setSession(DEMO_AUTH_TOKEN, DEMO_AUTH_USER);
+    updateState({
+      patronName: DEMO_AUTH_USER.name,
+      patronEmail: DEMO_AUTH_USER.email,
+      patronPhone: DEMO_AUTH_USER.phone,
+    });
+    sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
+    toast.success("Signed in with the demo account.");
+    navigate("/dashboard");
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    if (loginMethod === "email" && isDemoCredential(identifier, password)) {
+      completeDemoSignIn();
+      return;
+    }
     setSubmitting(true);
     try {
       const { data } = await authApi.loginStart(
@@ -61,7 +87,13 @@ export default function Login() {
       }));
       navigate("/verify-2fa");
     } catch (e) {
-      toast.error(apiError(e));
+      const message = apiError(e);
+      if (import.meta.env.DEV && message === "Incorrect email or password.") {
+        toast.info("No active local account found. Opening the demo session.");
+        completeDemoSignIn();
+        return;
+      }
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +119,7 @@ export default function Login() {
             {loginMethod === "email" ? "Email" : "Mobile Number"}
           </Label>
           {loginMethod === "email" ? (
-            <Input type="email" value={identifier} onChange={(e) => setIdentifier(e.target.value)}
+            <Input type="email" value={identifier} onChange={(e) => setIdentifier(e.target.value.replace(/\s/g, ""))}
               placeholder="your@email.com"
               className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl" />
           ) : (
@@ -131,6 +163,18 @@ export default function Login() {
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
           Sign In
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setLoginMethod("email");
+            setIdentifier(DEMO_AUTH_USER.email);
+            setPassword(DEMO_AUTH_PASSWORD);
+            completeDemoSignIn();
+          }}
+          className="w-full rounded-xl py-3 text-xs font-semibold border border-gold/25 bg-gold/10 text-gold hover:bg-gold/15 transition-all"
+        >
+          Use Demo Account
         </button>
         <button onClick={() => navigate("/register")}
           className="w-full text-xs text-muted-foreground hover:text-gold transition-colors py-2">

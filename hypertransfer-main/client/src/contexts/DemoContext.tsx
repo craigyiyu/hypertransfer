@@ -1,5 +1,12 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { KYCState } from "@/lib/kyc-status";
+import type { TravelRuleRecord, TravelRuleStatus } from "@/lib/travel-rule";
+import type {
+  CustodyTransactionLog,
+  HexSafeDepositStatus,
+  VaultBalance,
+} from "@/lib/hex-safe";
+import type { OtcConversion } from "@/lib/treasury-ops";
 
 interface DemoState {
   patronName: string;
@@ -9,23 +16,33 @@ interface DemoState {
   kycComplete: boolean;
   kyc: KYCState;
   travelRuleComplete: boolean;
+  travelRuleStatus: TravelRuleStatus;
+  travelRuleRecord: TravelRuleRecord | null;
   travelRuleInfo: {
     address: string;
     city: string;
     country: string;
     sourceOfFunds: string;
+    originatorVasp: string;
+    beneficiaryVasp: string;
+    provider: string;
+    providerReference: string;
   };
   selectedAsset: string;
   selectedNetwork: string;
   sourceWallet: string;
   screeningPassed: boolean;
   depositAddress: string;
+  hexSafeStatus: HexSafeDepositStatus | null;
+  vaultBalance: VaultBalance | null;
+  custodyLogs: CustodyTransactionLog[];
   testPaymentSent: boolean;
   testPaymentConfirmed: boolean;
   mainDepositAmount: string;
   mainDepositConfirmed: boolean;
   hostName: string;
   hostCode: string;
+  otcConversion: OtcConversion | null;
   transactions: Transaction[];
 }
 
@@ -60,23 +77,33 @@ const defaultState: DemoState = {
     retryCount: 0,
   },
   travelRuleComplete: false,
+  travelRuleStatus: "not_required",
+  travelRuleRecord: null,
   travelRuleInfo: {
     address: "",
     city: "",
     country: "",
     sourceOfFunds: "",
+    originatorVasp: "",
+    beneficiaryVasp: "WML Logistics via Hex Trust / Hex Safe",
+    provider: "Internal record only",
+    providerReference: "",
   },
   selectedAsset: "USDT",
   selectedNetwork: "",
   sourceWallet: "",
   screeningPassed: false,
   depositAddress: "",
+  hexSafeStatus: null,
+  vaultBalance: null,
+  custodyLogs: [],
   testPaymentSent: false,
   testPaymentConfirmed: false,
   mainDepositAmount: "",
   mainDepositConfirmed: false,
   hostName: "Michael Chen",
   hostCode: "HC-8842",
+  otcConversion: null,
   transactions: [],
 };
 
@@ -102,11 +129,22 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       selectedNetwork: "",
       sourceWallet: "",
       screeningPassed: false,
+      travelRuleComplete: false,
+      travelRuleStatus: "not_required",
+      travelRuleRecord: null,
+      travelRuleInfo: {
+        ...prev.travelRuleInfo,
+        providerReference: "",
+      },
       depositAddress: "",
+      hexSafeStatus: null,
+      vaultBalance: null,
+      custodyLogs: [],
       testPaymentSent: false,
       testPaymentConfirmed: false,
       mainDepositAmount: "",
       mainDepositConfirmed: false,
+      otcConversion: null,
     }));
   };
 

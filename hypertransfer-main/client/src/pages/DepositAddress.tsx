@@ -9,6 +9,8 @@ import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 import { getHKDEquivalent } from "@/lib/currency";
+import { requiresTravelRule } from "@/lib/compliance";
+import { canPassTravelRuleGate } from "@/lib/travel-rule";
 
 // Generate a mock deposit address based on network
 function generateAddress(network: string): string {
@@ -26,8 +28,27 @@ export default function DepositAddress() {
   const [, navigate] = useLocation();
   const { state, updateState } = useDemo();
   const [loading, setLoading] = useState(true);
+  const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
+  const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
+  const kycApproved = state.kyc.status === "approved";
+  const travelRuleGatePassed = canPassTravelRuleGate(
+    state.travelRuleStatus,
+    travelRuleRequired,
+  );
+  const canIssueAddress = kycApproved && state.screeningPassed && travelRuleGatePassed;
+  const nextGateRoute = !kycApproved
+    ? "/kyc"
+    : !state.screeningPassed
+    ? "/wallet-screening"
+    : travelRuleRequired && !travelRuleGatePassed
+    ? "/travel-rule"
+    : "/wallet-screening";
 
   useEffect(() => {
+    if (!canIssueAddress) {
+      setLoading(false);
+      return;
+    }
     // Simulate fetching deposit address from custodian
     const timer = setTimeout(() => {
       const addr = generateAddress(state.selectedNetwork);
@@ -35,7 +56,7 @@ export default function DepositAddress() {
       setLoading(false);
     }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [canIssueAddress, state.selectedNetwork]);
 
   return (
     <Shell showBack backTo="/wallet-screening" title="Deposit Verification" subtitle="Review the required first step">
@@ -47,10 +68,35 @@ export default function DepositAddress() {
           </div>
           <span>&middot;</span>
           <span className="capitalize">{state.selectedNetwork} Network</span>
+          <span>&middot;</span>
+          <span>{plannedAmount.toLocaleString()} expected</span>
         </div>
 
+        {!canIssueAddress && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="card-wine rounded-xl px-4 py-4 border-warning/40"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+              <div className="space-y-1.5">
+                <p className="text-xs text-warning font-semibold uppercase tracking-wider">
+                  Address blocked
+                </p>
+                <p className="text-sm text-foreground font-semibold">
+                  Compliance gates must clear first
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Hex Safe address issuance is blocked until KYC is approved, source-wallet KYT passes, and the Travel Rule gate is accepted when required.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Important verification rule */}
-        <motion.div
+        {canIssueAddress && <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="card-wine rounded-xl px-4 py-4 border-warning/40"
@@ -69,10 +115,10 @@ export default function DepositAddress() {
               </p>
             </div>
           </div>
-        </motion.div>
+        </motion.div>}
 
         {/* Process rules */}
-        <motion.div
+        {canIssueAddress && <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -85,7 +131,7 @@ export default function DepositAddress() {
             <div>
               <p className="text-sm font-semibold text-foreground">How this deposit works</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                The deposit address will be shown on the next screen for the verification transfer only.
+                HyperTransfer requests the address through the Hex Safe API only after KYC, source-wallet KYT, and Travel Rule controls clear.
               </p>
             </div>
           </div>
@@ -117,18 +163,28 @@ export default function DepositAddress() {
               Address details are hidden until the next step to prevent accidental full-amount transfers.
             </p>
           </div>
-        </motion.div>
+        </motion.div>}
       </div>
 
       <div className="mt-8">
-        <button
-          onClick={() => navigate("/main-deposit")}
-          disabled={loading}
-          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {loading ? "Preparing Secure Deposit Session..." : "Continue to Verification Deposit"}
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        {canIssueAddress ? (
+          <button
+            onClick={() => navigate("/main-deposit")}
+            disabled={loading}
+            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? "Preparing Hex Safe Address..." : "Continue to Verification Deposit"}
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={() => navigate(nextGateRoute)}
+            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            Complete Required Gate
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </Shell>
   );

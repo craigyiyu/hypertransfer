@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import Shell from '@/components/Shell';
 import { useDemo } from '@/contexts/DemoContext';
 import { useI18n } from '@/contexts/I18nContext';
+import { apiError } from '@/lib/api';
 import {
   formatKYCStatus,
   getStatusColor,
@@ -13,6 +14,7 @@ import {
   getEstimatedReviewTime,
   canRetryKYC,
 } from '@/lib/kyc-status';
+import { sumsubApi, type SumsubKycStatus } from '@/lib/sumsub';
 import {
   Clock,
   CheckCircle,
@@ -31,44 +33,78 @@ export default function KYCStatus() {
   const { state, updateState } = useDemo();
   const [, setLocation] = useLocation();
   const { t } = useI18n();
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<SumsubKycStatus | null>(null);
+  const [providerMessage, setProviderMessage] = useState('Checking verification provider status...');
 
   const kycState = state.kyc;
   const eligibility = getKYCEligibility(kycState);
   const statusIcon = getStatusIcon(kycState.status);
   const IconComponent = iconMap[statusIcon as keyof typeof iconMap] || AlertCircle;
 
-  const handleRetryKYC = () => {
-    setIsRetrying(true);
-    setTimeout(() => {
-      updateState({
-        kyc: {
-          ...kycState,
-          status: 'pending',
-          submittedAt: new Date().toISOString(),
-          retryCount: kycState.retryCount + 1,
-        },
-      });
-      setIsRetrying(false);
-    }, 500);
+  const syncProviderStatus = (result: SumsubKycStatus) => {
+    setProviderStatus(result);
+    updateState({
+      kycComplete: result.status === 'approved',
+      kyc: {
+        ...kycState,
+        status: result.status,
+        submittedAt: result.updatedAt
+          ? new Date(result.updatedAt * 1000).toISOString()
+          : kycState.submittedAt,
+        rejectionReason: result.rejectionReason || undefined,
+        lastRejectionAt:
+          result.status === 'rejected'
+            ? new Date().toISOString()
+            : kycState.lastRejectionAt,
+      },
+    });
+    if (!result.configured) {
+      setProviderMessage('Verification provider is not configured yet.');
+      return;
+    }
+    if (result.status === 'approved') {
+      setProviderMessage('Verification approved by Sumsub.');
+    } else if (result.status === 'rejected') {
+      setProviderMessage(result.rejectionReason || 'Verification was not approved.');
+    } else if (result.status === 'pending') {
+      setProviderMessage('Verification is still under Sumsub review.');
+    } else {
+      setProviderMessage('No Sumsub KYC submission has been started for this account.');
+    }
   };
 
-  const handleCheckStatus = () => {
-    // Simulate status check - in production, this would call an API
-    setTimeout(() => {
-      updateState({
-        kyc: {
-          ...kycState,
-          status: 'approved',
-          submittedAt: new Date().toISOString(),
-        },
-      });
-    }, 1500);
+  const handleRetryKYC = () => {
+    updateState({
+      kyc: {
+        ...kycState,
+        status: 'not_started',
+        retryCount: kycState.retryCount + 1,
+      },
+    });
+    setLocation('/kyc');
+  };
+
+  const handleCheckStatus = async () => {
+    setIsChecking(true);
+    try {
+      const { data } = await sumsubApi.kycStatus();
+      syncProviderStatus(data);
+    } catch (err) {
+      setProviderMessage(apiError(err));
+    } finally {
+      setIsChecking(false);
+    }
   };
 
   const handleProceedToDeposit = () => {
     setLocation('/dashboard');
   };
+
+  useEffect(() => {
+    void handleCheckStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Shell>
@@ -105,6 +141,11 @@ export default function KYCStatus() {
             <p className="text-slate-400 text-sm">
               {eligibility.blockerMessage}
             </p>
+            {providerStatus && (
+              <p className="mt-2 text-xs text-slate-500">
+                Sumsub applicant: {providerStatus.applicantId || 'not created'} · {providerStatus.reviewStatus || 'no review yet'}
+              </p>
+            )}
           </div>
 
           {/* Status-Specific Content */}
@@ -140,9 +181,9 @@ export default function KYCStatus() {
                     </p>
                     <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-300 mb-4">
                       <p className="font-medium text-white mb-1">
-                        {t('kycStatus.pending.estimatedTime')}
+                        Provider Status
                       </p>
-                      <p>{getEstimatedReviewTime()}</p>
+                      <p>{providerMessage || getEstimatedReviewTime()}</p>
                     </div>
                     <p className="text-xs text-slate-400">
                       {t('kycStatus.pending.submittedAt')}:{' '}
@@ -247,19 +288,29 @@ export default function KYCStatus() {
               {kycState.status === 'pending' && (
                 <Button
                   onClick={handleCheckStatus}
+                  disabled={isChecking}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg"
                 >
-                  {t('kycStatus.pending.checkButton')}
+                  {isChecking ? 'Checking Sumsub...' : t('kycStatus.pending.checkButton')}
+                </Button>
+              )}
+
+              {kycState.status === 'not_started' && (
+                <Button
+                  onClick={() => setLocation('/kyc')}
+                  className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg"
+                >
+                  Start Verification
+                  <ChevronRight className="w-4 h-4" />
                 </Button>
               )}
 
               {kycState.status === 'rejected' && canRetryKYC(kycState) && (
                 <Button
                   onClick={handleRetryKYC}
-                  disabled={isRetrying}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg disabled:opacity-50"
                 >
-                  {isRetrying ? 'Resubmitting...' : t('kycStatus.rejected.retryButton')}
+                  {t('kycStatus.rejected.retryButton')}
                 </Button>
               )}
 

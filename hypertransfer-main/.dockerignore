@@ -2,8 +2,11 @@ node_modules
 dist
 build
 .git
+.env
+.env.*
 .manus-logs
 *.log
+backups
 backend/.venv
 backend/__pycache__
 backend/*.db

@@ -25,10 +25,11 @@ import os
 import secrets
 import sqlite3
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pyotp
 import qrcode
@@ -41,6 +42,29 @@ BASE_DIR = Path(__file__).resolve().parent
 # DB 路径可由 HT_DB_PATH 覆盖(Docker 部署时指向挂载卷,本地不设则沿用原行为)
 DB_PATH = Path(os.environ.get("HT_DB_PATH") or (BASE_DIR / "hypertransfer_auth.db"))
 
+
+def load_project_env() -> None:
+    env_path = BASE_DIR.parent / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_project_env()
+
+
+def env_list(name: str, default: str) -> "list[str]":
+    raw = os.environ.get(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 ISSUER = "HyperTransfer"
 SESSION_TTL = 60 * 60 * 12        # 会话 12 小时
 CHALLENGE_TTL = 5 * 60            # 登录第一步后的 challenge 5 分钟内要完成 TOTP
@@ -49,9 +73,9 @@ PBKDF2_ITERS = 200_000
 TOTP_VALID_WINDOW = 1
 
 # 短信 OTP
-SMS_API_URL = "https://hv-test.hypervelocity.cn/api/sms/simpleSend"
-SMS_SIGN_CN = "【武汉极数信息技术】"
-SMS_SIGN_INTL = "[Hypervelocity]"
+SMS_API_URL = os.environ.get("SMS_API_URL", "https://hv-test.hypervelocity.cn/api/sms/simpleSend")
+SMS_SIGN_CN = os.environ.get("SMS_SIGN_CN", "【武汉极数信息技术】")
+SMS_SIGN_INTL = os.environ.get("SMS_SIGN_INTL", "[Hypervelocity]")
 OTP_TTL = 5 * 60
 OTP_RESEND_COOLDOWN = 60
 OTP_MAX_PER_DAY = 10
@@ -60,11 +84,23 @@ OTP_MAX_VERIFY = 5
 RECOVERY_CODE_COUNT = 10          # 每次生成的一次性恢复码数量
 RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 去掉易混字符 0/O/1/I
 
+# Sumsub provider integration. Secrets must come from env / GitHub Secrets only.
+SUMSUB_BASE_URL = os.environ.get("SUMSUB_BASE_URL", "https://api.sumsub.com").rstrip("/")
+SUMSUB_APP_TOKEN = os.environ.get("SUMSUB_APP_TOKEN", "").strip()
+SUMSUB_SECRET_KEY = os.environ.get("SUMSUB_SECRET_KEY", "").strip()
+SUMSUB_KYC_LEVEL_NAME = os.environ.get("SUMSUB_KYC_LEVEL_NAME", "basic-kyc-level").strip()
+SUMSUB_TR_LEVEL_NAME = os.environ.get("SUMSUB_TR_LEVEL_NAME", "travel-rule-basic").strip()
+SUMSUB_ENVIRONMENT = os.environ.get("SUMSUB_ENVIRONMENT", "sandbox").strip()
+SUMSUB_WEBSDK_TTL = int(os.environ.get("SUMSUB_WEBSDK_TTL", "600"))
+SUMSUB_WEBHOOK_SECRET_KEY = os.environ.get("SUMSUB_WEBHOOK_SECRET_KEY", "").strip()
+SUMSUB_WEBSDK_SCRIPT_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js"
+DEMO_LOCAL_SESSION_TOKEN = "demo-local-session"
+
 app = FastAPI(title="HyperTransfer Auth API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=env_list("HT_ALLOWED_ORIGINS", "*"),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,6 +162,34 @@ def init_db() -> None:
                 used      INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (phone, code_hash)
             );
+            CREATE TABLE IF NOT EXISTS sumsub_kyc_applications (
+                phone             TEXT PRIMARY KEY,
+                external_user_id  TEXT NOT NULL UNIQUE,
+                applicant_id      TEXT,
+                level_name        TEXT NOT NULL,
+                status            TEXT NOT NULL,
+                review_status     TEXT,
+                review_answer     TEXT,
+                rejection_reason  TEXT,
+                fixed_info_json   TEXT,
+                applicant_json    TEXT,
+                last_webhook_json TEXT,
+                created_at        INTEGER NOT NULL,
+                updated_at        INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sumsub_kyc_applicant_id
+                ON sumsub_kyc_applications(applicant_id);
+            CREATE TABLE IF NOT EXISTS sumsub_webhook_events (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant_id     TEXT,
+                external_user_id TEXT,
+                event_type       TEXT,
+                review_status    TEXT,
+                review_answer    TEXT,
+                payload_json     TEXT NOT NULL,
+                signature_valid  INTEGER,
+                received_at      INTEGER NOT NULL
+            );
             """
         )
         # 轻量迁移:旧库补列(CREATE IF NOT EXISTS 不会给已存在的表加列)
@@ -186,6 +250,340 @@ def send_sms(area_code: str, number: str, text: str) -> str:
     if code in ("0", "200") or msg.lower() == "success":
         return str(body.get("data", ""))
     raise HTTPException(status_code=502, detail=f"短信发送失败: {msg or body}")
+
+
+# --------------------------------------------------------------------------- #
+# Sumsub provider adapter
+# --------------------------------------------------------------------------- #
+def sumsub_configured() -> bool:
+    return bool(SUMSUB_APP_TOKEN and SUMSUB_SECRET_KEY)
+
+
+def json_dumps(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
+def sumsub_public_config() -> dict[str, Any]:
+    return {
+        "configured": sumsub_configured(),
+        "environment": SUMSUB_ENVIRONMENT,
+        "baseUrl": SUMSUB_BASE_URL,
+        "kycLevelName": SUMSUB_KYC_LEVEL_NAME,
+        "travelRuleLevelName": SUMSUB_TR_LEVEL_NAME,
+        "webSdkTtlInSecs": SUMSUB_WEBSDK_TTL,
+        "webSdkScriptUrl": SUMSUB_WEBSDK_SCRIPT_URL,
+        "webhookVerificationConfigured": bool(SUMSUB_WEBHOOK_SECRET_KEY),
+        "capabilities": [
+            "KYC WebSDK 2.0",
+            "Liveness / face match",
+            "AML screening",
+            "Questionnaires",
+            "Device Intelligence",
+            "Transaction Monitoring",
+            "Travel Rule",
+            "Crypto Monitoring",
+            "Case Management",
+            "KYB",
+        ],
+    }
+
+
+def sumsub_headers(method: str, path_with_query: str, body: bytes = b"") -> dict[str, str]:
+    ts = str(int(time.time()))
+    signed = ts.encode() + method.upper().encode() + path_with_query.encode() + body
+    signature = hmac.new(SUMSUB_SECRET_KEY.encode(), signed, hashlib.sha256).hexdigest()
+    return {
+        "Content-Type": "application/json",
+        "X-App-Token": SUMSUB_APP_TOKEN,
+        "X-App-Access-Ts": ts,
+        "X-App-Access-Sig": signature,
+    }
+
+
+def sumsub_request(
+    method: str,
+    path_with_query: str,
+    payload: Optional[dict[str, Any]] = None,
+    allow_statuses: Optional[set[int]] = None,
+) -> Any:
+    if not sumsub_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Sumsub is not configured. Set SUMSUB_APP_TOKEN and SUMSUB_SECRET_KEY on the backend.",
+        )
+    body = (
+        json_dumps(payload).encode()
+        if payload is not None
+        else b""
+    )
+    req = urllib.request.Request(
+        SUMSUB_BASE_URL + path_with_query,
+        data=body if payload is not None else None,
+        headers=sumsub_headers(method, path_with_query, body),
+        method=method.upper(),
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="replace")
+        if allow_statuses and e.code in allow_statuses:
+            try:
+                body_json = json.loads(raw) if raw else {}
+            except Exception:
+                body_json = {"raw": raw}
+            body_json["_http_status"] = e.code
+            return body_json
+        try:
+            body_json = json.loads(raw)
+            detail = body_json.get("description") or body_json.get("message") or raw
+        except Exception:
+            detail = raw or f"HTTP {e.code}"
+        raise HTTPException(status_code=502, detail=f"Sumsub API rejected request ({e.code}): {detail}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sumsub API is unreachable: {e}")
+
+
+def sumsub_user_id(user: sqlite3.Row, suffix: str = "") -> str:
+    digest = hashlib.sha256(user["phone"].encode()).hexdigest()[:16]
+    return f"ht-{digest}{suffix}"
+
+
+COUNTRY_ALPHA3 = {
+    "hk": "HKG",
+    "cn": "CHN",
+    "sg": "SGP",
+    "jp": "JPN",
+    "kr": "KOR",
+    "us": "USA",
+    "gb": "GBR",
+    "au": "AUS",
+}
+
+
+ID_DOC_TYPE_MAP = {
+    "passport": "PASSPORT",
+    "national_id": "ID_CARD",
+    "drivers": "DRIVERS",
+}
+
+
+def sumsub_fixed_info_from_kyc(user: sqlite3.Row, body: "SumsubKycStartIn") -> dict[str, Any]:
+    fixed_info: dict[str, Any] = {
+        "phone": f"+{user['area_code']}{user['number']}",
+    }
+    if user["email"]:
+        fixed_info["email"] = user["email"]
+    if body.dob:
+        fixed_info["dob"] = body.dob
+    country = COUNTRY_ALPHA3.get(body.nationality)
+    if country:
+        fixed_info["nationality"] = country
+        fixed_info["country"] = country
+    if body.address or body.city or country:
+        fixed_info["addresses"] = [
+            {
+                "street": body.address.strip() if body.address else "",
+                "town": body.city.strip() if body.city else "",
+                "country": country or "",
+            }
+        ]
+    return {k: v for k, v in fixed_info.items() if v not in ("", None, [])}
+
+
+def sumsub_local_status_from_review(review_status: str, review_answer: str, event_type: str = "") -> str:
+    event = event_type.lower()
+    status = (review_status or "").lower()
+    answer = (review_answer or "").upper()
+    if answer == "GREEN":
+        return "approved"
+    if answer == "RED":
+        return "rejected"
+    if "onhold" in event or status == "onhold":
+        return "pending"
+    if "pending" in event or status in {"pending", "queued", "init", "prechecked"}:
+        return "pending"
+    if "reviewed" in event and not answer:
+        return "pending"
+    return "not_started" if not status and not event_type else "pending"
+
+
+def sumsub_review_from_payload(payload: dict[str, Any]) -> dict[str, str]:
+    review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
+    review_result = payload.get("reviewResult") if isinstance(payload.get("reviewResult"), dict) else {}
+    if not review_result and isinstance(review.get("reviewResult"), dict):
+        review_result = review["reviewResult"]
+    review_status = str(payload.get("reviewStatus") or review.get("reviewStatus") or "")
+    review_answer = str(review_result.get("reviewAnswer") or payload.get("reviewAnswer") or "")
+    rejection_reason = str(
+        review_result.get("moderationComment")
+        or review_result.get("clientComment")
+        or payload.get("rejectionReason")
+        or ""
+    )
+    return {
+        "reviewStatus": review_status,
+        "reviewAnswer": review_answer,
+        "rejectionReason": rejection_reason,
+        "status": sumsub_local_status_from_review(review_status, review_answer, str(payload.get("type") or "")),
+    }
+
+
+def sumsub_upsert_kyc(
+    phone: str,
+    external_user_id: str,
+    level_name: str,
+    applicant_id: Optional[str] = None,
+    status: str = "pending",
+    review_status: str = "",
+    review_answer: str = "",
+    rejection_reason: str = "",
+    fixed_info: Optional[dict[str, Any]] = None,
+    applicant: Optional[dict[str, Any]] = None,
+    webhook_payload: Optional[dict[str, Any]] = None,
+) -> None:
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO sumsub_kyc_applications(
+                phone, external_user_id, applicant_id, level_name, status,
+                review_status, review_answer, rejection_reason, fixed_info_json,
+                applicant_json, last_webhook_json, created_at, updated_at
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(phone) DO UPDATE SET
+                external_user_id=excluded.external_user_id,
+                applicant_id=COALESCE(excluded.applicant_id, sumsub_kyc_applications.applicant_id),
+                level_name=excluded.level_name,
+                status=excluded.status,
+                review_status=excluded.review_status,
+                review_answer=excluded.review_answer,
+                rejection_reason=excluded.rejection_reason,
+                fixed_info_json=COALESCE(excluded.fixed_info_json, sumsub_kyc_applications.fixed_info_json),
+                applicant_json=COALESCE(excluded.applicant_json, sumsub_kyc_applications.applicant_json),
+                last_webhook_json=COALESCE(excluded.last_webhook_json, sumsub_kyc_applications.last_webhook_json),
+                updated_at=excluded.updated_at
+            """,
+            (
+                phone,
+                external_user_id,
+                applicant_id,
+                level_name,
+                status,
+                review_status,
+                review_answer,
+                rejection_reason,
+                json_dumps(fixed_info) if fixed_info is not None else None,
+                json_dumps(applicant) if applicant is not None else None,
+                json_dumps(webhook_payload) if webhook_payload is not None else None,
+                now,
+                now,
+            ),
+        )
+
+
+def sumsub_get_local_kyc(phone: str) -> Optional[sqlite3.Row]:
+    with db() as conn:
+        return conn.execute("SELECT * FROM sumsub_kyc_applications WHERE phone=?", (phone,)).fetchone()
+
+
+def sumsub_fetch_applicant_by_external_user_id(external_user_id: str) -> Optional[dict[str, Any]]:
+    quoted = urllib.parse.quote(external_user_id, safe="")
+    result = sumsub_request("GET", f"/resources/applicants/-;externalUserId={quoted}/one", allow_statuses={404})
+    if isinstance(result, dict) and result.get("_http_status") == 404:
+        return None
+    return result
+
+
+def sumsub_create_applicant(
+    user: sqlite3.Row,
+    external_user_id: str,
+    level_name: str,
+    fixed_info: dict[str, Any],
+) -> dict[str, Any]:
+    path = f"/resources/applicants?levelName={urllib.parse.quote(level_name, safe='')}"
+    payload = {
+        "externalUserId": external_user_id,
+        "type": "individual",
+        "fixedInfo": fixed_info,
+        "metadata": [
+            {"key": "product", "value": "HyperTransfer"},
+            {"key": "environment", "value": SUMSUB_ENVIRONMENT},
+        ],
+    }
+    if user["email"]:
+        payload["email"] = user["email"]
+    return sumsub_request("POST", path, payload)
+
+
+def sumsub_patch_fixed_info(applicant_id: str, fixed_info: dict[str, Any]) -> dict[str, Any]:
+    return sumsub_request("PATCH", f"/resources/applicants/{applicant_id}/fixedInfo", fixed_info)
+
+
+def sumsub_get_review_status(applicant_id: str) -> dict[str, Any]:
+    return sumsub_request("GET", f"/resources/applicants/{applicant_id}/status")
+
+
+def sumsub_ensure_applicant(user: sqlite3.Row, level_name: str, fixed_info: dict[str, Any]) -> dict[str, Any]:
+    external_user_id = sumsub_user_id(user)
+    local = sumsub_get_local_kyc(user["phone"])
+    applicant: Optional[dict[str, Any]] = None
+    applicant_id = local["applicant_id"] if local and local["applicant_id"] else None
+
+    if not applicant_id:
+        applicant = sumsub_fetch_applicant_by_external_user_id(external_user_id)
+        applicant_id = applicant.get("id") if applicant else None
+
+    if not applicant_id:
+        applicant = sumsub_create_applicant(user, external_user_id, level_name, fixed_info)
+        applicant_id = applicant.get("id")
+
+    if not applicant_id:
+        raise HTTPException(status_code=502, detail="Sumsub did not return an applicant id.")
+
+    patched_fixed_info = sumsub_patch_fixed_info(applicant_id, fixed_info) if fixed_info else None
+    if applicant is None:
+        applicant = sumsub_request("GET", f"/resources/applicants/{applicant_id}/one")
+    review = sumsub_review_from_payload(applicant)
+    sumsub_upsert_kyc(
+        phone=user["phone"],
+        external_user_id=external_user_id,
+        applicant_id=applicant_id,
+        level_name=level_name,
+        status=review["status"] if review["status"] != "not_started" else "pending",
+        review_status=review["reviewStatus"] or "init",
+        review_answer=review["reviewAnswer"],
+        rejection_reason=review["rejectionReason"],
+        fixed_info=patched_fixed_info or fixed_info,
+        applicant=applicant,
+    )
+    return {
+        "externalUserId": external_user_id,
+        "applicantId": applicant_id,
+        "review": review,
+        "applicant": applicant,
+        "fixedInfo": patched_fixed_info or fixed_info,
+    }
+
+
+def sumsub_access_token_payload(
+    user: sqlite3.Row,
+    level_name: Optional[str],
+    ttl_in_secs: Optional[int],
+    user_id_suffix: str = "",
+) -> dict[str, Any]:
+    phone = f"+{user['area_code']}{user['number']}"
+    identifiers: dict[str, str] = {"phone": phone}
+    if user["email"]:
+        identifiers["email"] = user["email"]
+    return {
+        "applicantIdentifiers": identifiers,
+        "ttlInSecs": ttl_in_secs or SUMSUB_WEBSDK_TTL,
+        "userId": sumsub_user_id(user, user_id_suffix),
+        "levelName": level_name or SUMSUB_KYC_LEVEL_NAME,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -335,6 +733,15 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization[len("Bearer "):]
+    if token == DEMO_LOCAL_SESSION_TOKEN and SUMSUB_ENVIRONMENT != "production":
+        return {
+            "phone": "85298765432",
+            "area_code": "852",
+            "number": "98765432",
+            "name": "Demo User",
+            "email": "demo.user@hypercrypto.com",
+            "status": "active",
+        }
     with db() as conn:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not sess or sess["expires_at"] < int(time.time()):
@@ -401,6 +808,22 @@ class LoginVerifyIn(BaseModel):
 class LoginRecoveryIn(BaseModel):
     challenge: str
     recoveryCode: str
+
+
+class SumsubAccessTokenIn(BaseModel):
+    levelName: str = Field(default="")
+    ttlInSecs: Optional[int] = Field(default=None, ge=60, le=3600)
+
+
+class SumsubKycStartIn(BaseModel):
+    nationality: str = Field(default="", max_length=8)
+    dob: str = Field(default="", max_length=10)
+    idType: str = Field(default="", max_length=32)
+    idNumber: str = Field(default="", max_length=80)
+    address: str = Field(default="", max_length=240)
+    city: str = Field(default="", max_length=80)
+    levelName: str = Field(default="")
+    ttlInSecs: Optional[int] = Field(default=None, ge=60, le=3600)
 
 
 # --------------------------------------------------------------------------- #
@@ -642,9 +1065,235 @@ def logout(authorization: Optional[str] = Header(default=None)):
     return {"ok": True}
 
 
+@app.get("/api/sumsub/config")
+def sumsub_config():
+    return sumsub_public_config()
+
+
+@app.get("/api/sumsub/health")
+def sumsub_health():
+    config = sumsub_public_config()
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "configured": config["configured"],
+        "environment": config["environment"],
+        "baseUrl": config["baseUrl"],
+        "kycLevelName": config["kycLevelName"],
+        "status": "ready_to_call_sumsub" if config["configured"] else "missing_credentials",
+    }
+
+
+@app.post("/api/sumsub/access-token")
+def sumsub_access_token(body: SumsubAccessTokenIn, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    payload = sumsub_access_token_payload(user, body.levelName or None, body.ttlInSecs)
+    result = sumsub_request("POST", "/resources/accessTokens/sdk", payload)
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "environment": SUMSUB_ENVIRONMENT,
+        "levelName": payload["levelName"],
+        "userId": result.get("userId") or payload["userId"],
+        "token": result.get("token"),
+        "expiresIn": payload["ttlInSecs"],
+    }
+
+
+def sumsub_kyc_response_from_row(row: Optional[sqlite3.Row]) -> dict[str, Any]:
+    if not row:
+        return {
+            "ok": True,
+            "provider": "sumsub",
+            "configured": sumsub_configured(),
+            "status": "not_started",
+            "reviewStatus": "",
+            "reviewAnswer": "",
+            "rejectionReason": "",
+            "externalUserId": "",
+            "applicantId": "",
+            "levelName": SUMSUB_KYC_LEVEL_NAME,
+            "updatedAt": None,
+        }
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "configured": sumsub_configured(),
+        "status": row["status"],
+        "reviewStatus": row["review_status"] or "",
+        "reviewAnswer": row["review_answer"] or "",
+        "rejectionReason": row["rejection_reason"] or "",
+        "externalUserId": row["external_user_id"],
+        "applicantId": row["applicant_id"] or "",
+        "levelName": row["level_name"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+@app.post("/api/sumsub/kyc/start")
+def sumsub_kyc_start(body: SumsubKycStartIn, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    level_name = body.levelName.strip() or SUMSUB_KYC_LEVEL_NAME
+    fixed_info = sumsub_fixed_info_from_kyc(user, body)
+    applicant_context = sumsub_ensure_applicant(user, level_name, fixed_info)
+    token_payload = sumsub_access_token_payload(user, level_name, body.ttlInSecs)
+    token_result = sumsub_request("POST", "/resources/accessTokens/sdk", token_payload)
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "configured": True,
+        "environment": SUMSUB_ENVIRONMENT,
+        "levelName": level_name,
+        "externalUserId": applicant_context["externalUserId"],
+        "applicantId": applicant_context["applicantId"],
+        "status": applicant_context["review"]["status"] if applicant_context["review"]["status"] != "not_started" else "pending",
+        "reviewStatus": applicant_context["review"]["reviewStatus"] or "init",
+        "reviewAnswer": applicant_context["review"]["reviewAnswer"],
+        "rejectionReason": applicant_context["review"]["rejectionReason"],
+        "token": token_result.get("token"),
+        "expiresIn": token_payload["ttlInSecs"],
+    }
+
+
+@app.get("/api/sumsub/kyc/status")
+def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    row = sumsub_get_local_kyc(user["phone"])
+    if not row:
+        return sumsub_kyc_response_from_row(None)
+    applicant_id = row["applicant_id"]
+    if sumsub_configured() and applicant_id:
+        review_payload = sumsub_get_review_status(applicant_id)
+        review = sumsub_review_from_payload(review_payload)
+        sumsub_upsert_kyc(
+            phone=user["phone"],
+            external_user_id=row["external_user_id"],
+            applicant_id=applicant_id,
+            level_name=row["level_name"],
+            status=review["status"],
+            review_status=review["reviewStatus"],
+            review_answer=review["reviewAnswer"],
+            rejection_reason=review["rejectionReason"],
+            applicant=review_payload,
+        )
+        row = sumsub_get_local_kyc(user["phone"])
+    return sumsub_kyc_response_from_row(row)
+
+
+@app.post("/api/sumsub/connection-test")
+def sumsub_connection_test(body: SumsubAccessTokenIn, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    payload = sumsub_access_token_payload(
+        user,
+        body.levelName or SUMSUB_KYC_LEVEL_NAME,
+        body.ttlInSecs or 600,
+        user_id_suffix="-connection-test",
+    )
+    result = sumsub_request("POST", "/resources/accessTokens/sdk", payload)
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "connected": bool(result.get("token")),
+        "environment": SUMSUB_ENVIRONMENT,
+        "levelName": payload["levelName"],
+        "userId": result.get("userId") or payload["userId"],
+    }
+
+
+@app.post("/api/webhooks/sumsub")
+async def sumsub_webhook(request: Request):
+    raw_body = await request.body()
+    payload_digest = request.headers.get("x-payload-digest", "")
+    payload_digest_alg = request.headers.get("x-payload-digest-alg", "HMAC_SHA256_HEX")
+    signature_valid: Optional[bool] = None
+    if SUMSUB_WEBHOOK_SECRET_KEY:
+        digest_mod = hashlib.sha256
+        if payload_digest_alg == "HMAC_SHA512_HEX":
+            digest_mod = hashlib.sha512
+        elif payload_digest_alg == "HMAC_SHA1_HEX":
+            digest_mod = hashlib.sha1
+        calculated = hmac.new(SUMSUB_WEBHOOK_SECRET_KEY.encode(), raw_body, digest_mod).hexdigest()
+        signature_valid = hmac.compare_digest(calculated, payload_digest)
+        if not signature_valid:
+            raise HTTPException(status_code=401, detail="Invalid Sumsub webhook signature.")
+    try:
+        payload = json.loads(raw_body.decode() or "{}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Sumsub webhook payload.")
+    event_type = str(payload.get("type") or payload.get("applicantType") or "")
+    applicant_id = str(payload.get("applicantId") or payload.get("applicant_id") or "")
+    external_user_id = str(payload.get("externalUserId") or payload.get("external_user_id") or "")
+    review = sumsub_review_from_payload(payload)
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO sumsub_webhook_events(
+                applicant_id, external_user_id, event_type, review_status,
+                review_answer, payload_json, signature_valid, received_at
+            )
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                applicant_id,
+                external_user_id,
+                event_type,
+                review["reviewStatus"],
+                review["reviewAnswer"],
+                json_dumps(payload),
+                None if signature_valid is None else int(signature_valid),
+                int(time.time()),
+            ),
+        )
+        row = None
+        if applicant_id:
+            row = conn.execute(
+                "SELECT * FROM sumsub_kyc_applications WHERE applicant_id=?",
+                (applicant_id,),
+            ).fetchone()
+        if not row and external_user_id:
+            row = conn.execute(
+                "SELECT * FROM sumsub_kyc_applications WHERE external_user_id=?",
+                (external_user_id,),
+            ).fetchone()
+        if row:
+            conn.execute(
+                """
+                UPDATE sumsub_kyc_applications
+                SET status=?, review_status=?, review_answer=?, rejection_reason=?,
+                    last_webhook_json=?, updated_at=?
+                WHERE phone=?
+                """,
+                (
+                    review["status"],
+                    review["reviewStatus"],
+                    review["reviewAnswer"],
+                    review["rejectionReason"],
+                    json_dumps(payload),
+                    int(time.time()),
+                    row["phone"],
+                ),
+            )
+    return {
+        "ok": True,
+        "provider": "sumsub",
+        "received": True,
+        "eventType": event_type,
+        "applicantId": applicant_id,
+        "externalUserId": external_user_id,
+        "reviewStatus": review["reviewStatus"],
+        "reviewAnswer": review["reviewAnswer"],
+        "status": review["status"],
+        "signatureValid": signature_valid,
+    }
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "hypertransfer-auth"}
+    return {
+        "ok": True,
+        "service": "hypertransfer-auth",
+        "sumsubConfigured": sumsub_configured(),
+    }
 
 
 # --------------------------------------------------------------------------- #

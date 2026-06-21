@@ -71,7 +71,7 @@ export default function Setup2FA() {
   const handleCopy = () => {
     navigator.clipboard.writeText(pending.secret);
     setCopied(true);
-    toast.success("密钥已复制");
+    toast.success("Secret key copied.");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -90,7 +90,7 @@ export default function Setup2FA() {
       sessionStorage.setItem(PENDING_REGISTER_KEY, JSON.stringify(next));
       setPending(next);
       setCode("");
-      toast.success("已生成新的二维码,请重新扫码绑定");
+      toast.success("New QR code generated. Please scan it again.");
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -105,7 +105,7 @@ export default function Setup2FA() {
       const { data } = await authApi.confirmTotp(pending.areaCode, pending.phoneNumber, code);
       setSession(data.token, data.user);
       sessionStorage.removeItem(PENDING_REGISTER_KEY);
-      toast.success("双重验证已开启");
+      toast.success("Two-factor authentication enabled.");
       navigate("/kyc");
     } catch (e) {
       toast.error(apiError(e));
@@ -122,7 +122,7 @@ export default function Setup2FA() {
         <div className={`flex items-center justify-center gap-2 text-xs rounded-lg py-2 px-3
           ${expired ? "bg-destructive/10 text-destructive" : remaining <= 60 ? "bg-warning/10 text-warning" : "bg-secondary/40 text-muted-foreground"}`}>
           <Clock className="w-3.5 h-3.5" />
-          {expired ? "绑定已超时,请重新生成二维码" : <>请在 <span className="font-mono font-semibold tabular-nums">{fmtClock(remaining)}</span> 内完成绑定</>}
+          {expired ? "Setup session expired. Generate a new QR code." : <>Complete setup within <span className="font-mono font-semibold tabular-nums">{fmtClock(remaining)}</span></>}
         </div>
 
         {/* 二维码卡片 */}
@@ -134,13 +134,13 @@ export default function Setup2FA() {
                 className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-background font-medium text-xs">
                 <span className="bg-gold rounded-full px-3 py-2 flex items-center gap-1.5 shadow-lg">
                   {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  重新生成
+                  Regenerate
                 </span>
               </button>
             )}
           </div>
           <p className="text-xs text-muted-foreground mb-3 text-center">
-            用验证器 App 扫描上方二维码
+            Scan this QR code with your authenticator app
           </p>
 
           {/* 兼容验证器图标提示 */}
@@ -159,7 +159,7 @@ export default function Setup2FA() {
         <div className="space-y-2">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <KeyRound className="w-3.5 h-3.5" />
-            无法扫码?在 App 里选「手动输入」并粘贴此密钥
+            Can't scan? Choose manual entry in your app and paste this secret key.
           </div>
           <div className="flex items-center gap-2 bg-input rounded-lg px-3 py-2.5">
             <code className="flex-1 font-mono text-sm text-gold tracking-wider break-all">{formattedSecret}</code>
@@ -192,7 +192,7 @@ export default function Setup2FA() {
           <button onClick={handleRegenerate} disabled={regenerating}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2">
             {regenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            重新生成二维码
+            Regenerate QR Code
           </button>
         ) : (
           <button onClick={handleVerify} disabled={code.length < 6 || verifying}
@@ -202,7 +202,7 @@ export default function Setup2FA() {
           </button>
         )}
         <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
-          双重验证是账户安全的必要步骤,无法跳过
+          Two-factor authentication is required for account security.
         </p>
       </div>
     </Shell>
