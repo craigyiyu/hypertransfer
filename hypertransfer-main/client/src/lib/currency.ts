@@ -20,8 +20,6 @@ const EXCHANGE_RATES: Record<string, number> = {
   "USDT/HKD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "HKD")?.rate || "7.80"),
   "USDT/USD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "USD")?.rate || "1.00"),
   "USDC/HKD": parseFloat(HEX_TRUST_FIAT_RATES.find(r => r.currency === "HKD")?.rate || "7.80"),
-  "BTC/HKD": 545000, // ~$70k * 7.8
-  "ETH/HKD": 27300, // ~$3500 * 7.8
   "HKD/USDT": 1 / 7.80,
 };
 
@@ -124,22 +122,8 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
  * These are approximate values; real values would come from the blockchain
  */
 export const NETWORK_FEES: Record<string, number> = {
-  "Ethereum": 2.5,
   "ethereum": 2.5,
-  "Bitcoin": 15.0,
-  "bitcoin": 15.0,
-  "Tron": 0.5,
   "tron": 0.5,
-  "Polygon": 0.1,
-  "polygon": 0.1,
-  "BNB Chain": 0.3,
-  "bsc": 0.3,
-  "Avalanche": 0.2,
-  "avalanche": 0.2,
-  "Arbitrum": 0.1,
-  "arbitrum": 0.1,
-  "Optimism": 0.1,
-  "optimism": 0.1,
 };
 
 export function getNetworkFee(network: string): number {

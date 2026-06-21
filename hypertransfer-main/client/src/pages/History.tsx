@@ -6,11 +6,12 @@ import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, XCircle, ArrowUpRight, Filter, Play, ChevronDown } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, ArrowUpRight, Filter, Play, ChevronDown, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { canProceedToDeposit } from "@/lib/kyc-status";
 import { formatAssetAmount } from "@/lib/currency";
+import { formatNetworkRail } from "@/lib/compliance";
 
 interface SessionGroup {
   sessionId: string;
@@ -171,7 +172,7 @@ export default function History() {
                     <div className="text-left min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-foreground">
-                          {session.asset} on {session.network}
+                          {session.asset} on {formatNetworkRail(session.network)}
                         </p>
                         <span className={`text-xs font-medium capitalize ${statusColor(session.status)}`}>
                           {session.status}
@@ -269,6 +270,13 @@ export default function History() {
                               </p>
                             </div>
                           </div>
+                          <button
+                            onClick={() => navigate("/refund")}
+                            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 py-2 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                            Request Refund
+                          </button>
                         </div>
                       </>
                     )}

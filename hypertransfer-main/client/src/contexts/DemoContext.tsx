@@ -7,6 +7,7 @@ import type {
   VaultBalance,
 } from "@/lib/hex-safe";
 import type { OtcConversion } from "@/lib/treasury-ops";
+import type { RefundRequest } from "@/lib/refund-process";
 
 interface DemoState {
   patronName: string;
@@ -43,6 +44,7 @@ interface DemoState {
   hostName: string;
   hostCode: string;
   otcConversion: OtcConversion | null;
+  refundRequest: RefundRequest | null;
   transactions: Transaction[];
 }
 
@@ -62,6 +64,7 @@ interface DemoContextType {
   state: DemoState;
   updateState: (updates: Partial<DemoState>) => void;
   addTransaction: (tx: Transaction) => void;
+  seedRefundDemo: () => void;
   resetSession: () => void;
   resetAll: () => void;
 }
@@ -104,6 +107,7 @@ const defaultState: DemoState = {
   hostName: "Michael Chen",
   hostCode: "HC-8842",
   otcConversion: null,
+  refundRequest: null,
   transactions: [],
 };
 
@@ -120,6 +124,60 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       transactions: [tx, ...prev.transactions],
+    }));
+  };
+
+  const seedRefundDemo = () => {
+    const now = new Date();
+    const demoMainTx: Transaction = {
+      id: "tx-demo-main-refund-001",
+      type: "main",
+      asset: "USDT",
+      network: "tron",
+      amount: "12500",
+      status: "cleared",
+      date: now.toISOString(),
+      txHash: "0x9f4a1c7b8d63e5f0a2b6c9d4e8f0123456789abcdef0123456789abcdef0123",
+      sessionId: "DEP-DEMO-REFUND-20260621",
+    };
+
+    setState((prev) => ({
+      ...prev,
+      patronName: prev.patronName || "Demo Customer",
+      patronEmail: prev.patronEmail || "demo.user@hypercrypto.com",
+      patronPhone: prev.patronPhone || "+852 9876 5432",
+      kycComplete: true,
+      kyc: {
+        status: "approved",
+        submittedAt: now.toISOString(),
+        retryCount: 0,
+      },
+      selectedAsset: "USDT",
+      selectedNetwork: "tron",
+      sourceWallet: "TX9GxY8p8q6fZJ4dL9b2vQq7jK6mN5pA1B",
+      screeningPassed: true,
+      travelRuleComplete: true,
+      travelRuleStatus: "travel_rule_accepted",
+      travelRuleInfo: {
+        ...prev.travelRuleInfo,
+        address: "One Central, Macau",
+        city: "Macau",
+        country: "MO",
+        sourceOfFunds: "Casino account balance refund",
+        originatorVasp: "Customer self-hosted wallet",
+        provider: "Demo provider reference",
+        providerReference: "TR-DEMO-20260621-001",
+      },
+      depositAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
+      mainDepositAmount: demoMainTx.amount,
+      mainDepositConfirmed: true,
+      testPaymentSent: true,
+      testPaymentConfirmed: true,
+      refundRequest: null,
+      transactions: [
+        demoMainTx,
+        ...prev.transactions.filter((tx) => tx.id !== demoMainTx.id),
+      ],
     }));
   };
 
@@ -145,6 +203,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       mainDepositAmount: "",
       mainDepositConfirmed: false,
       otcConversion: null,
+      refundRequest: null,
     }));
   };
 
@@ -152,7 +211,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
 
   return (
     <DemoContext.Provider
-      value={{ state, updateState, addTransaction, resetSession, resetAll }}
+      value={{ state, updateState, addTransaction, seedRefundDemo, resetSession, resetAll }}
     >
       {children}
     </DemoContext.Provider>

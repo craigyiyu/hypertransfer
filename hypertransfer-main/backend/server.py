@@ -824,6 +824,7 @@ class SumsubKycStartIn(BaseModel):
     city: str = Field(default="", max_length=80)
     levelName: str = Field(default="")
     ttlInSecs: Optional[int] = Field(default=None, ge=60, le=3600)
+    apiOnly: bool = Field(default=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -1136,8 +1137,11 @@ def sumsub_kyc_start(body: SumsubKycStartIn, authorization: Optional[str] = Head
     level_name = body.levelName.strip() or SUMSUB_KYC_LEVEL_NAME
     fixed_info = sumsub_fixed_info_from_kyc(user, body)
     applicant_context = sumsub_ensure_applicant(user, level_name, fixed_info)
-    token_payload = sumsub_access_token_payload(user, level_name, body.ttlInSecs)
-    token_result = sumsub_request("POST", "/resources/accessTokens/sdk", token_payload)
+    token_payload = None
+    token_result = {}
+    if not body.apiOnly:
+        token_payload = sumsub_access_token_payload(user, level_name, body.ttlInSecs)
+        token_result = sumsub_request("POST", "/resources/accessTokens/sdk", token_payload)
     return {
         "ok": True,
         "provider": "sumsub",
@@ -1150,8 +1154,9 @@ def sumsub_kyc_start(body: SumsubKycStartIn, authorization: Optional[str] = Head
         "reviewStatus": applicant_context["review"]["reviewStatus"] or "init",
         "reviewAnswer": applicant_context["review"]["reviewAnswer"],
         "rejectionReason": applicant_context["review"]["rejectionReason"],
-        "token": token_result.get("token"),
-        "expiresIn": token_payload["ttlInSecs"],
+        "token": token_result.get("token", ""),
+        "expiresIn": token_payload["ttlInSecs"] if token_payload else 0,
+        "mode": "api_only" if body.apiOnly else "websdk",
     }
 
 

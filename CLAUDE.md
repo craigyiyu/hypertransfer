@@ -167,7 +167,7 @@ draft
 
 **关键规则**：
 
-- `requiresTravelRule`：`amount >= 8000` 或 `asset ∈ {BTC, ETH}`
+- `requiresTravelRule`：`amount >= 8000`；Phase 1 不处理 BTC / ETH 资产
 - `canIssueAddress`：`status === "travel_rule_pending" && travelRule.status === "submitted"`
 - 失败/EDD 路径**绝不签发地址**
 - `funds_dirty`：`DepositAddress.voided` 应标记为 true，**不得再复用该地址**
@@ -242,7 +242,7 @@ draft
 
 - **HyperTransfer 客户端 Travel Rule 状态枚举**（≠ Wynn Demo）：`not_required` / `travel_rule_required` / `travel_rule_submitted` / `travel_rule_accepted` / `travel_rule_rejected` / `manual_review`
 - **`canIssueAddress` 三条同时满足**才请求 Hex Safe 地址：`KYC approved` + `source wallet KYT passed` + `Travel Rule gate passed`（失败/EDD 绝不发址）
-- **Phase 1 网络白名单**：仅 `USDT on Ethereum/Tron` + `USDC on Ethereum`，其他网络先走例外审批
+- **Phase 1 网络白名单**：仅 `USDT on ERC-20/TRC-20` + `USDC on ERC-20`；BTC / ETH 资产不处理，ERC-20 仅表示稳定币网络 rail
 - **链上确认数**（按链定义，不能承诺 Wynn 自定义值）：EVM 5 confirmations、Tron 4 confirmations
 - **HT Markets OTC**：USDT/USDC ↔ USD 双向兑换，0.50% all-in fee，USD 150 minimum fee
 - **脱锚（depeg）响应**：0.95 触发阈值 → HT Markets 24/7 OTC 通道
@@ -273,7 +273,7 @@ draft
 | **提交 / 查 Travel Rule** | `POST /deposit/submit_travel_rule_details` · `GET /deposit/travel_rule/{traceId}` |
 | VASP 目录 / 支持链 / 资产 | `GET /travel_rule/vasp` · `GET /supported_chains` · `GET /supported_assets` |
 
-**BTC 地址注意**：永久地址 `addressIndex=false, change=false`（只能创建一次）；旋转地址 `addressIndex=true, change=false`。单次入金应用旋转地址。
+**资产口径注意**：Phase 1 不处理 BTC / ETH 资产；退款 / payout 仅在支持的 USDT / USDC 稳定币 rail 内做 destination-wallet KYT、审批、custody transfer 和 txHash 记录。
 
 ### 4.5b 短信网关（Hypervelocity simpleSend）
 

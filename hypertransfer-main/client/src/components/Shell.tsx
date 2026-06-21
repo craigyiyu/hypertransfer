@@ -26,6 +26,7 @@ const STEPS = [
   "/test-payment",
   "/main-deposit",
   "/deposit-success",
+  "/refund",
 ];
 
 interface ShellProps {

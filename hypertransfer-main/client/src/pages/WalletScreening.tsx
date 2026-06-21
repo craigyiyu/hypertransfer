@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Shield, CheckCircle2, XCircle, Loader2 } from "lucide-react";
-import { requiresTravelRule } from "@/lib/compliance";
+import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 
 type ScreeningState = "idle" | "scanning" | "passed" | "failed";
 
@@ -60,7 +60,7 @@ export default function WalletScreening() {
             {state.selectedAsset}
           </div>
           <span>&middot;</span>
-          <span className="capitalize">{state.selectedNetwork} Network</span>
+          <span>{formatNetworkRail(state.selectedNetwork)} rail</span>
         </div>
 
         {/* Wallet input */}

@@ -9,17 +9,18 @@ import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 import { getHKDEquivalent } from "@/lib/currency";
-import { requiresTravelRule } from "@/lib/compliance";
+import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 import { canPassTravelRuleGate } from "@/lib/travel-rule";
 
 // Generate a mock deposit address based on network
 function generateAddress(network: string): string {
   const chars = "0123456789abcdef";
   const rand = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  const tronChars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const randTron = (len: number) =>
+    Array.from({ length: len }, () => tronChars[Math.floor(Math.random() * tronChars.length)]).join("");
   switch (network) {
-    case "tron": return "T" + rand(33);
-    case "bitcoin": return "bc1q" + rand(38);
-    case "solana": return rand(44);
+    case "tron": return "T" + randTron(33);
     default: return "0x" + rand(40);
   }
 }
@@ -67,7 +68,7 @@ export default function DepositAddress() {
             {state.selectedAsset}
           </div>
           <span>&middot;</span>
-          <span className="capitalize">{state.selectedNetwork} Network</span>
+          <span>{formatNetworkRail(state.selectedNetwork)} rail</span>
           <span>&middot;</span>
           <span>{plannedAmount.toLocaleString()} expected</span>
         </div>

@@ -3,10 +3,10 @@
  * This is a blocking step before any deposits can be made.
  * Travel Rule is conditional — shown only during deposit flow when amount > 8,000 USD.
  *
- * Sumsub flow:
+ * Sumsub API flow:
  * 1. User fills HyperTransfer identity summary fields
- * 2. Backend creates a short-lived Sumsub WebSDK access token
- * 3. Sumsub collects document, liveness, and review result
+ * 2. Backend creates or reuses a Sumsub applicant through signed API calls
+ * 3. HyperTransfer shows provider status without embedding Sumsub WebSDK UI
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiError } from "@/lib/api";
 import {
-  launchSumsubWebSdk,
   sumsubApi,
   type SumsubConfig,
   type SumsubKycStatusValue,
@@ -44,7 +43,6 @@ export default function KYC() {
   const [sumsubConfig, setSumsubConfig] = useState<SumsubConfig | null>(null);
   const [sumsubLoading, setSumsubLoading] = useState(true);
   const [sumsubSubmitting, setSumsubSubmitting] = useState(false);
-  const [sumsubMounted, setSumsubMounted] = useState(false);
   const [sumsubMessage, setSumsubMessage] = useState("Checking verification provider configuration...");
   const [applicantId, setApplicantId] = useState("");
 
@@ -110,8 +108,7 @@ export default function KYC() {
       return;
     }
     setSumsubSubmitting(true);
-    setSumsubMounted(true);
-    setSumsubMessage("Creating secure verification session...");
+    setSumsubMessage("Creating Sumsub applicant through the backend API adapter...");
     try {
       const start = await sumsubApi.kycStart({
         nationality,
@@ -119,82 +116,18 @@ export default function KYC() {
         idType,
         idNumber,
         levelName: sumsubConfig.kycLevelName,
-        ttlInSecs: sumsubConfig.webSdkTtlInSecs,
+        apiOnly: true,
       });
       setApplicantId(start.data.applicantId);
-      syncKycState(start.data.status, start.data.rejectionReason, start.data.updatedAt, false);
-      const token = start.data.token;
-      setSumsubMessage("Complete secure document and liveness verification in the Sumsub panel below.");
-      await launchSumsubWebSdk({
-        accessToken: token,
-        containerSelector: "#sumsub-websdk-container",
-        scriptUrl: sumsubConfig.webSdkScriptUrl,
-        refreshAccessToken: refreshSumsubAccessToken,
-        onInitialized: () => setSumsubMessage("Sumsub verification screen is ready."),
-        onApplicantSubmitted: () => {
-          setSumsubMessage("KYC documents submitted to Sumsub. Waiting for provider review.");
-          updateState({
-            kycComplete: false,
-            kyc: {
-              status: "pending",
-              submittedAt: new Date().toISOString(),
-              retryCount: 0,
-            },
-          });
-          setStep("pending");
-        },
-        onApplicantStatusChanged: (payload) => {
-          const status = typeof payload?.reviewStatus === "string" ? payload.reviewStatus : "review status updated";
-          setSumsubMessage(`Sumsub status: ${status}.`);
-        },
-        onApplicantVerificationCompleted: (payload) => {
-          const reviewResult = payload?.reviewResult as { reviewAnswer?: string } | undefined;
-          if (reviewResult?.reviewAnswer === "GREEN") {
-            updateState({
-              kycComplete: true,
-              kyc: { status: "approved", retryCount: 0 },
-            });
-            setStep("approved");
-            return;
-          }
-          if (reviewResult?.reviewAnswer === "RED") {
-            updateState({
-              kycComplete: false,
-              kyc: {
-                status: "rejected",
-                retryCount: 0,
-                rejectionReason: "Sumsub did not approve this verification.",
-                lastRejectionAt: new Date().toISOString(),
-              },
-            });
-            navigate("/kyc-status");
-            return;
-          }
-          updateState({
-            kycComplete: false,
-            kyc: { status: "pending", retryCount: 0 },
-          });
-          setStep("pending");
-        },
-        onError: (payload) => {
-          const error = typeof payload?.error === "string" ? payload.error : "Sumsub WebSDK error.";
-          setSumsubMessage(error);
-        },
-      });
+      setSumsubMessage(
+        `Sumsub API applicant created. Review status: ${start.data.reviewStatus || start.data.status}.`,
+      );
+      syncKycState(start.data.status, start.data.rejectionReason, start.data.updatedAt);
     } catch (err) {
       setSumsubMessage(apiError(err));
-      setSumsubMounted(false);
     } finally {
       setSumsubSubmitting(false);
     }
-  };
-
-  const refreshSumsubAccessToken = async () => {
-    const res = await sumsubApi.accessToken({
-      levelName: sumsubConfig?.kycLevelName,
-      ttlInSecs: sumsubConfig?.webSdkTtlInSecs,
-    });
-    return res.data.token;
   };
 
   const syncKycState = (
@@ -247,7 +180,8 @@ export default function KYC() {
             <div className="space-y-2">
               <h2 className="text-xl font-bold text-warning">KYC Pending Review</h2>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
-                Your documents have been submitted successfully. Our compliance team will review your application.
+                Your Sumsub applicant profile has been created through HyperTransfer's backend API adapter.
+                The review status will update through provider API polling or webhook events.
               </p>
             </div>
 
@@ -272,7 +206,7 @@ export default function KYC() {
                 className="w-4 h-4 border-2 border-gold/30 border-t-gold rounded-full shrink-0"
               />
               <div className="flex-1 text-left">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Sumsub Review</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Sumsub API Status</p>
                 <p className="text-xs text-foreground">
                   Waiting for provider result or webhook update{applicantId ? ` (${applicantId})` : ""}.
                 </p>
@@ -332,7 +266,7 @@ export default function KYC() {
                   : "border-warning/30 bg-warning/10 text-warning"
               }`}
             >
-            {sumsubConfig?.configured ? "ready" : "setup pending"}
+            {sumsubConfig?.configured ? "API ready" : "setup pending"}
             </span>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -400,25 +334,25 @@ export default function KYC() {
           />
         </div>
 
-        {/* Sumsub document capture */}
+        {/* Sumsub API submission summary */}
         <div className="space-y-3">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <FileText className="w-3 h-3" /> Document Verification
+            <FileText className="w-3 h-3" /> Provider API Submission
           </Label>
 
           <div className="w-full rounded-xl border-2 border-dashed border-border p-4 flex items-center gap-3">
             <FileText className="w-5 h-5 text-muted-foreground" />
             <div className="text-left">
-              <p className="text-sm text-foreground">ID Document Capture</p>
-              <p className="text-[10px] text-muted-foreground">Passport, ID card, or driver's license is collected securely in Sumsub.</p>
+              <p className="text-sm text-foreground">Applicant Record</p>
+              <p className="text-[10px] text-muted-foreground">HyperTransfer backend creates or reuses a Sumsub applicant through signed API calls.</p>
             </div>
           </div>
 
           <div className="w-full rounded-xl border-2 border-dashed border-border p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-muted-foreground" />
             <div className="text-left">
-              <p className="text-sm text-foreground">Liveness Check</p>
-              <p className="text-[10px] text-muted-foreground">Face match and selfie verification are handled by Sumsub after submit.</p>
+              <p className="text-sm text-foreground">Status Sync</p>
+              <p className="text-[10px] text-muted-foreground">Review status is pulled from Sumsub API and can also be updated by webhook.</p>
             </div>
           </div>
         </div>
@@ -433,15 +367,6 @@ export default function KYC() {
             Submit for Verification
           </button>
         </div>
-
-        {sumsubMounted && (
-          <div className="rounded-xl border border-border/60 bg-secondary/20 p-2">
-            <div
-              id="sumsub-websdk-container"
-              className="min-h-[420px] overflow-hidden rounded-lg bg-background/80"
-            />
-          </div>
-        )}
       </div>
     </Shell>
   );

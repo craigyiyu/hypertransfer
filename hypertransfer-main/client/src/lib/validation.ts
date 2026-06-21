@@ -56,17 +56,17 @@ export const validateWalletAddress = (address: string, network?: string): Valida
     return { valid: false, error: "Wallet address is required" };
   }
 
-  // Ethereum/EVM addresses
-  if (network === "ethereum" || network === "bsc" || network === "polygon" || network === "tron") {
+  // ERC-20/EVM addresses
+  if (network === "ethereum" || network === "bsc" || network === "polygon") {
     if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      return { valid: false, error: "Invalid Ethereum address format" };
+      return { valid: false, error: "Invalid ERC-20 address format" };
     }
   }
 
-  // Bitcoin addresses
-  if (network === "bitcoin") {
-    if (!/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^bc1[a-z0-9]{39,59}$/.test(address)) {
-      return { valid: false, error: "Invalid Bitcoin address format" };
+  // Tron/TRC-20 addresses
+  if (network === "tron") {
+    if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) {
+      return { valid: false, error: "Invalid Tron address format" };
     }
   }
 

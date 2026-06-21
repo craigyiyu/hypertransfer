@@ -279,7 +279,7 @@ Ask Sumsub HK sales:
 - What are the exact WebSDK level names available in this account?
 - Does the trial include Travel Rule sandbox data exchange and VASP directory testing?
 - Which blockchain analytics provider is included by default for Crypto Monitoring?
-- Supported chains/assets for USDT Ethereum, USDT Tron, and USDC Ethereum.
+- Supported chains/assets for USDT ERC-20, USDT TRC-20, and USDC ERC-20; BTC and ETH assets are excluded from Phase 1.
 - Travel Rule pricing model: per transaction, monthly platform fee, VASP directory fee, protocol fee, or bundle.
 - KYC pricing model: per applicant, per document, per liveness, AML recurring monitoring.
 - Device Intelligence pricing model.

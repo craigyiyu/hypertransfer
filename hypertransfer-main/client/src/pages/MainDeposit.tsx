@@ -14,7 +14,7 @@ import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
-import { getRequiredConfirmations, requiresTravelRule } from "@/lib/compliance";
+import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule } from "@/lib/compliance";
 import {
   createCustodyLogs,
   createHexSafeStatus,
@@ -160,7 +160,7 @@ export default function MainDeposit() {
           </div>
           <span>&middot;</span>
           <div className="px-2 py-1 rounded-md bg-gold/10 text-gold text-[10px] font-medium">
-            <span className="capitalize">{state.selectedNetwork}</span> Network
+            <span>{formatNetworkRail(state.selectedNetwork)}</span> rail
           </div>
           {(phase === "main_input" || phase === "main_monitoring" || phase === "main_confirming" || phase === "main_confirmed") && (
             <>
@@ -212,7 +212,7 @@ export default function MainDeposit() {
                 </button>
               </div>
               <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 pt-1">
-                <span>{state.selectedNetwork} network only</span>
+                <span>{formatNetworkRail(state.selectedNetwork)} rail only</span>
                 <span>≈ {getHKDEquivalent("1", state.selectedAsset)}</span>
               </div>
             </div>

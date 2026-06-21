@@ -1,4 +1,6 @@
 export const TRAVEL_RULE_THRESHOLD_USD = 8000;
+export const SUPPORTED_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
+export type SupportedPhaseOneAsset = (typeof SUPPORTED_PHASE_ONE_ASSETS)[number];
 
 export const PHASE_ONE_NETWORKS: Record<
   string,
@@ -7,29 +9,29 @@ export const PHASE_ONE_NETWORKS: Record<
   USDT: [
     {
       id: "ethereum",
-      name: "Ethereum (ERC-20)",
+      name: "ERC-20 stablecoin rail",
       fee: "~$5-15",
       time: "~5 min",
       confirmations: 5,
-      note: "Hex Trust Phase 1 recommended",
+      note: "USDT token only; ETH asset is not supported",
     },
     {
       id: "tron",
-      name: "Tron (TRC-20)",
+      name: "TRC-20 stablecoin rail",
       fee: "~$1",
       time: "~3 min",
       confirmations: 4,
-      note: "Hex Trust Phase 1 recommended",
+      note: "USDT token only",
     },
   ],
   USDC: [
     {
       id: "ethereum",
-      name: "Ethereum (ERC-20)",
+      name: "ERC-20 stablecoin rail",
       fee: "~$5-15",
       time: "~5 min",
       confirmations: 5,
-      note: "Hex Trust Phase 1 recommended",
+      note: "USDC token only; ETH asset is not supported",
     },
   ],
 };
@@ -54,8 +56,18 @@ export function getRequiredConfirmations(network: string) {
   return network === "tron" ? 4 : 5;
 }
 
-export function requiresTravelRule(asset: string, amount: number) {
-  return amount >= TRAVEL_RULE_THRESHOLD_USD || asset === "BTC" || asset === "ETH";
+export function formatNetworkRail(network: string) {
+  if (network === "tron") return "TRC-20";
+  if (network === "ethereum") return "ERC-20";
+  return network || "pending";
+}
+
+export function isSupportedPhaseOneAsset(asset: string): asset is SupportedPhaseOneAsset {
+  return SUPPORTED_PHASE_ONE_ASSETS.includes(asset as SupportedPhaseOneAsset);
+}
+
+export function requiresTravelRule(_asset: string, amount: number) {
+  return amount >= TRAVEL_RULE_THRESHOLD_USD;
 }
 
 export function calculateOtcFee(amountUsd: number) {

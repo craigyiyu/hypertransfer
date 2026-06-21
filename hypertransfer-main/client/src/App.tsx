@@ -27,6 +27,7 @@ import DepositAddress from "./pages/DepositAddress";
 import TestPayment from "./pages/TestPayment";
 import MainDeposit from "./pages/MainDeposit";
 import DepositSuccess from "./pages/DepositSuccess";
+import RefundProcess from "./pages/RefundProcess";
 import CasinoOpsPortal from "./pages/CasinoOpsPortal";
 import History from "./pages/History";
 import Support from "./pages/Support";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/test-payment" component={guard(TestPayment)} />
       <Route path="/main-deposit" component={guard(MainDeposit)} />
       <Route path="/deposit-success" component={guard(DepositSuccess)} />
+      <Route path="/refund" component={guard(RefundProcess)} />
       {/* Staff operations portal. Kept out of customer navigation. */}
       <Route path="/casino-ops" component={guard(CasinoOpsPortal)} />
       <Route path="/treasury-controls" component={guard(CasinoOpsPortal)} />

@@ -25,7 +25,7 @@ The diagram is organized as a professional stage-gate flow so a client can see b
 |---|---|
 | 1. Account Access and MFA | New users register with SMS OTP, bind authenticator-based TOTP, and receive recovery codes. Returning users log in through password + TOTP/recovery-code verification. |
 | 2. KYC and Customer Eligibility | Customer identity data is collected, checked by a KYC provider or existing casino KYC system, and finalized by Wynn policy. Pending/EDD and blocked paths are shown explicitly. |
-| 3. Deposit Setup | The customer selects a Phase 1 supported asset/network, enters the expected amount, and the backend creates a DepositRequest. Phase 1 should default to USDT on Ethereum/Tron and USDC on Ethereum. |
+| 3. Deposit Setup | The customer selects a Phase 1 supported asset/network, enters the expected amount, and the backend creates a DepositRequest. Phase 1 should default to USDT on ERC-20/TRC-20 and USDC on ERC-20. BTC and ETH assets are excluded. |
 | 4. Source Wallet KYT | The customer enters the source wallet and HyperTransfer screens it before address issuance. EDD/Fail paths do not receive a deposit address until manual review clears. |
 | 5. Travel Rule Gate | HyperTransfer / WML collects and gates Travel Rule data before address issuance when required by threshold, policy, or jurisdiction. Provider options include Hex Trust/Sumsub if contractually enabled, or Notabene/Sygna/TRP. |
 | 6. Hex Safe Address and Wallet Ownership Verification | The backend requests or retrieves a Hex Safe deposit address through the custody adapter and the customer sends a 1-unit verification deposit to prove wallet ownership and session match. |
@@ -36,14 +36,34 @@ The diagram is organized as a professional stage-gate flow so a client can see b
 
 1. **Account security gate**: SMS OTP + password + authenticator TOTP/recovery-code MFA.
 2. **KYC gate**: customer must have an approved KYC status before deposit activity proceeds.
-3. **Phase 1 network gate**: supported production defaults should be USDT on Ethereum/Tron and USDC on Ethereum, unless a manual exception is approved.
+3. **Phase 1 network gate**: supported production defaults should be USDT on ERC-20/TRC-20 and USDC on ERC-20. BTC and ETH assets are not processed in Phase 1.
 4. **Pre-deposit KYT gate**: source wallet must pass screening; EDD and Fail paths do not auto-proceed.
 5. **Travel Rule gate**: HyperTransfer / WML enforces the gate before address issuance. Hex Trust/Sumsub may be used if contractually enabled; otherwise a third-party provider such as Notabene/Sygna/TRP should be used.
 6. **Wallet ownership gate**: a 1-unit verification deposit confirms that the source wallet and session address match.
 7. **Confirmation gate**: Hex Trust confirmation thresholds are chain-defined, not Wynn-customized; EVM chains use 5 confirmations and Tron uses 4 confirmations.
 8. **Transaction KYT gate**: the real incoming txHash is screened after funds arrive; pre-deposit wallet KYT does not replace transaction-level screening.
 9. **Treasury settlement / OTC gate**: clear USDC/USDT funds settle to WTA, while conversion or depeg liquidation goes through HT Markets OTC and treasury approval.
-10. **Payout gate**: refunds/payouts require destination-wallet screening, approval, policy checks, signing, and broadcast.
+10. **Refund / payout gate**: refunds/payouts require authenticated destination-wallet collection, destination-wallet KYT, treasury/compliance approval, policy checks, custody signing, broadcast, webhook completion, reconciliation, and audit evidence.
+
+## Refund Process Update
+
+Refund is treated as a payout / withdrawal workflow rather than a simple reversal. HyperTransfer should not blindly return funds to the original source address, because exchange or pooled-wallet source addresses may not map cleanly back to the customer. The customer must confirm a refund destination wallet through an authenticated one-time flow, and the destination must be validated and screened before treasury approval.
+
+Recommended refund sequence:
+
+```text
+Customer/support opens refund request
+-> Link to original DepositRequest / txHash
+-> Confirm Phase 1 stablecoin asset/network
+-> Customer submits refund destination wallet
+-> Validate ERC-20/TRC-20 format
+-> Run destination-wallet KYT
+-> Pass / manual review / reject
+-> Treasury + compliance approval
+-> Hex Safe custody transfer / signing / broadcast
+-> Webhook or polling confirms completion
+-> Record txHash, reconcile, notify customer, close case
+```
 
 ## Notes for Client Conversation
 

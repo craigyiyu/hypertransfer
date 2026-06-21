@@ -26,9 +26,11 @@
 - `hypertransfer-main/docker-compose.yml`：HyperTransfer 前端 nginx + FastAPI backend + SQLite volume 容器编排。
 - `hypertransfer-main/client/src/lib/compliance.ts`：HyperTransfer Phase 1 网络、Travel Rule threshold、链上确认数、HT Markets OTC fee calculator。
 - `hypertransfer-main/client/src/lib/travel-rule.ts`：Travel Rule 数据模型、状态机、provider adapter mock；后续接 Hex Trust/Sumsub/Notabene/Sygna/TRP 先从这里扩展。
-- `hypertransfer-main/client/src/lib/sumsub.ts`：Sumsub WebSDK 2.0 前端加载、KYC applicant start/status、access-token API 客户端、connection test API 客户端；不保存或暴露 app secret。
+- `hypertransfer-main/client/src/lib/refund-process.ts`：Refund / payout 数据模型、状态机、destination-wallet KYT mock、treasury approval mock、Hex Safe payout mock。
+- `hypertransfer-main/client/src/lib/sumsub.ts`：Sumsub KYC applicant start/status、access-token、connection test API 客户端；KYC 当前走 API-only demo，不在客户页嵌入 Sumsub WebSDK；不保存或暴露 app secret。
 - `hypertransfer-main/client/src/lib/hex-safe.ts`：Hex Safe deposit status、confirmation count、vault balance、transaction logs 的 mock API/webhook 模型。
 - `hypertransfer-main/client/src/lib/treasury-ops.ts`：OTC conversion、depeg liquidation、reconciliation、Macau access exclusion、custody evidence 的后台运营 mock 模型。
+- `hypertransfer-main/client/src/pages/RefundProcess.tsx`：客户侧 Refund Request 页面，路由 `/refund`；客户确认退款原因和 destination wallet，跑 refund KYT 后提交 treasury approval。
 - `hypertransfer-main/client/src/pages/CasinoOpsPortal.tsx`：澳门赌场工作人员后台运营站点，路由 `/casino-ops`；承载 WTA settlement、HT Markets OTC、depeg、Hex Safe webhook/API、reconciliation、Macau access exclusion、Hex Trust custody evidence。
 - `hypertransfer-main/backend/server.py`：HyperTransfer 认证后端原型，FastAPI + SQLite，含短信 OTP、TOTP、恢复码、会话。
 - `hypertransfer-auth-demo/`：早期独立认证 H5 原型。
@@ -37,6 +39,10 @@
 - `ProjectInfo/HyperTransfer_One Page Process Map_v1.pptx`：HyperTransfer one-page process map 的可编辑 PPT 源文件。
 - `ProjectInfo/HyperTransfer_One Page Process Map_v1.pdf`：HyperTransfer one-page process map 的 PDF 交付/转发版本。
 - `ProjectInfo/Sumsub-Trial-Integration-Assessment.md`：Sumsub trial 能力、HyperTransfer 接入架构、难度评估与 sales 会议问题；评估 KYC、AML、Device Intelligence、Questionnaire、Transaction Monitoring、Travel Rule、Crypto Monitoring、Case Management 等模块时先看这里。
+- `ProjectInfo/Refund-Process-Research-and-Design.md`：Refund Process 的内部资料依据、公开市场参考、HyperTransfer 采用方案、状态机和产品/后台改动；解释为什么不默认退回原付款地址。
+- `ProjectInfo/HyperTransfer_Refund_Process_Security_v1.pptx`：英文客户版 Refund Process Security Controls PPT，覆盖 refund request、destination KYT、treasury approval、Hex Safe payout、webhook/reconciliation/audit。
+- `ProjectInfo/HyperTransfer_Refund_Process_Security_v2.pptx`：优化版英文客户 PPT，采用更清爽的浅色咨询材料风格，修正 v1 过暗、留白过大和局部版式松散问题。
+- `ProjectInfo/HyperTransfer_Refund_Process_Security_v3.pptx`：PowerPoint 安全版英文客户 PPT，按 Microsoft PowerPoint 实际渲染风险重新加大行高、文本框高度和卡片留白。
 - `ClientMeetings/`：客户会议材料与报价。最新会议纪要：`ClientMeetings/2026-06-05-Crypto-Compliance-KYC-Rollout-Meeting-Notes.md`。
 - `CompanyPlan/`：香港商业化方案、牌照路线与第三方服务成本。
 
@@ -75,18 +81,20 @@ Wynn Demo 核心流程：
 
 Deposit 状态机要点：
 
-- `requiresTravelRule`：`amount >= 8000` 或资产为 `BTC` / `ETH`。
+- `requiresTravelRule`：`amount >= 8000`；BTC / ETH 资产不在 Phase 1 支持范围内，不再作为 Travel Rule 触发资产。
 - Travel Rule status 使用 `not_required`、`travel_rule_required`、`travel_rule_submitted`、`travel_rule_accepted`、`travel_rule_rejected`、`manual_review`。
 - `canIssueAddress`：必须同时满足 `KYC approved`、`source wallet KYT passed`、`Travel Rule gate passed`，才能请求 Hex Safe 地址。
 - `fail` / `edd` 路径绝不签发地址。
 - 到账后 KYT 为 dirty 时进入 `funds_dirty`，开 urgent compliance case，并作废收款地址。
 - Pre-deposit wallet screening 不能替代到账后的 transaction KYT。
-- HyperTransfer 客户端 Phase 1 默认只开放 `USDT on Ethereum/Tron` 与 `USDC on Ethereum`；其他网络先走例外审批。
+- HyperTransfer 客户端 Phase 1 默认只开放 `USDT on ERC-20/TRC-20` 与 `USDC on ERC-20`；BTC 和 ETH 资产不处理。注意 ERC-20 是稳定币网络 rail，不代表支持 ETH 资产。
+- Refund / payout 是 treasury-controlled withdrawal flow：客户侧只创建 refund request 并提交 destination wallet；后台必须做 destination-wallet KYT、treasury/compliance approval、Hex Safe custody transfer、webhook/polling completion、reconciliation 和 audit。
+- 不要默认把退款直接打回 original source address；CEX pooled wallet 场景可能导致客户无法自动入账。必须使用客户认证会话确认的 refund destination，除非后续合规批准单独 auto-refund 策略。
 - HyperTransfer 客户端是澳门赌场客户/玩家使用的入金产品，不暴露 WTA、OTC、Hex Safe webhook/API、Macau operator access、custody controls evidence 等后台运营控制。
 - 赌场工作人员后台运营能力放在 `/casino-ops`，旧 `/treasury-controls` 仅作为后台别名保留；不要从客户 Dashboard 或 Deposit Success 链接过去。
 - Travel Rule gate 必须在 Hex Safe 地址签发前由 HyperTransfer / WML 执行；Hex Trust/Sumsub 可以作为 provider 选项，但不要假设当前香港 Hex Trust Limited 合同下平台层会自动 hard-freeze 等待 TR。
 - Sumsub trial 当前仅作为候选合规 provider 评估；可覆盖 KYC、AML screening、questionnaire、Device Intelligence、Transaction Monitoring、Travel Rule、Crypto Monitoring、Case Management 等能力，但不得替代 Hex Trust / Hex Safe 的托管、vault、地址签发和链上 webhook 边界。
-- Sumsub KYC applicant 是 Sumsub 侧的被验证人档案；HyperTransfer 用户通过后端映射到一个 deterministic `externalUserId` 和一个 Sumsub `applicantId`，前端只拿短期 WebSDK token。
+- Sumsub KYC applicant 是 Sumsub 侧的被验证人档案；HyperTransfer 用户通过后端映射到一个 deterministic `externalUserId` 和一个 Sumsub `applicantId`。当前客户页走 API-only demo：后端创建/复用 applicant 并拉取 status，前端不嵌入 Sumsub WebSDK 面板；access-token API 仅保留给连接测试或未来可选 WebSDK 模式。
 - Hex Trust 链上确认门槛按链定义，不能承诺 Wynn 自定义确认数；当前客户回复口径为 EVM 5 confirmations、Tron 4 confirmations。
 - HT Markets OTC 可做 USDT/USDC 与 USD 双向兑换；客户回复口径为 0.50% all-in fee、USD 150 minimum fee。
 
@@ -158,6 +166,7 @@ Provider adapter 约定：
 - `http://127.0.0.1:3003/deposit-address`：Hex Safe 地址签发前的客户提示页。
 - `http://127.0.0.1:3003/main-deposit`：客户 1-unit verification deposit + main deposit 合并流程。
 - `http://127.0.0.1:3003/deposit-success`：客户入金成功页，保留客户下一步提示，不暴露后台 Treasury controls。
+- `http://127.0.0.1:3003/refund`：客户退款请求页；从已完成 deposit 创建 refund case，收集 refund reason 和 destination wallet，跑 refund destination KYT，并提交后台审批。
 - `http://127.0.0.1:3003/history`：客户交易历史。
 - `http://127.0.0.1:3003/support`：客户支持页。
 - `http://127.0.0.1:3003/settings`：客户 profile / settings。
@@ -179,6 +188,202 @@ Provider adapter 约定：
 - 新增 / 修改 / 删除的关键代码文件。
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
+
+### 2026-06-21 Sumsub API-Only KYC Demo And Refund Demo Seed
+
+测试入口：
+
+- 客户 KYC：`http://127.0.0.1:3003/kyc`
+- 客户 Refund：`http://127.0.0.1:3003/refund`
+- 赌场工作人员后台 refund queue：`http://127.0.0.1:3003/casino-ops`
+
+客户端更新：
+
+- KYC 页不再嵌入 Sumsub WebSDK / Sumsub panel。
+- KYC Submit 改为 API-only demo：客户仍在 HyperTransfer 自有页面填写字段，前端调用后端 `/api/sumsub/kyc/start`，后端用 signed API 创建/复用 Sumsub applicant 并返回 applicantId / reviewStatus。
+- KYC pending 页文案改为 `Sumsub API Status`，展示 provider API / webhook status，不再描述成客户在 Sumsub 面板内完成文档采集。
+- Refund 空态新增 `Load Demo Refund Case`，一键注入 12,500 USDT TRC-20 cleared deposit、source wallet、Travel Rule accepted、KYC approved 等测试上下文。
+- Refund 地址输入区新增 `Use Demo TRC-20/ERC-20 Wallet`，便于直接触发 destination KYT pass。
+- Refund approval pending 状态新增 `Open Staff Approval Demo`，直接跳 `/casino-ops` 完成 staff approve / broadcast。
+
+后端更新：
+
+- `POST /api/sumsub/kyc/start` 新增 `apiOnly` 参数。
+- `apiOnly=true` 时只创建/复用 applicant、更新 fixedInfo、拉取 review status，不生成 WebSDK access token；响应返回 `mode=api_only`、`token=""`、`expiresIn=0`。
+- `apiOnly=false` 保留旧 WebSDK token 模式，供 connection test 或未来可选模式使用。
+
+关键代码文件：
+
+- 修改 `hypertransfer-main/backend/server.py`。
+- 修改 `hypertransfer-main/client/src/lib/sumsub.ts`。
+- 修改 `hypertransfer-main/client/src/pages/KYC.tsx`。
+- 修改 `hypertransfer-main/client/src/contexts/DemoContext.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/RefundProcess.tsx`。
+
+验证结果：
+
+- `cd hypertransfer-main && corepack pnpm run check`：通过。
+- `cd hypertransfer-main && corepack pnpm run build`：通过；Vite 仍有 chunk size warning。
+- `cd hypertransfer-main/backend && ./.venv/bin/python -m py_compile server.py`：通过。
+- 本地后端 `GET /api/health`：通过，`sumsubConfigured=true`。
+- `POST /api/sumsub/kyc/start` with `apiOnly=true`：通过，返回真实 sandbox `applicantId`、`reviewStatus=init`、`mode=api_only`、`token=""`。
+- 路由 smoke：`/refund`、`/kyc`、`/casino-ops` 均返回 200。
+
+已知限制：
+
+- API-only demo 当前只验证 Sumsub applicant / fixedInfo / status API 链路，不在客户页采集证件影像或 liveness。
+- 如生产坚持完全自有 UI，需要后续开发文件上传、影像采集、活体检测/face match 的原生采集链路，并按 Sumsub 对应 API 和合规要求上传材料。
+- Refund demo seed 是前端内存测试数据，刷新页面或 reset 后会消失；真实生产仍需后端订单、退款和审计持久化。
+
+### 2026-06-21 Stablecoin-Only Assets and Refund Process
+
+测试入口：
+
+- 客户入金：`http://127.0.0.1:3003/new-deposit`
+- 客户退款：`http://127.0.0.1:3003/refund`
+- 交易历史退款入口：`http://127.0.0.1:3003/history`
+- 入金成功页退款入口：`http://127.0.0.1:3003/deposit-success`
+- 赌场工作人员后台 refund queue：`http://127.0.0.1:3003/casino-ops`
+
+客户端更新：
+
+- Phase 1 客户可见资产继续只保留 USDT / USDC；BTC 和 ETH 资产不处理。
+- 客户可见网络文案改为 `ERC-20 stablecoin rail` / `TRC-20 stablecoin rail`，避免误解成 ETH 资产支持。
+- Travel Rule 触发逻辑改为只看 `amount >= 8000`；不再因为 BTC / ETH 资产自动触发，因为这两个资产已不在支持范围内。
+- Deposit Success 新增 `Request Refund` 入口。
+- History 的 completed main deposit 明细新增 `Request Refund` 入口。
+- 新增 `/refund` 客户侧退款页：
+  - 读取已完成 deposit 的 original txHash / sessionId / amount / asset / network。
+  - 客户选择 refund reason。
+  - 客户提交同一稳定币 rail 的 destination wallet。
+  - ERC-20 / TRC-20 地址格式校验。
+  - Refund destination KYT mock：pass / manual review / reject。
+  - KYT pass 后提交 treasury approval，客户侧显示 pending / completed / rejected / manual review 状态。
+- Support FAQ 更新为 Phase 1 只支持 USDT/USDC 稳定币 rail，并加入 refund 说明。
+
+工作人员后台更新：
+
+- `/casino-ops` 新增 `Customer refund queue`。
+- 后台可查看 refund amount、status、destination wallet、original txHash、KYT decision、audit trail。
+- 后台新增 mock 操作：`Submit Approval`、`Approve`、`Broadcast`。
+- Broadcast 会生成 mock Hex Safe transferId / payout txHash，并将 refund case 标记为 completed。
+
+业务规则 / 资料更新：
+
+- 新增 `ProjectInfo/Refund-Process-Research-and-Design.md`，整理内部资料依据和公开市场参考。
+- Refund 不作为简单 reversal；它是 payout / withdrawal flow。
+- 不默认退回 original source address；客户必须通过认证会话确认 refund destination，避免 CEX pooled wallet 场景造成资金归属问题。
+- Refund 必须经过 destination-wallet KYT、treasury/compliance approval、custody transfer、webhook/polling completion、reconciliation、audit。
+- `ClientMeetings/2026-06-08-HyperTransfer-Complete-Process-Flow.md` 更新 Phase 1 资产/网络口径和 Refund Process。
+
+关键代码文件：
+
+- 新增 `hypertransfer-main/client/src/lib/refund-process.ts`。
+- 新增 `hypertransfer-main/client/src/pages/RefundProcess.tsx`。
+- 修改 `hypertransfer-main/client/src/App.tsx`。
+- 修改 `hypertransfer-main/client/src/components/Shell.tsx`。
+- 修改 `hypertransfer-main/client/src/contexts/DemoContext.tsx`。
+- 修改 `hypertransfer-main/client/src/lib/compliance.ts`。
+- 修改 `hypertransfer-main/client/src/lib/currency.ts`。
+- 修改 `hypertransfer-main/client/src/lib/validation.ts`。
+- 修改 `hypertransfer-main/client/src/pages/DepositAddress.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/DepositSuccess.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/History.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/Support.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/WalletScreening.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/MainDeposit.tsx`。
+- 修改 `hypertransfer-main/client/src/pages/CasinoOpsPortal.tsx`。
+- 新增 `ProjectInfo/Refund-Process-Research-and-Design.md`。
+- 修改 `ClientMeetings/2026-06-08-HyperTransfer-Complete-Process-Flow.md`。
+
+验证结果：
+
+- `cd hypertransfer-main && corepack pnpm run check`：通过。
+- `cd hypertransfer-main && corepack pnpm run build`：通过；Vite 仍有 chunk size warning。
+- 浏览器 smoke：
+  - `/new-deposit`：只显示 USDT / USDC；未显示 BTC / ETH 资产；网络显示 ERC-20 / TRC-20 stablecoin rail。
+  - `/refund`：在未完成 deposit 的当前浏览器状态下正确显示 `No refundable deposit found` 和 `Return to Dashboard`。
+  - `/casino-ops`：显示 `Customer refund queue`，无 active refund 时显示空队列说明。
+  - Console error/warn：0。
+- 浏览器截图捕获两次因 in-app browser CDP screenshot timeout 未成功；DOM / console 验证通过。
+
+已知限制：
+
+- Refund 当前为前端 deterministic mock，未接真实 Hex Safe withdrawal / custody transfer API。
+- Destination KYT 当前为 mock adapter；生产需接 Chainalysis/TRM/Elliptic/Sumsub Crypto Monitoring 或 Hex Safe 可用能力。
+- 当前只支持针对最近完成 deposit 的 refund demo；生产需要多笔订单选择、部分退款、拒绝/取消/重开地址链接、通知模板和真实 audit export。
+
+### 2026-06-21 Refund Process Security PPT
+
+资料更新：
+
+- 新增 `ProjectInfo/HyperTransfer_Refund_Process_Security_v1.pptx`。
+- PPT 为英文客户版，共 11 页，主题为 `Refund Process Security Controls`。
+- 内容覆盖：
+  - Refund is a controlled payout, not a blockchain reversal。
+  - No blind auto-return to original source address。
+  - Refund request 与 original DepositRequest / txHash 绑定。
+  - Phase 1 only USDT / USDC on ERC-20 / TRC-20 rails。
+  - Customer-confirmed refund destination。
+  - ERC-20 / TRC-20 address validation。
+  - Destination-wallet KYT pass / manual review / reject。
+  - Treasury/compliance approval、RBAC、maker-checker、Macau access exclusion。
+  - Hex Safe custody payout、transferId、txHash。
+  - Webhook / polling、reconciliation、audit pack。
+  - Current prototype vs production integration gap。
+- Reference basis slide 纳入内部项目资料和 BitPay、Crypto.com Pay、Cobo、BVNK、Coinbase 公开 refund guidance。
+
+验证结果：
+
+- 使用 artifact-tool 生成 PPTX，并导出 11 页 PNG 预览。
+- 已检查 contact sheet、Slide 1、Slide 3、Slide 7、Slide 11 原尺寸预览。
+- Layout JSON 越界检查：0 个 out-of-bounds element。
+- 未改产品代码；无需运行 `corepack pnpm run check` / `corepack pnpm run build`。
+
+### 2026-06-21 Refund Process Security PPT v2 Style Optimization
+
+资料更新：
+
+- 新增 `ProjectInfo/HyperTransfer_Refund_Process_Security_v2.pptx`，作为优化后的客户展示版本。
+- 保留 `ProjectInfo/HyperTransfer_Refund_Process_Security_v1.pptx` 便于对比和回滚。
+
+版式优化：
+
+- 从 v1 的深色大画布改为浅色咨询材料风格，整体更像客户会议材料。
+- 重做封面、security stance、end-to-end control map、request eligibility、approval、execution、reconciliation 等 11 页版式。
+- 修正原截图中第 4 页大面积空框、内容松散、视觉重心失衡的问题。
+- 减少无信息留白，改用紧凑卡片、表格、流程块和底部 evidence / guardrail 条。
+- 保持英文客户版文案，继续强调 `USDT / USDC only`、`BTC and ETH are excluded`、refund 是 controlled custody payout 而不是 blockchain reversal。
+
+验证结果：
+
+- 使用 artifact-tool 重新生成 PPTX，并导出 11 页 PNG 预览。
+- 已检查全页 contact sheet，并单独查看 Slide 1、Slide 4、Slide 7 原尺寸预览。
+- Layout JSON 越界检查：0 个 out-of-bounds element。
+- 未改产品代码；无需运行 `corepack pnpm run check` / `corepack pnpm run build`。
+
+### 2026-06-21 Refund Process Security PPT v3 PowerPoint Layout Fix
+
+资料更新：
+
+- 新增 `ProjectInfo/HyperTransfer_Refund_Process_Security_v3.pptx`，作为 Microsoft PowerPoint 安全版。
+- 未覆盖 v2，避免用户已打开 PowerPoint 文件时产生自动保存冲突；v1 / v2 继续保留用于对比。
+
+版式优化：
+
+- 全 deck 重新调整文本框高度、卡片高度、表格行高和左右留白，按 PowerPoint 可能更高的文字渲染来留安全空间。
+- Slide 7 `Treasury and compliance approval` 重点修复：左侧 evidence 行从紧凑行改为 72px 高行，`Operational evidence` 缩短为 `Ops evidence`，正文允许两行显示。
+- Slide 10 表格重排为更宽松的三列表格，说明文字改为 `What is available now...`，避免非正式表达和潜在换行。
+- Slide 4 / 6 / 11 的长句进一步缩短，减少 PowerPoint 中换行导致的贴边或压线风险。
+- 保持客户版英文口径：USDT / USDC only、BTC and ETH excluded、refund as controlled payout。
+
+验证结果：
+
+- 使用 artifact-tool 重新生成 PPTX，并导出 11 页 PNG 预览。
+- 已检查全页 contact sheet，并单独查看 Slide 4、Slide 7、Slide 10、Slide 11 原尺寸预览。
+- Layout JSON 越界检查：0 个 out-of-bounds element。
+- `unzip -t ProjectInfo/HyperTransfer_Refund_Process_Security_v3.pptx`：通过。
+- 未改产品代码；无需运行 `corepack pnpm run check` / `corepack pnpm run build`。
 
 ### 2026-06-20 Sumsub KYC Closed Loop
 
@@ -419,7 +624,7 @@ Provider adapter 约定：
 - 登录错误、注册 OTP、2FA、忘记密码等客户可见提示统一为英文。
 - KYC 日期输入从浏览器原生 `type="date"` 改为自控 `YYYY-MM-DD`，避免系统语言显示中文日期占位。
 - Landing referral card 点击弹出 demo QR code。
-- 新增 Phase 1 网络限制：`USDT on Ethereum/Tron`、`USDC on Ethereum`。
+- 新增 Phase 1 网络限制：`USDT on ERC-20/TRC-20`、`USDC on ERC-20`；BTC / ETH 资产不处理。
 - New Deposit 增加预期入金金额，后续用于 Travel Rule threshold 和 treasury mock。
 - Wallet Screening 通过后设置 Travel Rule 状态：需要 TR 时进入 `travel_rule_required`。
 - Travel Rule 页面新增完整数据模型：originator、beneficiary、VASP、wallet、asset、amount、jurisdiction、provider reference、status。

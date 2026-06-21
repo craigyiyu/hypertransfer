@@ -52,6 +52,7 @@ export interface SumsubKycStartPayload {
   city?: string;
   levelName?: string;
   ttlInSecs?: number;
+  apiOnly?: boolean;
 }
 
 export interface SumsubKycStatus {
@@ -72,6 +73,7 @@ export interface SumsubKycStart extends SumsubKycStatus {
   environment: string;
   token: string;
   expiresIn: number;
+  mode?: "api_only" | "websdk";
 }
 
 type SumsubPayload = Record<string, unknown>;

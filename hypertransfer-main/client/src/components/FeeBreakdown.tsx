@@ -30,12 +30,10 @@ export default function FeeBreakdown({
   const finalAmount = (parseFloat(amount) - parseFloat(totalFee)).toFixed(2);
 
   const networkSettlementTimes: Record<string, string> = {
-    "Ethereum": "~2-5 minutes",
-    "Bitcoin": "~10-30 minutes",
-    "Tron": "~30 seconds",
-    "Polygon": "~1-2 minutes",
-    "BNB Chain": "~1-2 minutes",
-    "Avalanche": "~2-3 minutes",
+    "ERC-20": "~2-5 minutes",
+    "ethereum": "~2-5 minutes",
+    "TRC-20": "~30 seconds",
+    "tron": "~30 seconds",
   };
 
   const estimatedTime = settlementTime || networkSettlementTimes[network] || "~2-5 minutes";

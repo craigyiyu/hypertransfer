@@ -6,8 +6,9 @@ import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, Banknote } from "lucide-react";
+import { CheckCircle2, Clock, Banknote, Undo2 } from "lucide-react";
 import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/currency";
+import { formatNetworkRail } from "@/lib/compliance";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
@@ -85,7 +86,7 @@ export default function DepositSuccess() {
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Network</span>
-            <span className="text-foreground capitalize">{state.selectedNetwork}</span>
+            <span className="text-foreground">{formatNetworkRail(state.selectedNetwork)}</span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
@@ -128,6 +129,13 @@ export default function DepositSuccess() {
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
         >
           Make Another Deposit
+        </button>
+        <button
+          onClick={() => navigate("/refund")}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-3 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold"
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+          Request Refund
         </button>
         <button
           onClick={() => navigate("/dashboard")}

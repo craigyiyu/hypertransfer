@@ -178,11 +178,11 @@ Network 才是资产运行在哪条链上，例如：
 
 ```text
 USDT on TRON      -> TRC20
-USDT on Ethereum  -> ERC20
-USDC on Ethereum  -> ERC20
-BTC               -> Bitcoin network
-ETH               -> Ethereum network
+USDT on ERC-20    -> Ethereum network stablecoin rail
+USDC on ERC-20    -> Ethereum network stablecoin rail
 ```
+
+Phase 1 不处理 BTC 或 ETH 资产。这里的 ERC-20 指 USDT / USDC 的稳定币网络 rail，不代表支持 ETH 资产。
 
 Source Wallet Address 是客户准备用来打款的钱包地址，和 Hex Trust 后续签发给永利的 receiving address 不同。
 
@@ -636,7 +636,7 @@ Prime Broker 是负责报价和兑换的交易/流动性服务商。
 
 例子：
 
-- 客户打 BTC / ETH，但永利希望 WTA 收 USDC / USDT。
+- 非目标稳定币或误入资产需要在 treasury exception flow 中处理。
 - Prime Broker 提供报价并执行兑换。
 - 稳定币之间也可能通过 broker 做 swap。
 
@@ -663,7 +663,7 @@ WTA 可以有一个主账户，也可以有多个账户。推荐不要只设计�
 Wynn Custody Entity
   -> WTA - USDC Treasury Vault
   -> WTA - USDT Treasury Vault
-  -> WTA - BTC / ETH temporary conversion vault
+  -> WTA - Unsupported-asset exception vault
   -> Deposit Collection Wallets / Addresses
   -> Payout Wallets / Whitelisted Destination Controls
 ```
@@ -700,7 +700,7 @@ Payouts 是客户赢钱或提现时的出金路径。
 
 ```text
 WTA stable coin -> customer wallet
-WTA stable coin -> Prime Broker -> BTC/ETH/customer selected coin -> customer wallet
+WTA stable coin -> approved stablecoin customer wallet
 WTA -> bank/off-ramp path
 ```
 
@@ -810,8 +810,8 @@ Demo 页面拆分：
 Prime Broker 说明：
 
 - Prime Broker 兑换不属于当前 deposit demo 主流程。
-- 如果客户入金资产需要兑换，例如 BTC / ETH 或非目标稳定币，应进入独立的 conversion / treasury flow。
-- 当前 demo 只演示“supported stable coin deposit -> WTA settlement”。
+- 如果客户误入非支持资产或非目标稳定币，应进入独立的 exception / treasury flow。
+- 当前 demo 只演示“supported stablecoin deposit -> WTA settlement”。
 
 资金路由：
 
@@ -819,8 +819,8 @@ Prime Broker 说明：
 If asset is target WTA stable coin:
   Hex Trust wallet movement / sweep -> WTA vault
 
-If asset is BTC / ETH / non-target stable:
-  Stop current deposit flow after compliance clear
+If asset is unsupported or non-target stable:
+  Stop current deposit flow before normal WTA settlement
   Hand off to separate Prime Broker / Treasury Conversion workflow
 ```
 
@@ -1204,7 +1204,7 @@ decision
 
 ### 8.10 Prime Broker 报价与兑换接口
 
-用途：BTC / ETH / 非目标稳定币兑换成 WTA 目标稳定币。
+用途：非目标稳定币或误入资产兑换成 WTA 目标稳定币。
 
 本系统内部接口：
 
@@ -1439,4 +1439,3 @@ App owns business authorization and audit
 - 员工是谁、是否还能登录，由 Okta 管。
 - 员工在本系统里能不能发地址、能不能审批 EDD，由 App 根据 Okta group / claim 和本地权限规则共同决定。
 - 员工具体做了什么，由 App 本地审计日志记录。
-

@@ -171,7 +171,7 @@ Host searches patron
 
 - 支持稳定币 deposit，例如 USDT / USDC。
 - Prime Broker conversion 不放在当前 deposit 主流程中。
-- BTC / ETH 或非目标稳定币进入单独 conversion flow。
+- 非目标稳定币或误入资产进入单独 exception / conversion flow；Phase 1 不处理 BTC / ETH 资产。
 
 ---
 
@@ -321,7 +321,7 @@ Host / Finance creates refund request
 
 模块目标：
 
-- 单独处理 BTC / ETH / 非目标稳定币兑换。
+- 单独处理非目标稳定币或误入资产兑换；Phase 1 不处理 BTC / ETH 资产。
 - 不放在 deposit 主流程中，避免 deposit 逻辑过重。
 - Treasury 根据资金策略决定是否兑换成 WTA 目标稳定币。
 - 兑换完成后再进入 WTA settlement 或 treasury accounting。
@@ -744,4 +744,3 @@ closingBalance, transactionList, fee, settlementStatus
 - Hex Trust 作为托管与资金移动基础设施，不直接替代 App 的业务状态机。
 - App 保存业务上下文，Hex Trust 保存 custody 侧资产和转账事实。
 - 所有关键动作都要有 actor、timestamp、reason 和 immutable audit trail。
-

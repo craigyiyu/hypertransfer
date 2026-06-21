@@ -21,6 +21,8 @@ import {
   RadioTower,
   ShieldCheck,
   SlidersHorizontal,
+  SendHorizontal,
+  Undo2,
   UserCog,
   Vault,
 } from "lucide-react";
@@ -28,7 +30,7 @@ import { toast } from "sonner";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiError } from "@/lib/api";
-import { calculateOtcFee, formatUsd, getRequiredConfirmations } from "@/lib/compliance";
+import { calculateOtcFee, formatNetworkRail, formatUsd, getRequiredConfirmations } from "@/lib/compliance";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
 import { sumsubApi, type SumsubHealth } from "@/lib/sumsub";
 import {
@@ -39,6 +41,12 @@ import {
   macauAccessControls,
   reconciliationItems,
 } from "@/lib/treasury-ops";
+import {
+  approveRefundRequest,
+  broadcastRefundPayout,
+  formatRefundStatus,
+  submitRefundForApproval,
+} from "@/lib/refund-process";
 
 function StatusPill({
   children,
@@ -109,6 +117,7 @@ export default function CasinoOpsPortal() {
     () => state.transactions.find((tx) => tx.type === "main"),
     [state.transactions],
   );
+  const refundRequest = state.refundRequest;
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +179,27 @@ export default function CasinoOpsPortal() {
     toast.success("OTC conversion settled", {
       description: settledConversion.settlement.receipt,
     });
+  };
+
+  const submitRefundApproval = () => {
+    if (!refundRequest) return;
+    const next = submitRefundForApproval(refundRequest);
+    updateState({ refundRequest: next });
+    toast.success("Refund queued for approval", { description: next.id });
+  };
+
+  const approveRefund = () => {
+    if (!refundRequest) return;
+    const next = approveRefundRequest(refundRequest, "Wynn Treasury Approver");
+    updateState({ refundRequest: next });
+    toast.success("Refund approved", { description: next.approval.requiredRole });
+  };
+
+  const broadcastRefund = () => {
+    if (!refundRequest) return;
+    const next = broadcastRefundPayout(refundRequest);
+    updateState({ refundRequest: next });
+    toast.success("Refund payout completed", { description: next.payout.transferId });
   };
 
   return (
@@ -234,7 +264,7 @@ export default function CasinoOpsPortal() {
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Network</p>
-                <p className="mt-1 text-sm font-semibold capitalize text-foreground">{state.selectedNetwork || "pending"}</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{formatNetworkRail(state.selectedNetwork)}</p>
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">KYT</p>
@@ -365,6 +395,80 @@ export default function CasinoOpsPortal() {
         )}
 
         <div className="grid gap-5 lg:grid-cols-2">
+          <OpsCard
+            eyebrow="Refund / payout"
+            title="Customer refund queue"
+            icon={<Undo2 className="h-5 w-5" />}
+          >
+            {refundRequest ? (
+              <div className="space-y-3 text-sm">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg bg-secondary/25 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Amount</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {formatAssetAmount(refundRequest.amount, 0)} {refundRequest.asset}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-secondary/25 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</p>
+                    <p className="mt-1 text-sm font-semibold capitalize text-gold">
+                      {formatRefundStatus(refundRequest.status)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-secondary/25 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">KYT</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {refundRequest.kytResult?.decision || "not started"}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-secondary/20 px-3 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Refund destination</p>
+                  <p className="mt-1 truncate font-mono text-xs text-gold">
+                    {refundRequest.destinationAddress || "Waiting for customer address"}
+                  </p>
+                  <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground">
+                    Original tx: {refundRequest.originalTxHash}
+                  </p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <button
+                    onClick={submitRefundApproval}
+                    disabled={refundRequest.status !== "destination_kyt_passed"}
+                    className="rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    Submit Approval
+                  </button>
+                  <button
+                    onClick={approveRefund}
+                    disabled={refundRequest.status !== "approval_pending"}
+                    className="rounded-lg bg-gold px-3 py-2 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={broadcastRefund}
+                    disabled={refundRequest.status !== "approved"}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <SendHorizontal className="h-3.5 w-3.5" />
+                    Broadcast
+                  </button>
+                </div>
+                <div className="rounded-lg bg-secondary/20 px-3 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Audit trail</p>
+                  {refundRequest.auditTrail.slice(-4).map((entry) => (
+                    <p key={entry} className="mt-1 text-xs text-muted-foreground">{entry}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg bg-secondary/20 px-3 py-4 text-sm text-muted-foreground">
+                No active refund request. Customer refund cases appear here after a completed deposit and refund-wallet submission.
+              </div>
+            )}
+          </OpsCard>
+
           <OpsCard
             eyebrow="Sumsub provider"
             title="KYC, KYT and Travel Rule adapter"

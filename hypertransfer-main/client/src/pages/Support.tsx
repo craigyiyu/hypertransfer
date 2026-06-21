@@ -64,7 +64,8 @@ export default function Support() {
             { q: "How long does a deposit take?", a: "Most deposits are confirmed within 5-30 minutes depending on the network." },
             { q: "How long does KYC verification take?", a: "KYC review is usually completed within 24 hours. You can continue using your account while the review is in progress, but deposits may remain locked until approval." },
             { q: "What if my verification transfer fails?", a: "Verify the address and network, then retry. Contact HyperTransfer Support if the issue persists." },
-            { q: "Which networks are supported?", a: "We support all major networks including Ethereum, Tron, BSC, Polygon, Solana, and more." },
+            { q: "Which assets and networks are supported?", a: "Phase 1 supports USDT on ERC-20/TRC-20 and USDC on ERC-20. BTC and ETH assets are not supported." },
+            { q: "How do refunds work?", a: "Open a refund request from a completed deposit, confirm a refund wallet on the same supported network, and wait for destination-wallet KYT plus treasury approval before payout." },
             { q: "Is my data secure?", a: "All data is encrypted with 256-bit SSL. Your personal information is used solely for regulatory compliance and is never shared for marketing purposes." },
           ].map((faq, i) => (
             <motion.details
