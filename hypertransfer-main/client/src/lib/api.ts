@@ -95,6 +95,23 @@ export interface RegisterResult {
   expires_in: number; // 绑定会话总时长(秒)
 }
 
+// 邀请注册返回的 TOTP 绑定信息（无 phone，用 email 定位）。
+export interface RegisterInviteResult {
+  email: string;
+  otpauth_uri: string;
+  secret: string;
+  qr_png_base64: string;
+  expires_at: number;
+  expires_in: number;
+}
+
+export interface InvitationVerifyResult {
+  ok: boolean;
+  patronEmail: string;
+  patronName: string;
+  expiresAt: number;
+}
+
 // ---------- 认证 API ----------
 export const authApi = {
   sendOtp: (areaCode: string, phoneNumber: string) =>
@@ -113,9 +130,16 @@ export const authApi = {
   }) => api.post<RegisterResult>("/register", p),
 
   confirmTotp: (areaCode: string, phoneNumber: string, code: string) =>
-    api.post<{ ok: boolean; token: string; user: AuthUser }>("/confirm-totp", {
+    api.post<{ ok: boolean; token: string; user: AuthUser; recovery_codes?: string[] }>("/confirm-totp", {
       areaCode,
       phoneNumber,
+      code,
+    }),
+
+  // 邀请注册的客户无手机号 → 用 email 定位 pending 用户激活 TOTP。
+  confirmTotpByEmail: (email: string, code: string) =>
+    api.post<{ ok: boolean; token: string; user: AuthUser; recovery_codes?: string[] }>("/confirm-totp", {
+      email,
       code,
     }),
 
@@ -155,4 +179,78 @@ export const authApi = {
     otp: string;
     newPassword: string;
   }) => api.post<{ ok: boolean }>("/password/reset", p),
+};
+
+// ---------- 邀请制 / Email OTP / 员工管理 (PR②-2) ----------
+export interface Invitation {
+  id: string;
+  patronEmail: string;
+  patronName: string;
+  status: string;
+  expiresAt: number | null;
+  createdBy: string;
+  reviewedBy: string;
+  consumedBy: string;
+  createdAt: number;
+  updatedAt: number;
+  token?: string;
+  details?: Record<string, unknown> | null;
+}
+
+export const invitationApi = {
+  // 公开:客户 token+email 校验邀请
+  verify: (token: string, email: string) =>
+    api.post<InvitationVerifyResult>("/invitations/verify", { token, email }),
+
+  // RM 提交邀请
+  create: (p: { patronEmail: string; patronName?: string; details?: Record<string, unknown> }) =>
+    api.post<{ ok: boolean; invitation: Invitation }>("/invitations", p),
+
+  // marketing/compliance/admin 列队列(可按 status 过滤)
+  list: (status?: string) =>
+    api.get<{ ok: boolean; invitations: Invitation[] }>("/invitations", {
+      params: status ? { status } : undefined,
+    }),
+
+  approve: (id: string, note = "") =>
+    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/approve`, { note }),
+
+  reject: (id: string, note = "") =>
+    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/reject`, { note }),
+
+  issue: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string }>(`/invitations/${id}/issue`, {}),
+};
+
+export const emailApi = {
+  // 邀请注册第一因子:仅对已 issued 邀请的 email 发码(后端防枚举)
+  sendOtp: (email: string) =>
+    api.post<{ ok: boolean; cooldown: number }>("/email/send-otp", { email }),
+};
+
+export const inviteAuthApi = {
+  // 邀请注册:token+email+emailOtp+name+password → 返回 TOTP 绑定信息
+  registerInvite: (p: {
+    token: string;
+    email: string;
+    emailOtp: string;
+    name: string;
+    password: string;
+  }) => api.post<RegisterInviteResult>("/register/invite", p),
+};
+
+export const adminApi = {
+  // admin 预置员工账号(邮箱+密码+角色+强制绑定 TOTP)
+  createStaff: (p: { email: string; name: string; password: string; roles: string[] }) =>
+    api.post<{
+      ok: boolean;
+      userId: string;
+      email: string;
+      roles: string[];
+      otpauth_uri: string;
+      secret: string;
+      qr_png_base64: string;
+      expires_at: number;
+      expires_in: number;
+    }>("/admin/staff", p),
 };

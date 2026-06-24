@@ -9,7 +9,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import FormField from "@/components/FormField";
-import { User, Mail, Lock, Eye, EyeOff, Phone, MessageSquare, Loader2 } from "lucide-react";
+import { User, Mail, Lock, Eye, EyeOff, Phone, MessageSquare, Loader2, ShieldCheck } from "lucide-react";
 import { validateFullName, validateEmail, validatePassword, validatePhoneNumber, ValidationResult } from "@/lib/validation";
 import { authApi, apiError } from "@/lib/api";
 import { PENDING_REGISTER_KEY } from "@/lib/authFlow";
@@ -137,6 +137,20 @@ export default function Register() {
 
   return (
     <Shell showBack backTo="/" title="Create Account" subtitle="Set up your secure account profile">
+      {/* 邀请制说明:邮箱邀请是主路径,手机自助注册作为并存兼容通道(PR②-2 决策 2)。 */}
+      <div className="card-wine rounded-lg p-3 mb-5 flex items-start gap-2.5">
+        <ShieldCheck className="w-4 h-4 text-gold shrink-0 mt-0.5" />
+        <div className="text-xs text-muted-foreground leading-relaxed">
+          <p>HyperTransfer onboarding is invitation-based. If you have an invitation link, register there.</p>
+          <button
+            type="button" onClick={() => navigate("/invite")}
+            className="mt-1 text-gold hover:underline font-medium"
+          >
+            Open invitation registration →
+          </button>
+        </div>
+      </div>
+
       <div className="space-y-5">
         <FormField
           label="Full Legal Name" value={name}

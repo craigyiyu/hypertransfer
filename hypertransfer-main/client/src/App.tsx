@@ -13,6 +13,7 @@ import { I18nProvider } from "./contexts/I18nContext";
 import type { ComponentType } from "react";
 import Landing from "./pages/Landing";
 import Register from "./pages/Register";
+import Invite from "./pages/Invite";
 import Setup2FA from "./pages/Setup2FA";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -57,6 +58,7 @@ function Router() {
       {/* 公共 / 认证流程页 */}
       <Route path="/" component={Landing} />
       <Route path="/register" component={Register} />
+      <Route path="/invite" component={Invite} />
       <Route path="/setup-2fa" component={Setup2FA} />
       <Route path="/login" component={Login} />
       <Route path="/forgot-password" component={ForgotPassword} />

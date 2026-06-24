@@ -77,6 +77,12 @@ export default function Setup2FA() {
 
   const handleRegenerate = async () => {
     if (regenerating) return;
+    // 邀请注册无手机号,不能免短信重签;过期需重走邀请链接。
+    if (pending.viaEmail) {
+      toast.error("This setup session expired. Please reopen your invitation link.");
+      navigate("/invite");
+      return;
+    }
     setRegenerating(true);
     try {
       const { data } = await authApi.regenerateTotp(pending.areaCode, pending.phoneNumber);
@@ -102,7 +108,9 @@ export default function Setup2FA() {
     if (code.length !== 6 || verifying || expired) return;
     setVerifying(true);
     try {
-      const { data } = await authApi.confirmTotp(pending.areaCode, pending.phoneNumber, code);
+      const { data } = pending.viaEmail
+        ? await authApi.confirmTotpByEmail(pending.email, code)
+        : await authApi.confirmTotp(pending.areaCode, pending.phoneNumber, code);
       setSession(data.token, data.user);
       sessionStorage.removeItem(PENDING_REGISTER_KEY);
       toast.success("Two-factor authentication enabled.");

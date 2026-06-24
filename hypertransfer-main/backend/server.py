@@ -86,6 +86,18 @@ OTP_MAX_VERIFY = 5
 RECOVERY_CODE_COUNT = 10          # 每次生成的一次性恢复码数量
 RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 去掉易混字符 0/O/1/I
 
+# Email OTP（邀请注册第一因子）。决策为 mock/console 占位:默认仅 console 打印,
+# 不连真实 SMTP/SES/SendGrid。SMTP_* 预留但未实现真实发送,留待生产接入。
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "no-reply@hypercypto.com")
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+
+# 邀请制（PR②-2）
+INVITE_TTL = 72 * 60 * 60         # 邀请链接 single-use + 72 小时有效（决策 4）
+INVITE_BASE_URL = os.environ.get("HT_INVITE_BASE_URL", "").strip()  # 生成邀请落地 URL 的站点前缀
+
 # Sumsub provider integration. Secrets must come from env / GitHub Secrets only.
 SUMSUB_BASE_URL = os.environ.get("SUMSUB_BASE_URL", "https://api.sumsub.com").rstrip("/")
 SUMSUB_APP_TOKEN = os.environ.get("SUMSUB_APP_TOKEN", "").strip()
@@ -141,6 +153,7 @@ NEW_SCHEMA_SQL = """
         user_type       TEXT NOT NULL DEFAULT 'patron',
         last_counter    INTEGER,
         totp_expires_at INTEGER,
+        invited_by      TEXT,                    -- PR②-2: 邀请该客户的 RM user_id(自助注册为空)
         created_at      INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -202,6 +215,45 @@ NEW_SCHEMA_SQL = """
         signature_valid  INTEGER,
         received_at      INTEGER NOT NULL
     );
+    -- PR②-2: 邀请制准入。RM 提交 → Marketing 审核 → 签发单次/72h link → 客户消费。
+    CREATE TABLE IF NOT EXISTS invitations (
+        id            TEXT PRIMARY KEY,           -- uuid
+        patron_email  TEXT NOT NULL,
+        patron_name   TEXT,
+        details_json  TEXT,                       -- RM 提交的客户资料(自由 JSON)
+        token         TEXT UNIQUE,                -- 签发后才有: secrets.token_urlsafe, single-use
+        status        TEXT NOT NULL,              -- submitted/approved/rejected/issued/consumed/expired/revoked
+        expires_at    INTEGER,                    -- 签发时 = now + 72h
+        created_by    TEXT NOT NULL,              -- RM user_id
+        reviewed_by   TEXT,                       -- marketing user_id
+        consumed_by   TEXT,                       -- 注册成功后的客户 user_id
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_invitations_status ON invitations(status);
+    CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(patron_email);
+    -- PR②-2: 关键动作审计留痕(谁在何时对什么做了什么)。
+    CREATE TABLE IF NOT EXISTS audit_trail (
+        id            TEXT PRIMARY KEY,           -- uuid
+        actor_user_id TEXT,                       -- 操作者 user_id(系统动作可空)
+        action        TEXT NOT NULL,              -- e.g. invitation.create / invitation.issue / staff.create
+        target_type   TEXT,                       -- e.g. invitation / user
+        target_id     TEXT,
+        detail_json   TEXT,
+        created_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_trail(actor_user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_trail(target_type, target_id);
+    -- PR②-2: Email OTP 独立表(结构仿 otps; 不改动现有 phone 短信 OTP 表)。
+    CREATE TABLE IF NOT EXISTS email_otps (
+        identifier  TEXT PRIMARY KEY,             -- 规范化后的 email
+        code        TEXT NOT NULL,
+        expires_at  INTEGER NOT NULL,
+        sent_at     INTEGER NOT NULL,
+        tries       INTEGER NOT NULL DEFAULT 0,
+        day_count   INTEGER NOT NULL DEFAULT 1,
+        day_start   INTEGER NOT NULL
+    );
 """
 
 # otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
@@ -243,7 +295,7 @@ def migrate_users_to_user_id(conn: sqlite3.Connection) -> None:
                name TEXT NOT NULL, email TEXT UNIQUE, pw_hash TEXT NOT NULL,
                pw_salt TEXT NOT NULL, totp_secret TEXT NOT NULL, status TEXT NOT NULL,
                user_type TEXT NOT NULL DEFAULT 'patron', last_counter INTEGER,
-               totp_expires_at INTEGER, created_at INTEGER NOT NULL)""",
+               totp_expires_at INTEGER, invited_by TEXT, created_at INTEGER NOT NULL)""",
         """CREATE TABLE sessions_new (
                token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL)""",
         """CREATE TABLE challenges_new (
@@ -383,6 +435,10 @@ def init_db() -> None:
             migrate_users_to_user_id(conn)
         # 新库 / 已迁移库: 幂等建表(IF NOT EXISTS)。
         conn.executescript(NEW_SCHEMA_SQL)
+        # 幂等补列: 旧的已迁移库(PR②-1 形态)缺 invited_by,在此补齐。
+        user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "invited_by" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN invited_by TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -437,6 +493,35 @@ def send_sms(area_code: str, number: str, text: str) -> str:
     if code in ("0", "200") or msg.lower() == "success":
         return str(body.get("data", ""))
     raise HTTPException(status_code=502, detail=f"短信发送失败: {msg or body}")
+
+
+# --------------------------------------------------------------------------- #
+# 邮件适配器 — Email OTP / 邀请链接发送（MOCK: 默认 console 打印）
+# --------------------------------------------------------------------------- #
+def send_email(to: str, subject: str, text: str) -> None:
+    """MOCK 邮件发送:默认把内容打印到 console（演示态）。
+    生产可在此接入真实 SMTP/SES/SendGrid——SMTP_* env 已预留但本演示故意不连，
+    决策为 console 占位（同 send_sms 的演示语义）。tests 可 monkeypatch 本函数抓码。"""
+    # 仅当显式配置了 SMTP_HOST 时才尝试真实发送;否则 console 占位。
+    if SMTP_HOST:
+        try:
+            import smtplib
+            from email.message import EmailMessage
+
+            msg = EmailMessage()
+            msg["From"] = EMAIL_FROM
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.set_content(text)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+                smtp.starttls()
+                if SMTP_USER:
+                    smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.send_message(msg)
+            return
+        except Exception as e:  # 真实发送失败也不阻断演示流——降级到 console
+            print(f"[email] SMTP send failed ({e}); falling back to console")
+    print(f"[email] to={to} subject={subject!r}\n{text}")
 
 
 # --------------------------------------------------------------------------- #
@@ -833,6 +918,98 @@ def verify_otp(phone: str, code: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Email OTP（独立 email_otps 表；结构/限频仿短信 OTP，发送走 send_email）
+# --------------------------------------------------------------------------- #
+def normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def issue_email_otp(email: str) -> None:
+    """对 email 发一次性验证码（限频 + 用后即焚），通过 send_email 投递。"""
+    email = normalize_email(email)
+    now = int(time.time())
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    with db() as conn:
+        row = conn.execute("SELECT * FROM email_otps WHERE identifier=?", (email,)).fetchone()
+        if row:
+            if now - row["sent_at"] < OTP_RESEND_COOLDOWN:
+                wait = OTP_RESEND_COOLDOWN - (now - row["sent_at"])
+                raise HTTPException(status_code=429, detail=f"请 {wait} 秒后再获取验证码")
+            day_start, day_count = row["day_start"], row["day_count"]
+            if now - day_start >= 86400:
+                day_start, day_count = now, 0
+            if day_count >= OTP_MAX_PER_DAY:
+                raise HTTPException(status_code=429, detail="今日验证码发送次数已达上限")
+            day_count += 1
+        else:
+            day_start, day_count = now, 1
+
+    send_email(
+        email,
+        "Your HyperTransfer verification code",
+        f"Your HyperTransfer verification code is {code}. "
+        f"It is valid for {OTP_TTL // 60} minutes. Do not share it with anyone.",
+    )
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO email_otps(identifier, code, expires_at, sent_at, tries, day_count, day_start)
+            VALUES (?,?,?,?,0,?,?)
+            ON CONFLICT(identifier) DO UPDATE SET
+                code=excluded.code, expires_at=excluded.expires_at, sent_at=excluded.sent_at,
+                tries=0, day_count=excluded.day_count, day_start=excluded.day_start
+            """,
+            (email, code, now + OTP_TTL, now, day_count, day_start),
+        )
+
+
+def verify_email_otp(email: str, code: str) -> None:
+    email = normalize_email(email)
+    code = (code or "").strip()
+    now = int(time.time())
+    with db() as conn:
+        row = conn.execute("SELECT * FROM email_otps WHERE identifier=?", (email,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="请先获取邮箱验证码")
+        if now > row["expires_at"]:
+            raise HTTPException(status_code=400, detail="验证码已过期, 请重新获取")
+        if row["tries"] >= OTP_MAX_VERIFY:
+            raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新获取")
+        if not hmac.compare_digest(row["code"], code):
+            conn.execute("UPDATE email_otps SET tries=tries+1 WHERE identifier=?", (email,))
+            raise HTTPException(status_code=400, detail="邮箱验证码错误")
+        conn.execute("DELETE FROM email_otps WHERE identifier=?", (email,))
+
+
+# --------------------------------------------------------------------------- #
+# 审计留痕
+# --------------------------------------------------------------------------- #
+def write_audit(
+    actor_user_id: Optional[str],
+    action: str,
+    target_type: str = "",
+    target_id: str = "",
+    detail: Optional[dict[str, Any]] = None,
+) -> None:
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO audit_trail(id, actor_user_id, action, target_type, target_id,
+                                       detail_json, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (
+                str(uuid.uuid4()),
+                actor_user_id,
+                action,
+                target_type or None,
+                target_id or None,
+                json_dumps(detail) if detail is not None else None,
+                int(time.time()),
+            ),
+        )
+
+
+# --------------------------------------------------------------------------- #
 # 恢复码 (备用码) — 一次性,sha256 存储
 # --------------------------------------------------------------------------- #
 def _recovery_hash(code: str) -> str:
@@ -1001,6 +1178,54 @@ def seed_staff_admin() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 邀请制（PR②-2）
+# --------------------------------------------------------------------------- #
+def invitation_public(row: sqlite3.Row, include_token: bool = False) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": row["id"],
+        "patronEmail": row["patron_email"],
+        "patronName": row["patron_name"] or "",
+        "status": row["status"],
+        "expiresAt": row["expires_at"],
+        "createdBy": row["created_by"],
+        "reviewedBy": row["reviewed_by"] or "",
+        "consumedBy": row["consumed_by"] or "",
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    if row["details_json"]:
+        try:
+            data["details"] = json.loads(row["details_json"])
+        except Exception:
+            data["details"] = None
+    if include_token:
+        data["token"] = row["token"] or ""
+    return data
+
+
+def get_invitation(invitation_id: str) -> Optional[sqlite3.Row]:
+    with db() as conn:
+        return conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
+
+
+def get_invitation_by_token(token: str) -> Optional[sqlite3.Row]:
+    with db() as conn:
+        return conn.execute("SELECT * FROM invitations WHERE token=?", (token,)).fetchone()
+
+
+def invitation_is_redeemable(row: sqlite3.Row, email: str) -> None:
+    """校验邀请可用于注册:status=issued、未过期、未消费、email 匹配。失败抛 4xx。"""
+    if row["status"] == "consumed":
+        raise HTTPException(status_code=409, detail="该邀请链接已被使用")
+    if row["status"] != "issued":
+        raise HTTPException(status_code=400, detail="邀请链接无效或尚未签发")
+    if row["expires_at"] is not None and int(time.time()) > row["expires_at"]:
+        raise HTTPException(status_code=410, detail="邀请链接已过期")
+    if normalize_email(row["patron_email"]) != normalize_email(email):
+        raise HTTPException(status_code=400, detail="邮箱与邀请不匹配")
+
+
+# --------------------------------------------------------------------------- #
 # 请求模型
 # --------------------------------------------------------------------------- #
 class SendOtpIn(BaseModel):
@@ -1018,8 +1243,10 @@ class RegisterIn(BaseModel):
 
 
 class ConfirmIn(BaseModel):
+    # 手机注册走 areaCode+phoneNumber;邀请注册无手机号,改用 email 定位 pending 用户。
     areaCode: str = Field(default="86")
-    phoneNumber: str
+    phoneNumber: str = Field(default="")
+    email: str = Field(default="")
     code: str
 
 
@@ -1073,6 +1300,41 @@ class SumsubKycStartIn(BaseModel):
     levelName: str = Field(default="")
     ttlInSecs: Optional[int] = Field(default=None, ge=60, le=3600)
     apiOnly: bool = Field(default=False)
+
+
+# --- 邀请制 / 员工管理 / Email OTP（PR②-2）---
+class CreateStaffIn(BaseModel):
+    email: str = Field(min_length=3, max_length=120)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=128)
+    roles: "list[str]" = Field(default_factory=list)
+
+
+class CreateInvitationIn(BaseModel):
+    patronEmail: str = Field(min_length=3, max_length=120)
+    patronName: str = Field(default="", max_length=120)
+    details: Optional[dict[str, Any]] = Field(default=None)
+
+
+class InvitationReviewIn(BaseModel):
+    note: str = Field(default="", max_length=500)
+
+
+class InvitationVerifyIn(BaseModel):
+    token: str = Field(min_length=8, max_length=120)
+    email: str = Field(min_length=3, max_length=120)
+
+
+class EmailOtpIn(BaseModel):
+    email: str = Field(min_length=3, max_length=120)
+
+
+class RegisterInviteIn(BaseModel):
+    token: str = Field(min_length=8, max_length=120)
+    email: str = Field(min_length=3, max_length=120)
+    emailOtp: str = Field(min_length=4, max_length=10)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=128)
 
 
 # --------------------------------------------------------------------------- #
@@ -1151,9 +1413,16 @@ def register(body: RegisterIn):
 
 @app.post("/api/confirm-totp")
 def confirm_totp(body: ConfirmIn):
-    _, _, phone = normalize_phone(body.areaCode, body.phoneNumber)
+    # 邀请注册无手机号 → 用 email 定位;手机注册仍用 phone。激活后均按 user_id 写库。
+    email = normalize_email(body.email)
     with db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        if body.phoneNumber:
+            _, _, phone = normalize_phone(body.areaCode, body.phoneNumber)
+            user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        elif email:
+            user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        else:
+            raise HTTPException(status_code=400, detail="缺少手机号或邮箱")
         if not user:
             raise HTTPException(status_code=404, detail="请先注册")
         if user["status"] == "pending_totp":
@@ -1164,10 +1433,10 @@ def confirm_totp(body: ConfirmIn):
         if counter is None:
             raise HTTPException(status_code=400, detail="验证码错误或已过期")
         conn.execute(
-            "UPDATE users SET status='active', last_counter=?, totp_expires_at=NULL WHERE phone=?",
-            (counter, phone),
+            "UPDATE users SET status='active', last_counter=?, totp_expires_at=NULL WHERE id=?",
+            (counter, user["id"]),
         )
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
     recovery_codes = generate_recovery_codes(user["id"])  # 激活即签发,仅此一次明文返回
     token = create_session(user["id"])
     return {"ok": True, "token": token, "user": user_public(user),
@@ -1314,6 +1583,281 @@ def me(authorization: Optional[str] = Header(default=None)):
 def staff_whoami(user: Any = Depends(require_role(*STAFF_ROLES))):
     """Staff-only 探针：patron 调用返回 403，用于前端后台守卫与未来后台端点的样板。"""
     return {"user": user_public(user)}
+
+
+# --------------------------------------------------------------------------- #
+# 角色管理（admin 预置员工账号）
+# --------------------------------------------------------------------------- #
+@app.post("/api/admin/staff")
+def admin_create_staff(body: CreateStaffIn, admin: Any = Depends(require_role("admin"))):
+    """admin 预置员工账号:user_type=staff + 指定角色,邮箱+密码+强制绑定 TOTP。
+    返回 TOTP 设置(otpauth/secret/qr);员工需用 confirm-totp(email) 激活后方可登录。"""
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="邮箱格式无效")
+    roles = sorted({r.strip().lower() for r in body.roles if r and r.strip()})
+    invalid = [r for r in roles if r not in STAFF_ROLES]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"无效角色: {', '.join(invalid)}")
+    if not roles:
+        raise HTTPException(status_code=400, detail="至少指定一个角色")
+
+    now = int(time.time())
+    secret = pyotp.random_base32()
+    pw_hash, pw_salt = hash_password(body.password)
+    uid = str(uuid.uuid4())
+    with db() as conn:
+        if conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone():
+            raise HTTPException(status_code=409, detail="该邮箱已被注册")
+        conn.execute(
+            """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                                 totp_secret, status, user_type, last_counter, totp_expires_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?, 'staff', ?,?,?)""",
+            (uid, None, "", "", body.name.strip(), email, pw_hash, pw_salt,
+             secret, "pending_totp", None, now + TOTP_ENROLL_TTL, now),
+        )
+        conn.executemany("INSERT OR IGNORE INTO user_roles(user_id, role) VALUES (?,?)",
+                         [(uid, r) for r in roles])
+    write_audit(admin["id"], "staff.create", "user", uid,
+                {"email": email, "roles": roles})
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
+    return {
+        "ok": True,
+        "userId": uid,
+        "email": email,
+        "roles": roles,
+        "otpauth_uri": otpauth,
+        "secret": secret,
+        "qr_png_base64": qr_data_uri(otpauth),
+        "expires_at": now + TOTP_ENROLL_TTL,
+        "expires_in": TOTP_ENROLL_TTL,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 邀请制端点
+# --------------------------------------------------------------------------- #
+@app.post("/api/invitations")
+def create_invitation(body: CreateInvitationIn, rm: Any = Depends(require_role("rm"))):
+    """RM 提交邀请申请 → status=submitted。准入尽调在外部系统做(决策 3)。"""
+    email = normalize_email(body.patronEmail)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="邮箱格式无效")
+    now = int(time.time())
+    inv_id = str(uuid.uuid4())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO invitations(id, patron_email, patron_name, details_json, token,
+                                       status, expires_at, created_by, reviewed_by, consumed_by,
+                                       created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (inv_id, email, body.patronName.strip() or None,
+             json_dumps(body.details) if body.details is not None else None,
+             None, "submitted", None, rm["id"], None, None, now, now),
+        )
+        row = conn.execute("SELECT * FROM invitations WHERE id=?", (inv_id,)).fetchone()
+    write_audit(rm["id"], "invitation.create", "invitation", inv_id, {"patronEmail": email})
+    return {"ok": True, "invitation": invitation_public(row)}
+
+
+@app.get("/api/invitations")
+def list_invitations(
+    status: Optional[str] = None,
+    user: Any = Depends(require_role("marketing", "compliance")),
+):
+    """审核队列。marketing/compliance/admin 可见;可按 status 过滤。"""
+    with db() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM invitations WHERE status=? ORDER BY created_at DESC", (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM invitations ORDER BY created_at DESC"
+            ).fetchall()
+    return {"ok": True, "invitations": [invitation_public(r) for r in rows]}
+
+
+@app.post("/api/invitations/{invitation_id}/approve")
+def approve_invitation(invitation_id: str, body: InvitationReviewIn,
+                       user: Any = Depends(require_role("marketing"))):
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if row["status"] != "submitted":
+        raise HTTPException(status_code=409, detail="仅 submitted 状态可审批")
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            "UPDATE invitations SET status='approved', reviewed_by=?, updated_at=? WHERE id=?",
+            (user["id"], now, invitation_id),
+        )
+        row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
+    write_audit(user["id"], "invitation.approve", "invitation", invitation_id,
+                {"note": body.note} if body.note else None)
+    return {"ok": True, "invitation": invitation_public(row)}
+
+
+@app.post("/api/invitations/{invitation_id}/reject")
+def reject_invitation(invitation_id: str, body: InvitationReviewIn,
+                      user: Any = Depends(require_role("marketing"))):
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if row["status"] not in ("submitted", "approved"):
+        raise HTTPException(status_code=409, detail="该邀请无法被拒绝")
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            "UPDATE invitations SET status='rejected', reviewed_by=?, updated_at=? WHERE id=?",
+            (user["id"], now, invitation_id),
+        )
+        row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
+    write_audit(user["id"], "invitation.reject", "invitation", invitation_id,
+                {"note": body.note} if body.note else None)
+    return {"ok": True, "invitation": invitation_public(row)}
+
+
+@app.post("/api/invitations/{invitation_id}/issue")
+def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
+    """仅 approved 可签发:生成 single-use token + 72h 过期 → status=issued,
+    通过 mock 邮件适配器发送邀请链接(console 打印)。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if row["status"] != "approved":
+        raise HTTPException(status_code=409, detail="仅 approved 状态可签发邀请链接")
+    now = int(time.time())
+    token = secrets.token_urlsafe(32)
+    expires_at = now + INVITE_TTL
+    with db() as conn:
+        conn.execute(
+            "UPDATE invitations SET status='issued', token=?, expires_at=?, updated_at=? WHERE id=?",
+            (token, expires_at, now, invitation_id),
+        )
+        row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
+
+    base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
+    invite_link = (
+        f"{base}/invite?token={token}"
+        if base
+        else f"/invite?token={urllib.parse.quote(token, safe='')}"
+    )
+    send_email(
+        row["patron_email"],
+        "You're invited to HyperTransfer",
+        f"You have been invited to open a HyperTransfer account.\n"
+        f"Use this single-use link within 72 hours to register:\n{invite_link}\n"
+        f"This link is tied to {row['patron_email']}.",
+    )
+    write_audit(user["id"], "invitation.issue", "invitation", invitation_id,
+                {"expiresAt": expires_at})
+    return {
+        "ok": True,
+        "invitation": invitation_public(row, include_token=True),
+        "inviteLink": invite_link,
+    }
+
+
+@app.post("/api/invitations/verify")
+def verify_invitation(body: InvitationVerifyIn):
+    """公开:客户用 token+email 校验邀请是否可注册。返回 patron 信息供预填。"""
+    row = get_invitation_by_token(body.token)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请链接无效")
+    invitation_is_redeemable(row, body.email)
+    return {
+        "ok": True,
+        "patronEmail": row["patron_email"],
+        "patronName": row["patron_name"] or "",
+        "expiresAt": row["expires_at"],
+    }
+
+
+@app.post("/api/email/send-otp")
+def email_send_otp(body: EmailOtpIn):
+    """邀请注册第一因子:仅对【存在 issued 且未消费邀请】的 email 发码。
+    防滥用 + 防枚举:未命中也返回 ok 但不发码。"""
+    email = normalize_email(body.email)
+    now = int(time.time())
+    with db() as conn:
+        inv = conn.execute(
+            "SELECT * FROM invitations WHERE patron_email=? AND status='issued'", (email,)
+        ).fetchone()
+    eligible = bool(
+        inv and (inv["expires_at"] is None or now <= inv["expires_at"])
+    )
+    if eligible:
+        issue_email_otp(email)
+    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN}
+
+
+@app.post("/api/register/invite")
+def register_invite(body: RegisterInviteIn):
+    """邀请注册:校验邀请(issued/未过期/email匹配) + Email OTP → 建 patron(pending_totp)
+    + 生成 TOTP secret + 标记 invitation consumed + 审计。激活复用 confirm-totp(email)。"""
+    email = normalize_email(body.email)
+    inv = get_invitation_by_token(body.token)
+    if not inv:
+        raise HTTPException(status_code=404, detail="邀请链接无效")
+    invitation_is_redeemable(inv, email)
+
+    # 邮箱不可被其他账户占用(并发/重复注册防护)。
+    with db() as conn:
+        dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
+        if dup and dup["status"] == "active":
+            raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+
+    verify_email_otp(email, body.emailOtp)  # 第一因子:邮箱已验真(校验通过即消费)
+
+    secret = pyotp.random_base32()
+    pw_hash, pw_salt = hash_password(body.password)
+    now = int(time.time())
+    expires_at = now + TOTP_ENROLL_TTL
+    uid = str(uuid.uuid4())
+    with db() as conn:
+        # 二次确认邀请仍 issued(并发安全)
+        inv2 = conn.execute("SELECT * FROM invitations WHERE id=?", (inv["id"],)).fetchone()
+        if not inv2 or inv2["status"] != "issued":
+            raise HTTPException(status_code=409, detail="邀请链接已失效")
+        # email 可能已有 pending_totp 占位行 → 复用其 id;否则新建。
+        existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        if existing:
+            # 复用既有 pending 占位行的 id(避免 UNIQUE(email) 冲突),重置为本次注册态。
+            uid = existing["id"]
+            conn.execute(
+                """UPDATE users SET name=?, pw_hash=?, pw_salt=?, totp_secret=?,
+                          status='pending_totp', user_type='patron', last_counter=NULL,
+                          totp_expires_at=?, invited_by=? WHERE id=?""",
+                (body.name.strip(), pw_hash, pw_salt, secret, expires_at,
+                 inv["created_by"], uid),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                                     totp_secret, status, user_type, last_counter, totp_expires_at,
+                                     invited_by, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?, 'patron', ?,?,?,?)""",
+                (uid, None, "", "", body.name.strip(), email, pw_hash, pw_salt,
+                 secret, "pending_totp", None, expires_at, inv["created_by"], now),
+            )
+        conn.execute(
+            "UPDATE invitations SET status='consumed', consumed_by=?, updated_at=? WHERE id=?",
+            (uid, now, inv["id"]),
+        )
+    write_audit(inv["created_by"], "invitation.consume", "invitation", inv["id"],
+                {"userId": uid, "email": email})
+    write_audit(uid, "user.register_invite", "user", uid, {"email": email})
+
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
+    return {
+        "email": email,
+        "otpauth_uri": otpauth,
+        "secret": secret,
+        "qr_png_base64": qr_data_uri(otpauth),
+        "expires_at": expires_at,
+        "expires_in": TOTP_ENROLL_TTL,
+    }
 
 
 @app.post("/api/logout")
