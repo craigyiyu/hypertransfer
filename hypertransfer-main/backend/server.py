@@ -24,10 +24,12 @@ import json
 import os
 import secrets
 import sqlite3
+import shutil
 import time
 import urllib.parse
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -121,94 +123,266 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+# PR②-1: users 主键由 phone 重建为 id(uuid)。email/phone 均为可空唯一属性,
+# 所有关联表外键 phone→user_id。新库直接建 user_id 形态;旧库(phone PK)在
+# init_db 里一次性迁移(备份→建新表→拷数据生成 uuid→换映射迁关联表→校验行数→改名)。
+NEW_SCHEMA_SQL = """
+    CREATE TABLE IF NOT EXISTS users (
+        id              TEXT PRIMARY KEY,        -- uuid: 所有关联表外键锚点
+        phone           TEXT UNIQUE,             -- 可空唯一: 客户找回/step-up; 员工可空
+        area_code       TEXT,
+        number          TEXT,
+        name            TEXT NOT NULL,
+        email           TEXT UNIQUE,             -- 可空唯一
+        pw_hash         TEXT NOT NULL,
+        pw_salt         TEXT NOT NULL,
+        totp_secret     TEXT NOT NULL,           -- PR②-1 仍强制 2FA(可选化留 PR③)
+        status          TEXT NOT NULL,
+        user_type       TEXT NOT NULL DEFAULT 'patron',
+        last_counter    INTEGER,
+        totp_expires_at INTEGER,
+        created_at      INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+        token      TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS challenges (
+        challenge   TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        expires_at  INTEGER NOT NULL,
+        tries       INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS otps (
+        phone       TEXT PRIMARY KEY,
+        code        TEXT NOT NULL,
+        expires_at  INTEGER NOT NULL,
+        sent_at     INTEGER NOT NULL,
+        tries       INTEGER NOT NULL DEFAULT 0,
+        day_count   INTEGER NOT NULL DEFAULT 1,
+        day_start   INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS recovery_codes (
+        user_id   TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        used      INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, code_hash)
+    );
+    CREATE TABLE IF NOT EXISTS user_roles (
+        user_id TEXT NOT NULL,
+        role    TEXT NOT NULL,
+        PRIMARY KEY (user_id, role)
+    );
+    CREATE TABLE IF NOT EXISTS sumsub_kyc_applications (
+        user_id           TEXT PRIMARY KEY,
+        external_user_id  TEXT NOT NULL UNIQUE,
+        applicant_id      TEXT,
+        level_name        TEXT NOT NULL,
+        status            TEXT NOT NULL,
+        review_status     TEXT,
+        review_answer     TEXT,
+        rejection_reason  TEXT,
+        fixed_info_json   TEXT,
+        applicant_json    TEXT,
+        last_webhook_json TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sumsub_kyc_applicant_id
+        ON sumsub_kyc_applications(applicant_id);
+    CREATE TABLE IF NOT EXISTS sumsub_webhook_events (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        applicant_id     TEXT,
+        external_user_id TEXT,
+        event_type       TEXT,
+        review_status    TEXT,
+        review_answer    TEXT,
+        payload_json     TEXT NOT NULL,
+        signature_valid  INTEGER,
+        received_at      INTEGER NOT NULL
+    );
+"""
+
+# otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
+# 注:仅当 OTP_IDENTIFIER 泛化(Email OTP)时才动它,那是 PR②-2 的事。
+
+
+def _users_is_legacy_schema(conn: sqlite3.Connection) -> bool:
+    """旧结构判定: users 表存在、有 phone 列、且没有 id 列(phone 当主键)。"""
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if not cols:
+        return False  # 表不存在 → 新库,直接按新 schema 建
+    return "id" not in cols and "phone" in cols
+
+
+def migrate_users_to_user_id(conn: sqlite3.Connection) -> None:
+    """把旧的 phone-主键 users 及关联表一次性重建为 user_id 形态。
+
+    在单事务内: 建新表 users(id PK) → 为每个旧用户生成 uuid → 拷数据 →
+    用 phone→id 映射迁 sessions/challenges/recovery_codes/user_roles/
+    sumsub_kyc_applications → 校验行数一致 → DROP 旧表 → RENAME。
+    调用方负责在调用前备份 DB 文件。"""
+    old_users = conn.execute("SELECT * FROM users").fetchall()
+    old_user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+
+    def col(row: sqlite3.Row, name: str, default: Any = None) -> Any:
+        return row[name] if name in old_user_cols else default
+
+    phone_to_id: dict[str, str] = {}
+    legacy_count = len(old_users)
+
+    # 全程手动管理事务:Python sqlite3 默认模式下 executescript() 会隐式 COMMIT,
+    # 破坏手动 BEGIN..COMMIT;故切到 autocommit(isolation_level=None)并逐条 execute,
+    # 用显式 BEGIN/COMMIT/ROLLBACK 把整段重建包成单事务(SQLite DDL 支持事务回滚)。
+    prev_isolation = conn.isolation_level
+    conn.isolation_level = None
+    create_new_tables = [
+        """CREATE TABLE users_new (
+               id TEXT PRIMARY KEY, phone TEXT UNIQUE, area_code TEXT, number TEXT,
+               name TEXT NOT NULL, email TEXT UNIQUE, pw_hash TEXT NOT NULL,
+               pw_salt TEXT NOT NULL, totp_secret TEXT NOT NULL, status TEXT NOT NULL,
+               user_type TEXT NOT NULL DEFAULT 'patron', last_counter INTEGER,
+               totp_expires_at INTEGER, created_at INTEGER NOT NULL)""",
+        """CREATE TABLE sessions_new (
+               token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL)""",
+        """CREATE TABLE challenges_new (
+               challenge TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+               expires_at INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0)""",
+        """CREATE TABLE recovery_codes_new (
+               user_id TEXT NOT NULL, code_hash TEXT NOT NULL,
+               used INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, code_hash))""",
+        """CREATE TABLE user_roles_new (
+               user_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY (user_id, role))""",
+        """CREATE TABLE sumsub_kyc_applications_new (
+               user_id TEXT PRIMARY KEY, external_user_id TEXT NOT NULL UNIQUE,
+               applicant_id TEXT, level_name TEXT NOT NULL, status TEXT NOT NULL,
+               review_status TEXT, review_answer TEXT, rejection_reason TEXT,
+               fixed_info_json TEXT, applicant_json TEXT, last_webhook_json TEXT,
+               created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)""",
+    ]
+    finalize_stmts = [
+        "DROP TABLE users",
+        "DROP TABLE sessions",
+        "DROP TABLE challenges",
+        "DROP TABLE recovery_codes",
+        "DROP TABLE IF EXISTS user_roles",
+        "DROP TABLE IF EXISTS sumsub_kyc_applications",
+        "ALTER TABLE users_new RENAME TO users",
+        "ALTER TABLE sessions_new RENAME TO sessions",
+        "ALTER TABLE challenges_new RENAME TO challenges",
+        "ALTER TABLE recovery_codes_new RENAME TO recovery_codes",
+        "ALTER TABLE user_roles_new RENAME TO user_roles",
+        "ALTER TABLE sumsub_kyc_applications_new RENAME TO sumsub_kyc_applications",
+        "CREATE INDEX IF NOT EXISTS idx_sumsub_kyc_applicant_id "
+        "ON sumsub_kyc_applications(applicant_id)",
+    ]
+    conn.execute("BEGIN")
+    try:
+        # 1) 建新形态的表(临时名 *_new),逐张拷贝。
+        for stmt in create_new_tables:
+            conn.execute(stmt)
+
+        # 2) users: 每行生成 uuid,保留 email/phone/area_code/number/name/pw_*/totp_*/status/user_type/created_at。
+        for u in old_users:
+            phone = u["phone"]
+            uid = str(uuid.uuid4())
+            phone_to_id[phone] = uid
+            email = col(u, "email")
+            email = email if email else None  # 空串归一为 NULL,贴合 UNIQUE 约束
+            conn.execute(
+                """INSERT INTO users_new(
+                       id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                       totp_secret, status, user_type, last_counter, totp_expires_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    uid,
+                    phone,
+                    col(u, "area_code", ""),
+                    col(u, "number", ""),
+                    col(u, "name", ""),
+                    email,
+                    col(u, "pw_hash"),
+                    col(u, "pw_salt"),
+                    col(u, "totp_secret"),
+                    col(u, "status"),
+                    col(u, "user_type", "patron"),
+                    col(u, "last_counter"),
+                    col(u, "totp_expires_at"),
+                    col(u, "created_at", int(time.time())),
+                ),
+            )
+
+        # 3) 关联表: 用 phone→id 映射换算。映射缺失(孤儿行)的直接丢弃,避免脏外键。
+        for s in conn.execute("SELECT token, phone, expires_at FROM sessions").fetchall():
+            uid = phone_to_id.get(s["phone"])
+            if uid:
+                conn.execute("INSERT INTO sessions_new(token, user_id, expires_at) VALUES (?,?,?)",
+                             (s["token"], uid, s["expires_at"]))
+        for c in conn.execute("SELECT challenge, phone, expires_at, tries FROM challenges").fetchall():
+            uid = phone_to_id.get(c["phone"])
+            if uid:
+                conn.execute(
+                    "INSERT INTO challenges_new(challenge, user_id, expires_at, tries) VALUES (?,?,?,?)",
+                    (c["challenge"], uid, c["expires_at"], c["tries"]))
+        for r in conn.execute("SELECT phone, code_hash, used FROM recovery_codes").fetchall():
+            uid = phone_to_id.get(r["phone"])
+            if uid:
+                conn.execute(
+                    "INSERT INTO recovery_codes_new(user_id, code_hash, used) VALUES (?,?,?)",
+                    (uid, r["code_hash"], r["used"]))
+        # user_roles 旧表可能不存在(更早的库)
+        if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_roles'").fetchone():
+            for r in conn.execute("SELECT phone, role FROM user_roles").fetchall():
+                uid = phone_to_id.get(r["phone"])
+                if uid:
+                    conn.execute("INSERT OR IGNORE INTO user_roles_new(user_id, role) VALUES (?,?)",
+                                 (uid, r["role"]))
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sumsub_kyc_applications'"
+        ).fetchone():
+            for k in conn.execute("SELECT * FROM sumsub_kyc_applications").fetchall():
+                uid = phone_to_id.get(k["phone"])
+                if uid:
+                    conn.execute(
+                        """INSERT INTO sumsub_kyc_applications_new(
+                               user_id, external_user_id, applicant_id, level_name, status,
+                               review_status, review_answer, rejection_reason, fixed_info_json,
+                               applicant_json, last_webhook_json, created_at, updated_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (uid, k["external_user_id"], k["applicant_id"], k["level_name"], k["status"],
+                         k["review_status"], k["review_answer"], k["rejection_reason"], k["fixed_info_json"],
+                         k["applicant_json"], k["last_webhook_json"], k["created_at"], k["updated_at"]))
+
+        # 4) 校验: 新 users 行数必须与旧表一致(uuid 不丢用户)。
+        new_count = conn.execute("SELECT COUNT(*) c FROM users_new").fetchone()["c"]
+        if new_count != legacy_count:
+            raise RuntimeError(
+                f"users migration row count mismatch: legacy={legacy_count} new={new_count}")
+
+        # 5) DROP 旧表 → RENAME 新表。sumsub_webhook_events 无 phone 外键,不动。
+        for stmt in finalize_stmts:
+            conn.execute(stmt)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.isolation_level = prev_isolation
+    print(f"[migrate] users phone→user_id rebuild done: {legacy_count} users migrated")
+
+
 def init_db() -> None:
+    needs_migration = DB_PATH.exists()
     with db() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                phone           TEXT PRIMARY KEY,
-                area_code       TEXT NOT NULL,
-                number          TEXT NOT NULL,
-                name            TEXT NOT NULL,
-                email           TEXT,
-                pw_hash         TEXT NOT NULL,
-                pw_salt         TEXT NOT NULL,
-                totp_secret     TEXT NOT NULL,
-                status          TEXT NOT NULL,
-                last_counter    INTEGER,
-                totp_expires_at INTEGER,
-                created_at      INTEGER NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
-                ON users(email) WHERE email IS NOT NULL AND email <> '';
-            CREATE TABLE IF NOT EXISTS sessions (
-                token      TEXT PRIMARY KEY,
-                phone      TEXT NOT NULL,
-                expires_at INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS challenges (
-                challenge   TEXT PRIMARY KEY,
-                phone       TEXT NOT NULL,
-                expires_at  INTEGER NOT NULL,
-                tries       INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS otps (
-                phone       TEXT PRIMARY KEY,
-                code        TEXT NOT NULL,
-                expires_at  INTEGER NOT NULL,
-                sent_at     INTEGER NOT NULL,
-                tries       INTEGER NOT NULL DEFAULT 0,
-                day_count   INTEGER NOT NULL DEFAULT 1,
-                day_start   INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS recovery_codes (
-                phone     TEXT NOT NULL,
-                code_hash TEXT NOT NULL,
-                used      INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (phone, code_hash)
-            );
-            -- RBAC 角色（PR①：暂以 phone 关联；PR② 主键迁 user_id 时改为外键 user_id）
-            CREATE TABLE IF NOT EXISTS user_roles (
-                phone TEXT NOT NULL,
-                role  TEXT NOT NULL,
-                PRIMARY KEY (phone, role)
-            );
-            CREATE TABLE IF NOT EXISTS sumsub_kyc_applications (
-                phone             TEXT PRIMARY KEY,
-                external_user_id  TEXT NOT NULL UNIQUE,
-                applicant_id      TEXT,
-                level_name        TEXT NOT NULL,
-                status            TEXT NOT NULL,
-                review_status     TEXT,
-                review_answer     TEXT,
-                rejection_reason  TEXT,
-                fixed_info_json   TEXT,
-                applicant_json    TEXT,
-                last_webhook_json TEXT,
-                created_at        INTEGER NOT NULL,
-                updated_at        INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_sumsub_kyc_applicant_id
-                ON sumsub_kyc_applications(applicant_id);
-            CREATE TABLE IF NOT EXISTS sumsub_webhook_events (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                applicant_id     TEXT,
-                external_user_id TEXT,
-                event_type       TEXT,
-                review_status    TEXT,
-                review_answer    TEXT,
-                payload_json     TEXT NOT NULL,
-                signature_valid  INTEGER,
-                received_at      INTEGER NOT NULL
-            );
-            """
-        )
-        # 轻量迁移:旧库补列(CREATE IF NOT EXISTS 不会给已存在的表加列)
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-        if "totp_expires_at" not in cols:
-            conn.execute("ALTER TABLE users ADD COLUMN totp_expires_at INTEGER")
-        if "user_type" not in cols:
-            conn.execute("ALTER TABLE users ADD COLUMN user_type TEXT NOT NULL DEFAULT 'patron'")
+        if needs_migration and _users_is_legacy_schema(conn):
+            # 迁移前先把 DB 文件复制一份 .bak(可回滚)。
+            bak = DB_PATH.with_suffix(DB_PATH.suffix + ".bak")
+            shutil.copy2(DB_PATH, bak)
+            print(f"[migrate] legacy users schema detected; backup written to {bak}")
+            migrate_users_to_user_id(conn)
+        # 新库 / 已迁移库: 幂等建表(IF NOT EXISTS)。
+        conn.executescript(NEW_SCHEMA_SQL)
 
 
 # --------------------------------------------------------------------------- #
@@ -359,7 +533,10 @@ def sumsub_request(
 
 
 def sumsub_user_id(user: sqlite3.Row, suffix: str = "") -> str:
-    digest = hashlib.sha256(user["phone"].encode()).hexdigest()[:16]
+    # phone 在迁移后仍保留,沿用 phone 派生以维持已有 Sumsub applicant 关联稳定;
+    # 无 phone 的账户(员工/纯邮箱)回退用 user_id(本身就是稳定唯一标识)。
+    anchor = user["phone"] if user["phone"] else user["id"]
+    digest = hashlib.sha256(anchor.encode()).hexdigest()[:16]
     return f"ht-{digest}{suffix}"
 
 
@@ -444,7 +621,7 @@ def sumsub_review_from_payload(payload: dict[str, Any]) -> dict[str, str]:
 
 
 def sumsub_upsert_kyc(
-    phone: str,
+    user_id: str,
     external_user_id: str,
     level_name: str,
     applicant_id: Optional[str] = None,
@@ -461,12 +638,12 @@ def sumsub_upsert_kyc(
         conn.execute(
             """
             INSERT INTO sumsub_kyc_applications(
-                phone, external_user_id, applicant_id, level_name, status,
+                user_id, external_user_id, applicant_id, level_name, status,
                 review_status, review_answer, rejection_reason, fixed_info_json,
                 applicant_json, last_webhook_json, created_at, updated_at
             )
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(phone) DO UPDATE SET
+            ON CONFLICT(user_id) DO UPDATE SET
                 external_user_id=excluded.external_user_id,
                 applicant_id=COALESCE(excluded.applicant_id, sumsub_kyc_applications.applicant_id),
                 level_name=excluded.level_name,
@@ -480,7 +657,7 @@ def sumsub_upsert_kyc(
                 updated_at=excluded.updated_at
             """,
             (
-                phone,
+                user_id,
                 external_user_id,
                 applicant_id,
                 level_name,
@@ -497,9 +674,11 @@ def sumsub_upsert_kyc(
         )
 
 
-def sumsub_get_local_kyc(phone: str) -> Optional[sqlite3.Row]:
+def sumsub_get_local_kyc(user_id: str) -> Optional[sqlite3.Row]:
     with db() as conn:
-        return conn.execute("SELECT * FROM sumsub_kyc_applications WHERE phone=?", (phone,)).fetchone()
+        return conn.execute(
+            "SELECT * FROM sumsub_kyc_applications WHERE user_id=?", (user_id,)
+        ).fetchone()
 
 
 def sumsub_fetch_applicant_by_external_user_id(external_user_id: str) -> Optional[dict[str, Any]]:
@@ -541,7 +720,7 @@ def sumsub_get_review_status(applicant_id: str) -> dict[str, Any]:
 
 def sumsub_ensure_applicant(user: sqlite3.Row, level_name: str, fixed_info: dict[str, Any]) -> dict[str, Any]:
     external_user_id = sumsub_user_id(user)
-    local = sumsub_get_local_kyc(user["phone"])
+    local = sumsub_get_local_kyc(user["id"])
     applicant: Optional[dict[str, Any]] = None
     applicant_id = local["applicant_id"] if local and local["applicant_id"] else None
 
@@ -561,7 +740,7 @@ def sumsub_ensure_applicant(user: sqlite3.Row, level_name: str, fixed_info: dict
         applicant = sumsub_request("GET", f"/resources/applicants/{applicant_id}/one")
     review = sumsub_review_from_payload(applicant)
     sumsub_upsert_kyc(
-        phone=user["phone"],
+        user_id=user["id"],
         external_user_id=external_user_id,
         applicant_id=applicant_id,
         level_name=level_name,
@@ -661,7 +840,7 @@ def _recovery_hash(code: str) -> str:
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
-def generate_recovery_codes(phone: str) -> "list[str]":
+def generate_recovery_codes(user_id: str) -> "list[str]":
     """为用户重置并生成一组一次性恢复码;返回明文(仅此一次可见),库里只存哈希。"""
     codes, seen = [], set()
     while len(codes) < RECOVERY_CODE_COUNT:
@@ -672,25 +851,25 @@ def generate_recovery_codes(phone: str) -> "list[str]":
         seen.add(pretty)
         codes.append(pretty)
     with db() as conn:
-        conn.execute("DELETE FROM recovery_codes WHERE phone=?", (phone,))
+        conn.execute("DELETE FROM recovery_codes WHERE user_id=?", (user_id,))
         conn.executemany(
-            "INSERT INTO recovery_codes(phone, code_hash, used) VALUES (?,?,0)",
-            [(phone, _recovery_hash(c)) for c in codes],
+            "INSERT INTO recovery_codes(user_id, code_hash, used) VALUES (?,?,0)",
+            [(user_id, _recovery_hash(c)) for c in codes],
         )
     return codes
 
 
-def consume_recovery_code(phone: str, code: str) -> bool:
+def consume_recovery_code(user_id: str, code: str) -> bool:
     """校验并消费一个未使用的恢复码;成功返回 True。"""
     h = _recovery_hash(code)
     with db() as conn:
         row = conn.execute(
-            "SELECT used FROM recovery_codes WHERE phone=? AND code_hash=?", (phone, h)
+            "SELECT used FROM recovery_codes WHERE user_id=? AND code_hash=?", (user_id, h)
         ).fetchone()
         if not row or row["used"]:
             return False
         conn.execute(
-            "UPDATE recovery_codes SET used=1 WHERE phone=? AND code_hash=?", (phone, h)
+            "UPDATE recovery_codes SET used=1 WHERE user_id=? AND code_hash=?", (user_id, h)
         )
     return True
 
@@ -717,33 +896,35 @@ def verify_totp(secret: str, code: str, last_counter: Optional[int]) -> Optional
 # --------------------------------------------------------------------------- #
 # 会话 / challenge
 # --------------------------------------------------------------------------- #
-def create_session(phone: str) -> str:
+def create_session(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
     with db() as conn:
-        conn.execute("INSERT INTO sessions(token, phone, expires_at) VALUES (?,?,?)",
-                     (token, phone, int(time.time()) + SESSION_TTL))
+        conn.execute("INSERT INTO sessions(token, user_id, expires_at) VALUES (?,?,?)",
+                     (token, user_id, int(time.time()) + SESSION_TTL))
     return token
 
 
-def create_challenge(phone: str) -> str:
+def create_challenge(user_id: str) -> str:
     ch = secrets.token_urlsafe(24)
     with db() as conn:
-        conn.execute("INSERT INTO challenges(challenge, phone, expires_at, tries) VALUES (?,?,?,0)",
-                     (ch, phone, int(time.time()) + CHALLENGE_TTL))
+        conn.execute("INSERT INTO challenges(challenge, user_id, expires_at, tries) VALUES (?,?,?,0)",
+                     (ch, user_id, int(time.time()) + CHALLENGE_TTL))
     return ch
 
 
 def user_public(user) -> dict:
     keys = user.keys()
     user_type = user["user_type"] if "user_type" in keys else "patron"
-    phone_label = f"+{user['area_code']} {user['number']}".strip()
+    area = user["area_code"] if "area_code" in keys else ""
+    number = user["number"] if "number" in keys else ""
+    phone_label = f"+{area} {number}".strip() if (area or number) else ""
     return {
         "phone": phone_label if phone_label != "+" else "",
         "name": user["name"],
         "email": user["email"] or "",
         "status": user["status"],
         "userType": user_type,
-        "roles": get_user_roles(user["phone"]),
+        "roles": get_user_roles(user["id"]),
     }
 
 
@@ -753,6 +934,7 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
     token = authorization[len("Bearer "):]
     if token == DEMO_LOCAL_SESSION_TOKEN and SUMSUB_ENVIRONMENT != "production":
         return {
+            "id": "demo-user-id",
             "phone": "85298765432",
             "area_code": "852",
             "number": "98765432",
@@ -765,7 +947,7 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not sess or sess["expires_at"] < int(time.time()):
             raise HTTPException(status_code=401, detail="会话已过期, 请重新登录")
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (sess["phone"],)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE id=?", (sess["user_id"],)).fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
     return user
@@ -774,9 +956,9 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
 # --------------------------------------------------------------------------- #
 # RBAC (PR①: 角色 + 端点级守卫)
 # --------------------------------------------------------------------------- #
-def get_user_roles(phone: str) -> "list[str]":
+def get_user_roles(user_id: str) -> "list[str]":
     with db() as conn:
-        rows = conn.execute("SELECT role FROM user_roles WHERE phone=?", (phone,)).fetchall()
+        rows = conn.execute("SELECT role FROM user_roles WHERE user_id=?", (user_id,)).fetchall()
     return [r["role"] for r in rows]
 
 
@@ -785,7 +967,7 @@ def require_role(*allowed: str):
     前端守卫只是 UX; 真正防越权靠这里的服务端校验。"""
     def dep(authorization: Optional[str] = Header(default=None)) -> Any:
         user = user_from_token(authorization)
-        roles = set(get_user_roles(user["phone"]))
+        roles = set(get_user_roles(user["id"]))
         if "admin" in roles or (set(allowed) & roles):
             return user
         raise HTTPException(status_code=403, detail="无权访问该资源")
@@ -793,27 +975,28 @@ def require_role(*allowed: str):
 
 
 def seed_staff_admin() -> None:
-    """用 env 种子一个 staff admin 账号 (决策 6)。首登改密 + 强制 2FA 留 PR③。"""
+    """用 env 种子一个 staff admin 账号 (决策 6)。首登改密 + 强制 2FA 留 PR③。
+    PR②-1: 用 uuid 主键,phone 留空(员工可空唯一)。"""
     if not (HT_ADMIN_EMAIL and HT_ADMIN_PASSWORD):
         return
     now = int(time.time())
     with db() as conn:
-        existing = conn.execute("SELECT phone FROM users WHERE email=?", (HT_ADMIN_EMAIL,)).fetchone()
+        existing = conn.execute("SELECT id FROM users WHERE email=?", (HT_ADMIN_EMAIL,)).fetchone()
         if existing:
-            conn.execute("INSERT OR IGNORE INTO user_roles(phone, role) VALUES (?, 'admin')",
-                         (existing["phone"],))
+            conn.execute("INSERT OR IGNORE INTO user_roles(user_id, role) VALUES (?, 'admin')",
+                         (existing["id"],))
             return
         pw_hash, pw_salt = hash_password(HT_ADMIN_PASSWORD)
-        phone_key = "staff:" + HT_ADMIN_EMAIL   # 占位主键; PR② 迁 user_id 时替换
+        uid = str(uuid.uuid4())
         secret = pyotp.random_base32()
         conn.execute(
-            """INSERT INTO users(phone, area_code, number, name, email, pw_hash, pw_salt,
+            """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
                                  totp_secret, status, last_counter, totp_expires_at, created_at, user_type)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'staff')""",
-            (phone_key, "", "", "Administrator", HT_ADMIN_EMAIL, pw_hash, pw_salt,
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'staff')""",
+            (uid, None, "", "", "Administrator", HT_ADMIN_EMAIL, pw_hash, pw_salt,
              secret, "active", None, None, now),
         )
-        conn.execute("INSERT INTO user_roles(phone, role) VALUES (?, 'admin')", (phone_key,))
+        conn.execute("INSERT INTO user_roles(user_id, role) VALUES (?, 'admin')", (uid,))
         print(f"[seed] staff admin created: {HT_ADMIN_EMAIL} (dev TOTP secret: {secret})")
 
 
@@ -935,18 +1118,22 @@ def register(body: RegisterIn):
         existing = conn.execute("SELECT status FROM users WHERE phone=?", (phone,)).fetchone()
         if existing and existing["status"] == "active":
             raise HTTPException(status_code=409, detail="该手机号已注册, 请直接登录")
+        # phone 现为唯一属性而非主键:ON CONFLICT(phone) 复用旧行(保留其 id),
+        # 新行才生成 uuid。email 空串归一为 NULL,贴合 UNIQUE 约束。
+        new_id = str(uuid.uuid4())
+        email_value = email or None
         conn.execute(
             """
-            INSERT INTO users(phone, area_code, number, name, email, pw_hash, pw_salt,
+            INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
                               totp_secret, status, last_counter, totp_expires_at, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(phone) DO UPDATE SET
                 area_code=excluded.area_code, number=excluded.number, name=excluded.name,
                 email=excluded.email, pw_hash=excluded.pw_hash, pw_salt=excluded.pw_salt,
                 totp_secret=excluded.totp_secret, status='pending_totp', last_counter=NULL,
                 totp_expires_at=excluded.totp_expires_at
             """,
-            (phone, area, num, body.name.strip(), email, pw_hash, pw_salt,
+            (new_id, phone, area, num, body.name.strip(), email_value, pw_hash, pw_salt,
              secret, "pending_totp", None, expires_at, now),
         )
 
@@ -981,8 +1168,8 @@ def confirm_totp(body: ConfirmIn):
             (counter, phone),
         )
         user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
-    recovery_codes = generate_recovery_codes(phone)  # 激活即签发,仅此一次明文返回
-    token = create_session(phone)
+    recovery_codes = generate_recovery_codes(user["id"])  # 激活即签发,仅此一次明文返回
+    token = create_session(user["id"])
     return {"ok": True, "token": token, "user": user_public(user),
             "recovery_codes": recovery_codes}
 
@@ -1038,12 +1225,13 @@ def password_reset(body: PwdResetIn):
         user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
         if not user or user["status"] != "active":
             raise HTTPException(status_code=404, detail="该手机号未注册")
+    user_id = user["id"]
     verify_otp(phone, body.otp)  # 短信验证码校验(失败/过期会抛错)
     pw_hash, pw_salt = hash_password(body.newPassword)
     with db() as conn:
-        conn.execute("UPDATE users SET pw_hash=?, pw_salt=? WHERE phone=?",
-                     (pw_hash, pw_salt, phone))
-        conn.execute("DELETE FROM sessions WHERE phone=?", (phone,))  # 安全:踢掉所有旧会话
+        conn.execute("UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?",
+                     (pw_hash, pw_salt, user_id))
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))  # 安全:踢掉所有旧会话
     return {"ok": True}
 
 
@@ -1063,7 +1251,7 @@ def login_start(body: LoginStartIn):
     generic = HTTPException(status_code=401, detail="账号或密码有误")
     if not user or not verify_password(body.password, user["pw_hash"], user["pw_salt"]):
         raise generic
-    challenge = create_challenge(user["phone"])
+    challenge = create_challenge(user["id"])
     return {"ok": True, "challenge": challenge, "next": "totp"}
 
 
@@ -1077,15 +1265,15 @@ def login_verify(body: LoginVerifyIn):
         if ch["tries"] >= OTP_MAX_VERIFY:
             conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
             raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新登录")
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (ch["phone"],)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
         counter = verify_totp(user["totp_secret"], body.code, user["last_counter"]) if user else None
         if counter is None:
             conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
             raise HTTPException(status_code=400, detail="验证码错误或已过期")
-        conn.execute("UPDATE users SET last_counter=? WHERE phone=?", (counter, ch["phone"]))
+        conn.execute("UPDATE users SET last_counter=? WHERE id=?", (counter, ch["user_id"]))
         conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (ch["phone"],)).fetchone()
-    token = create_session(user["phone"])
+        user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
+    token = create_session(user["id"])
     return {"ok": True, "token": token, "user": user_public(user)}
 
 
@@ -1100,18 +1288,18 @@ def login_recovery(body: LoginRecoveryIn):
         if ch["tries"] >= OTP_MAX_VERIFY:
             conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
             raise HTTPException(status_code=429, detail="尝试次数过多, 请重新登录")
-        phone = ch["phone"]
-    if not consume_recovery_code(phone, body.recoveryCode):
+        user_id = ch["user_id"]
+    if not consume_recovery_code(user_id, body.recoveryCode):
         with db() as conn:
             conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
         raise HTTPException(status_code=400, detail="恢复码无效或已被使用")
     with db() as conn:
         conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
-        user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
         remaining = conn.execute(
-            "SELECT COUNT(*) c FROM recovery_codes WHERE phone=? AND used=0", (phone,)
+            "SELECT COUNT(*) c FROM recovery_codes WHERE user_id=? AND used=0", (user_id,)
         ).fetchone()["c"]
-    token = create_session(phone)
+    token = create_session(user_id)
     return {"ok": True, "token": token, "user": user_public(user),
             "recovery_remaining": remaining}
 
@@ -1234,7 +1422,7 @@ def sumsub_kyc_start(body: SumsubKycStartIn, authorization: Optional[str] = Head
 @app.get("/api/sumsub/kyc/status")
 def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
     user = user_from_token(authorization)
-    row = sumsub_get_local_kyc(user["phone"])
+    row = sumsub_get_local_kyc(user["id"])
     if not row:
         return sumsub_kyc_response_from_row(None)
     applicant_id = row["applicant_id"]
@@ -1242,7 +1430,7 @@ def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
         review_payload = sumsub_get_review_status(applicant_id)
         review = sumsub_review_from_payload(review_payload)
         sumsub_upsert_kyc(
-            phone=user["phone"],
+            user_id=user["id"],
             external_user_id=row["external_user_id"],
             applicant_id=applicant_id,
             level_name=row["level_name"],
@@ -1252,7 +1440,7 @@ def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
             rejection_reason=review["rejectionReason"],
             applicant=review_payload,
         )
-        row = sumsub_get_local_kyc(user["phone"])
+        row = sumsub_get_local_kyc(user["id"])
     return sumsub_kyc_response_from_row(row)
 
 
@@ -1337,7 +1525,7 @@ async def sumsub_webhook(request: Request):
                 UPDATE sumsub_kyc_applications
                 SET status=?, review_status=?, review_answer=?, rejection_reason=?,
                     last_webhook_json=?, updated_at=?
-                WHERE phone=?
+                WHERE user_id=?
                 """,
                 (
                     review["status"],
@@ -1346,7 +1534,7 @@ async def sumsub_webhook(request: Request):
                     review["rejectionReason"],
                     json_dumps(payload),
                     int(time.time()),
-                    row["phone"],
+                    row["user_id"],
                 ),
             )
     return {
