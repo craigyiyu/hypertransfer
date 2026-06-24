@@ -209,6 +209,8 @@ draft
 
 ### 4.4b HyperTransfer 认证后端（`hypertransfer-main/backend/server.py`，FastAPI）
 
+> **⚠️ 2026-06-24 升级（最终流程 v1 认证改造，已合并 main PR #5/#6/#7）**：`users` 主键已从 phone 改为 **`user_id`(uuid)**，email/phone 可空唯一；新增 **RBAC**（`user_type` + `user_roles` + `require_role` 端点级校验）、**邀请制准入**（`invitations` 表 + RM 提交/Marketing 审核/签发 single-use+72h 链接 + 公开 `/invite` 落地页）、**Email OTP**（`email_otps` 表 + mock console 邮件 + `/register/invite`）、`audit_trail`、admin env 种子（`HT_ADMIN_EMAIL`/`HT_ADMIN_PASSWORD`）。手机短信注册并存保留。下方原描述为旧版手机注册口径，部分已被覆盖（users 已非 phone 主键、注册非唯一入口）。
+
 为 `hypertransfer-main` React 前端提供真实认证。模块:
 - **第一因子**:手机号 + **真实短信 OTP**（走 Hypervelocity simpleSend 网关,见 §4.5b）
 - **第二因子**:**TOTP**（标准 RFC 6238，SHA1/6位/30秒，兼容 Google/Microsoft Authenticator、Authy、1Password、苹果密码）

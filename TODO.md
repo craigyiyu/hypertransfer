@@ -5,7 +5,7 @@
 > 维护机制：每天（或每次进入本项目工作时）跟进更新——完成的标 ✅ 注完成日期，新增的追加，过期的调状态，并更新下方「最后更新」。
 > 状态：⬜ 待办 / 🔄 进行中 / ❓ 待决策 / ⛔ 阻塞 / ✅ 已完成
 >
-> **最后更新：2026-06-23（周二）**
+> **最后更新：2026-06-24（周三）**
 
 ## 🎯 里程碑
 
@@ -80,7 +80,7 @@
 | ✅ | Travel Rule 阈值改 USD 1,000（≈HKD 8,000，修 bug） | 技术 | P0 |
 | ✅ | RBAC 地基：后端 user_type + user_roles + require_role + me 返回角色；前端 requireStaff 守卫 | 技术 | P0 |
 | ✅ | `/casino-ops` 后台越权修复（staffGuard 重定向 patron；后端 require_role 实测 403） | 技术 | P0 |
-| ⬜ | 认证改造：邀请制 + Email OTP + 账户 hold→active 状态机（短信留 step-up；phone→email 分阶段） | 技术 | P0 |
+| ✅ | 认证改造：邀请制 + Email OTP + user_id 主键重建（短信注册并存；hold→active KYC 闸门挪 PR④） | 技术 | P0 |
 | ⬜ | 退款方向反转：只退历史已验证原钱包 + re-KYC/原钱包KYT + Management 审批 + vault 余额 gate（不足挂起等补） | 技术 | P0 |
 | ⬜ | 2FA 改可选 + 入金/退款前 step-up 强制 | 技术 | P1 |
 | ⬜ | KYC 6 个月有效期 + 到期硬阻断、必须重跑 Sumsub | 技术 | P1 |
@@ -99,3 +99,6 @@
 - 2026-06-23 代码快改：仅 USDT（禁用 USDC）+ Travel Rule 阈值 USD 1,000，typecheck 通过
 - 2026-06-23 认证+RBAC 数据模型设计（`ProjectInfo/20260623-Auth-RBAC-Data-Model-Design.md`）
 - 2026-06-23 PR① 认证+RBAC 地基：user_type/user_roles、require_role、`/casino-ops` staffGuard 越权修复、admin env 种子、demo-staff 旁路（typecheck + 后端 smoke 实测 403/401 通过）
+- 2026-06-24 PR②-1 合并：users 主键 phone→user_id(uuid) 重建迁移（幂等 + .bak + 行数校验，独立复核全绿）
+- 2026-06-24 PR②-2 合并：邀请制 + Email OTP + 前端 /invite（TestClient 42 断言 + 对抗安全审计无 blocker）
+- 2026-06-24 PR #5/#6/#7 全部 squash 合并 main（71ed4fe / 2171cad / 8e42478）

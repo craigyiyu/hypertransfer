@@ -163,7 +163,8 @@ Provider adapter 约定：
 
 - `http://127.0.0.1:3003/`：HyperTransfer landing page，含 referral QR demo、Create Account、Sign In。
 - `http://127.0.0.1:3003/login`：客户登录页；本地 demo 可用 `Use Demo Account` 或 `demo.user@hypercrypto.com` / `Demo@12345`。
-- `http://127.0.0.1:3003/register`：客户注册页，真实短信 OTP + password。
+- `http://127.0.0.1:3003/invite?token=<签发的token>`：邀请落地页（公开）；token+邮箱校验 → Email OTP 注册 → setup-2fa。需先由 staff 走邀请流程签发 token。
+- `http://127.0.0.1:3003/register`：客户注册页（手机短信 OTP 自助注册并存；邀请制为主入口，见 /invite）。
 - `http://127.0.0.1:3003/setup-2fa`：注册后的 TOTP 绑定页。
 - `http://127.0.0.1:3003/verify-2fa`：登录第二因子验证页。
 - `http://127.0.0.1:3003/kyc`：客户身份验证页。
@@ -220,6 +221,40 @@ Demo 登录：
 - 新增 / 修改 / 删除的关键代码文件。
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
+
+### 2026-06-24 Auth Process v1: RBAC + user_id 重建 + 邀请制 + Email OTP
+
+合并 PR #5 / #6 / #7（最终流程 v1 认证改造第一批），main commits `71ed4fe` / `2171cad` / `8e42478`。
+
+客户端入口变化：
+- 新增公开邀请落地页 `/invite?token=`：token+邮箱校验 → Email OTP 注册 → `/setup-2fa`。
+- 登录页新增 `Use Demo Staff (Ops Portal)` 旁路（staff 视角进 `/casino-ops`）；普通 `Use Demo Account` 为 patron，已不能进后台（越权修复）。
+- `/new-deposit` 仅显示 USDT（USDC 前端禁用、代码保留）。
+
+业务规则 / 合规口径：
+- 资产仅 USDT；Travel Rule 阈值改 USD 1,000（≈ HKD 8,000，修正旧 8000 把港币门槛当美元的 bug）。
+- 准入改邀请制：RM 提交 → Marketing 审核 → 签发 single-use + 72h 邀请链接 → 客户 Email OTP 注册。手机短信注册并存保留。
+- RBAC：`user_type`(patron/staff) + `user_roles`(rm/marketing/compliance/ops/custodian/admin) + `require_role` 端点级校验；`/casino-ops` 仅 staff。
+
+后端关键变化（`backend/server.py`）：
+- `users` 主键 phone→`user_id`(uuid)，email/phone 可空唯一；幂等迁移 + `.bak` 备份 + 行数校验。
+- 新端点：`/api/admin/staff`、invitations CRUD（提交/审核/签发/verify）、`/api/email/send-otp`、`/api/register/invite`。
+- 新表：`invitations`、`audit_trail`、`email_otps`；`users.invited_by` 列。
+- admin env 种子：`HT_ADMIN_EMAIL` / `HT_ADMIN_PASSWORD`。邮件投递为 mock（console），`SMTP_*` env 预留未接。
+
+验证：
+- 前端 `corepack pnpm run check`（tsc）+ `build` 通过；后端 `py_compile` 通过。
+- 后端 TestClient 邀请全流程 42/42 断言；user_id 迁移演练（幂等 + 关联表映射 + 旧库兼容）由主会话独立复核通过。
+- 对抗性安全审计（5 攻击面多智能体）：无 blocker / high / medium；10 low + 2 none。
+
+生产化 backlog（low，demo 不阻塞）：
+- Email send-otp 枚举旁路（429 / 时延差）→ 统一限频 + 异步邮件投递。
+- Email OTP 每日上限随消费重置 → 独立限频表 + IP 维度限流。
+- `invitations.details_json` 明文 PII → 生产加密 / 最小化 + 收紧可见角色。
+- admin 创建员工拿到其 TOTP secret → 生产改员工自助绑定。
+- 明文 TOTP/OTP、console 邮件 = demo 已知限制。
+
+不含（后续）：2FA 可选 / step-up（PR③）、KYC 6 月有效期 / hold→active 闸门（PR④）、退款方向反转、Marker/Forex。
 
 ### 2026-06-22 Production Test Links And Hex Trust API Meeting Prep
 
@@ -817,4 +852,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-06-22，补充线上测试入口、demo 登录口径、Hex Trust API 会议口径，并追加 `2026-06-22 Production Test Links And Hex Trust API Meeting Prep` release note。
+最后更新：2026-06-24，合并最终流程 v1 认证改造第一批（PR #5/#6/#7：仅 USDT / TR=USD1,000 快改 + RBAC + user_id 主键重建 + 邀请制 + Email OTP），追加 `2026-06-24 Auth Process v1` release note 与 `/invite` 测试入口。
