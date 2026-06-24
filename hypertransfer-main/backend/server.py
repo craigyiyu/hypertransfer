@@ -33,7 +33,7 @@ from typing import Any, Optional
 
 import pyotp
 import qrcode
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -95,6 +95,11 @@ SUMSUB_WEBSDK_TTL = int(os.environ.get("SUMSUB_WEBSDK_TTL", "600"))
 SUMSUB_WEBHOOK_SECRET_KEY = os.environ.get("SUMSUB_WEBHOOK_SECRET_KEY", "").strip()
 SUMSUB_WEBSDK_SCRIPT_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js"
 DEMO_LOCAL_SESSION_TOKEN = "demo-local-session"
+
+# RBAC（PR①：先在现有 phone 体系上加角色，user_id 主键重建留 PR② 与邀请制一起做）
+STAFF_ROLES = {"rm", "marketing", "compliance", "ops", "custodian", "admin"}
+HT_ADMIN_EMAIL = os.environ.get("HT_ADMIN_EMAIL", "").strip().lower()
+HT_ADMIN_PASSWORD = os.environ.get("HT_ADMIN_PASSWORD", "")
 
 app = FastAPI(title="HyperTransfer Auth API")
 
@@ -162,6 +167,12 @@ def init_db() -> None:
                 used      INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (phone, code_hash)
             );
+            -- RBAC 角色（PR①：暂以 phone 关联；PR② 主键迁 user_id 时改为外键 user_id）
+            CREATE TABLE IF NOT EXISTS user_roles (
+                phone TEXT NOT NULL,
+                role  TEXT NOT NULL,
+                PRIMARY KEY (phone, role)
+            );
             CREATE TABLE IF NOT EXISTS sumsub_kyc_applications (
                 phone             TEXT PRIMARY KEY,
                 external_user_id  TEXT NOT NULL UNIQUE,
@@ -196,6 +207,8 @@ def init_db() -> None:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "totp_expires_at" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN totp_expires_at INTEGER")
+        if "user_type" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN user_type TEXT NOT NULL DEFAULT 'patron'")
 
 
 # --------------------------------------------------------------------------- #
@@ -720,12 +733,17 @@ def create_challenge(phone: str) -> str:
     return ch
 
 
-def user_public(user: sqlite3.Row) -> dict:
+def user_public(user) -> dict:
+    keys = user.keys()
+    user_type = user["user_type"] if "user_type" in keys else "patron"
+    phone_label = f"+{user['area_code']} {user['number']}".strip()
     return {
-        "phone": f"+{user['area_code']} {user['number']}",
+        "phone": phone_label if phone_label != "+" else "",
         "name": user["name"],
         "email": user["email"] or "",
         "status": user["status"],
+        "userType": user_type,
+        "roles": get_user_roles(user["phone"]),
     }
 
 
@@ -741,6 +759,7 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
             "name": "Demo User",
             "email": "demo.user@hypercrypto.com",
             "status": "active",
+            "user_type": "patron",
         }
     with db() as conn:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
@@ -750,6 +769,52 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
     return user
+
+
+# --------------------------------------------------------------------------- #
+# RBAC (PR①: 角色 + 端点级守卫)
+# --------------------------------------------------------------------------- #
+def get_user_roles(phone: str) -> "list[str]":
+    with db() as conn:
+        rows = conn.execute("SELECT role FROM user_roles WHERE phone=?", (phone,)).fetchall()
+    return [r["role"] for r in rows]
+
+
+def require_role(*allowed: str):
+    """FastAPI 依赖工厂: 要求当前用户至少具备 allowed 中的一个角色 (admin 全通)。
+    前端守卫只是 UX; 真正防越权靠这里的服务端校验。"""
+    def dep(authorization: Optional[str] = Header(default=None)) -> Any:
+        user = user_from_token(authorization)
+        roles = set(get_user_roles(user["phone"]))
+        if "admin" in roles or (set(allowed) & roles):
+            return user
+        raise HTTPException(status_code=403, detail="无权访问该资源")
+    return dep
+
+
+def seed_staff_admin() -> None:
+    """用 env 种子一个 staff admin 账号 (决策 6)。首登改密 + 强制 2FA 留 PR③。"""
+    if not (HT_ADMIN_EMAIL and HT_ADMIN_PASSWORD):
+        return
+    now = int(time.time())
+    with db() as conn:
+        existing = conn.execute("SELECT phone FROM users WHERE email=?", (HT_ADMIN_EMAIL,)).fetchone()
+        if existing:
+            conn.execute("INSERT OR IGNORE INTO user_roles(phone, role) VALUES (?, 'admin')",
+                         (existing["phone"],))
+            return
+        pw_hash, pw_salt = hash_password(HT_ADMIN_PASSWORD)
+        phone_key = "staff:" + HT_ADMIN_EMAIL   # 占位主键; PR② 迁 user_id 时替换
+        secret = pyotp.random_base32()
+        conn.execute(
+            """INSERT INTO users(phone, area_code, number, name, email, pw_hash, pw_salt,
+                                 totp_secret, status, last_counter, totp_expires_at, created_at, user_type)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'staff')""",
+            (phone_key, "", "", "Administrator", HT_ADMIN_EMAIL, pw_hash, pw_salt,
+             secret, "active", None, None, now),
+        )
+        conn.execute("INSERT INTO user_roles(phone, role) VALUES (?, 'admin')", (phone_key,))
+        print(f"[seed] staff admin created: {HT_ADMIN_EMAIL} (dev TOTP secret: {secret})")
 
 
 # --------------------------------------------------------------------------- #
@@ -1057,6 +1122,12 @@ def me(authorization: Optional[str] = Header(default=None)):
     return {"user": user_public(user)}
 
 
+@app.get("/api/staff/whoami")
+def staff_whoami(user: Any = Depends(require_role(*STAFF_ROLES))):
+    """Staff-only 探针：patron 调用返回 403，用于前端后台守卫与未来后台端点的样板。"""
+    return {"user": user_public(user)}
+
+
 @app.post("/api/logout")
 def logout(authorization: Optional[str] = Header(default=None)):
     if authorization and authorization.startswith("Bearer "):
@@ -1317,6 +1388,7 @@ def http_exc_handler(request: Request, exc: HTTPException):
 
 
 init_db()
+seed_staff_admin()
 
 
 # 生产化清单 (本演示故意省略):

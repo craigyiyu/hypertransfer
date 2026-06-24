@@ -83,6 +83,8 @@ export interface AuthUser {
   name: string;
   email: string;
   status: string;
+  userType?: string;      // 'patron' | 'staff'（RBAC，PR①）
+  roles?: string[];       // staff 细分角色：rm/marketing/compliance/ops/custodian/admin
 }
 export interface RegisterResult {
   phone: string;

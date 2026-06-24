@@ -126,12 +126,15 @@ VirtualAsset/
 ├── .github/workflows/            # ★CI/CD：hypertransfer-check.yml(typecheck+build,PR/合并 main 门禁) + hypertransfer-deploy-hk.yml(SSH/rsync 自动部署香港服务器,需配 HK_* secrets,详见 DEPLOY.md §5)
 ├── next.config.ts                # reactStrictMode: true
 ├── tsconfig.json                 # 严格模式 + @/* 路径别名
-└── package.json
+├── package.json
+└── TODO.md                       # ★项目级每日待办清单（每日维护；来源：会议纪要 + 业务进展，见 §8.7）
 ```
 
 ## 4. 业务领域核心概念（**修改业务逻辑前必读**）
 
 > **权威来源**：`ProjectInfo/design.md`（1443 行）。代码若与 design.md 冲突，**以 design.md 为口径基准**，并同步更新代码或本文档。
+>
+> **⚠️ 最新口径（2026-06-23《HyperTransfer 最终流程 v1》，优先级最高）**：客户已确认最终流程 `ProjectInfo/20260623_Hypertransfer_process_v1.md`，决策记录见 `ProjectInfo/20260623-System-Adjustment-Plan-vs-Process-v1.md` §〇。与下文冲突处以 v1 为准：① **退款**=只退客户此前验证过的**原钱包之一、不能输新地址**、退款前再筛查（取代 §4.4c/§8.5 的"确认新 destination"）；② **TR 阈值**=USD 1,000 ≈ HKD 8,000（取代 §4.2/§4.4c 的 8000，旧值是港币门槛当美元的 bug，代码已改）；③ **资产**=仅 USDT（取代 §4.4c 的 USDT+USDC，USDC 前端禁用代码保留，已改）；④ **注册/2FA**=邀请制+Email OTP（短信留 step-up）、2FA 可选+敏感动作 step-up（已决策待改造）；⑤ 新增 KYC 6 个月有效期、Marker 回录、Forex 法币结算、RBAC 5 角色、数据隔离。
 
 ### 4.1 关键实体（`src/domain/types.ts`）
 
@@ -237,6 +240,15 @@ draft
 | `lib/hex-safe.ts` | Hex Safe deposit status / 确认数 / vault 余额 / 交易日志 的 mock API + webhook 模型 |
 | `lib/treasury-ops.ts` | 后台运营 mock：OTC 兑换、脱锚清算、对账、澳门访问隔离、托管证据 |
 | `lib/demo-auth.ts` | 本地 demo session（`Use Demo Account`） |
+
+**Hex Trust API 当前对接口径（2026-06-22）**：
+
+- 真实 Hex Trust / Hex Safe API **尚未接入**产品；当前已有的是流程、页面、mock adapter 和状态模型。
+- `lib/hex-safe.ts` 仍是 Hex Safe deposit status、confirmation count、vault balance、custody logs mock。
+- `lib/treasury-ops.ts` 仍是 HT Markets OTC、depeg、reconciliation、Macau access exclusion、custody evidence mock。
+- `lib/refund-process.ts` 仍是 refund destination KYT、treasury approval、Hex Safe payout mock。
+- `ProjectInfo/virtual-asset-ppt.md` 中的 Hex Trust endpoint 名称是概念清单，不是最终 API 合同；真实开发必须以 Hex Trust 合同、正式 API 文档、sandbox、webhook payload sample、OpenAPI/Postman collection 为准。
+- 与 Hex Trust 开会时优先拿齐：API auth/IP allowlist/key rotation、deposit address create/get/disable、webhook event/payload/signature/retry/idempotency、status polling by txHash/addressId/transferId/vaultId、transfer/refund approval/quorum、reconciliation API/SFTP/monthly statement schema、HT Markets quote/order 是否有 API。
 
 **关键业务规则（HyperTransfer 客户端，口径来源：客户 Hex Trust 36 问澄清 PDF + design.md）**：
 
@@ -377,6 +389,7 @@ Password: Wynn#2026!
 | 公司名 | **Heypervelocity** |
 | 产品名 | **HyperTransfer** |
 | 产品站点 | `https://h5.hypercypto.com` |
+| 线上 demo 登录 | `demo.user@hypercrypto.com` / `Demo@12345`；也可在 `/login` 点 `Use Demo Account`。用户自己注册的线上账号不保存明文密码，忘记只能走 `Forgot password?` |
 | HyperTransfer **实际**技术栈 | **React 19 + Vite + Tailwind 4 + shadcn/ui + Wouter（前端，见 `hypertransfer-main/`）+ Python/FastAPI（认证后端）+ SQLite**。⚠️ 早期商业方案写的"Vue 3 + Python"是**规划口径**;落地的真实前端代码是 **React**,以此为准 |
 | 最新报价（Phase 1） | **USD 146,250**（325 人天 × USD 450/人天），另 10% 年维护费 USD 14,625 |
 | 报价文件 | `ClientMeetings/HyperTransfer-Development-Quotation.xlsx` |
@@ -395,6 +408,31 @@ Password: Wynn#2026!
 - 报价单中**不含税**，需要时明确注明 "excl. tax"；货币一律用 `"USD "#,##0` 格式（避免 Excel locale 把 `$` 替换成 `¥`）
 - 报价使用 **Item 01–11** 编号，不用 Phase（Phase 已用于 HyperTransfer 商业化阶段）
 - `ClientMeetings/` 下可能包含 Excel 临时文件（`~$*.xlsx`），不要 commit
+
+### 8.6 线上测试入口（2026-06-22 已核 200）
+
+| 页面 | URL |
+|---|---|
+| 首页 | `https://h5.hypercypto.com/` |
+| 登录 | `https://h5.hypercypto.com/login` |
+| KYC | `https://h5.hypercypto.com/kyc` |
+| Dashboard | `https://h5.hypercypto.com/dashboard` |
+| 新建入金 | `https://h5.hypercypto.com/new-deposit` |
+| Refund demo | `https://h5.hypercypto.com/refund` |
+| 赌场工作人员后台 | `https://h5.hypercypto.com/casino-ops` |
+
+## 8.7 项目级待办清单（每日维护）
+
+- **位置**：仓库根 `TODO.md`。这是**项目级**滚动待办，区别于用户级 `~/.claude/todolist.md`（个人 / 跨项目每日待办，由全局规则维护）。两者分开：本项目事项进 `TODO.md`，跨项目 / 个人事项进用户级文件。
+- **来源**：`ClientMeetings/` 会议纪要、业务 / 合规进展、技术债（§8）。
+- **字段**：优先级（P0/P1/P2）、事项、负责人（Owner）、目标日期、状态（⬜ 待办 / 🔄 进行中 / ❓ 待决策 / ⛔ 阻塞 / ✅ 已完成）。
+- **时间口径**：CST（UTC+8）；相对时间（如“7 月中旬”“下周三”）转绝对日期 `YYYY-MM-DD（周X）`。
+- **每日维护机制**：每天（或每次进入本项目工作时）跟进 `TODO.md`——
+  1. 已完成项标 ✅ 并注完成日期；
+  2. 有新会议纪要 / 新需求时追加条目；
+  3. 过期或变更的更新目标日期与状态；
+  4. 更新文件顶部「最后更新」为当天 `YYYY-MM-DD（周X）`。
+- 待办涉及业务流 / 术语 / Travel Rule / Hex Trust 边界 / 报价变化的，完成时同步回 `AGENTS.md`、本文件、`ProjectInfo/design.md`。
 
 ## 9. 调用约定（AI 助手在本仓库的行为）
 
@@ -438,7 +476,8 @@ Password: Wynn#2026!
 
 ---
 
-*最后更新：2026-06-19（§3 补 `.github/workflows/` 顶级目录(hypertransfer-check CI 门禁 + hypertransfer-deploy-hk 自动部署)；§3 + §4.4b 记后端**生产可配置化**(CORS `HT_ALLOWED_ORIGINS` / 短信 `SMS_API_URL` / `HT_DB_PATH` 走环境变量,默认仍 demo 值,production 部署对 `*`/QA 会拒绝)。对应已推送 commit `afb216c`。AGENTS.md 已自带这些,无需改）*
+*最后更新：2026-06-22（周一）（新增 §3 `TODO.md` 与 §8.7「项目级待办清单（每日维护）」，并据今日客户会 + Hex Trust 会议纪要生成项目根 `TODO.md`；`ClientMeetings/` 新增两份 2026-06-22 纪要：客户会 `2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`、Hex Trust 会 `2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`。退款方向 / 存款地址固定性 / 法币结算等口径冲突已在纪要与 TODO 标出，待产品+合规决策，未改产品代码。早前同步 AGENTS.md：§4.4c 明确 Hex Trust / Hex Safe 真实 API 尚未接入，当前为 mock adapter；补 Hex Trust API 会议需确认的 auth、address、webhook、transfer/refund、reconciliation、HT Markets API 问题；§8.5/§8.6 补线上 demo 登录与线上测试入口，2026-06-22 curl 核验 `/`、`/login`、`/kyc`、`/dashboard`、`/new-deposit`、`/refund`、`/casino-ops` 均 200）*
+*历史：2026-06-19（§3 补 `.github/workflows/` 顶级目录(hypertransfer-check CI 门禁 + hypertransfer-deploy-hk 自动部署)；§3 + §4.4b 记后端**生产可配置化**(CORS `HT_ALLOWED_ORIGINS` / 短信 `SMS_API_URL` / `HT_DB_PATH` 走环境变量,默认仍 demo 值,production 部署对 `*`/QA 会拒绝)。对应已推送 commit `afb216c`。AGENTS.md 已自带这些,无需改）*
 *历史：2026-06-08（**按 `AGENTS.md`(Codex 2026-06-08 大改)同步至最新**：顶部新增 AGENTS.md 交叉引用；§1+§9 修正 Git 口径——实际已接 `origin → github.com/eason36/Hyper-Transfer`、走任务分支+PR+Squash（非"无 commit/无 remote"）；§3 补 HyperTransfer 新 lib(`compliance/travel-rule/hex-safe/treasury-ops/demo-auth.ts`)、`CasinoOpsPortal.tsx`(/casino-ops)、`docs/app-flow.*`、ProjectInfo 客户 Hex Trust 澄清 PDF；新增 §4.4c HyperTransfer 客户端 mock 模型+赌场后台（含**新 TR 状态枚举**、`canIssueAddress`三条件、Phase1 网络白名单、确认数 EVM5/Tron4、HT Markets OTC 0.50%/USD150、客户端 vs /casino-ops 边界）；§5 补客户端入金流+casino-ops；§8.5 补澄清 PDF+OTC 口径。注：Wynn Demo 的 `src/domain/types.ts` TR 枚举仍是旧版`pending/submitted`，未动）*
 *历史：2026-05-31（§6.1 新增移动端约定:全高容器用 `100svh` 而非 `100dvh`,修复 HyperTransfer 前端软键盘弹起时页面上下抖动 —— `Shell.tsx`×2 + `Landing.tsx` + `ProtectedRoute.tsx` 已 dvh→svh,typecheck 通过。同日:§3 为 `hypertransfer-main/` 新增运维一键部署:`docker-compose.yml`+`Dockerfile.frontend`+`backend/Dockerfile`+`deploy/nginx.conf`+`.env.example`+`DEPLOY.md`。架构=nginx 服务前端静态产物并反代 `/api`→backend:8000(uvicorn),SQLite 落命名卷 `ht-db` 持久化;已本地 docker 实测全链路通过。配套源码微调:移除 index.html 坏掉的 Manus analytics 脚本、server.py 的 `DB_PATH` 改读 `HT_DB_PATH` 环境变量(本地行为不变)。给运维的干净 tar 包打在 `~/Downloads/hypertransfer-deploy-<date>.tar.gz`(剔除 node_modules/.venv/*.db/日志)。注:CORS=`["*"]` 与 QA 短信网关仍为演示态,DEPLOY.md §5 已标注上线前必改）*
 *历史：2026-05-31（§3 + §8.5 补登 `CompanyPlan/` 两份文档：`HK-Licensing-Roadmap.md` 香港牌照三阶段路线图、`Third-Party-Services-Cost.md` 客户自采第三方服务成本估算；并将 §8.5 牌照路线编号对齐路线图文档为 Phase 0–3，与报价 Phase 编号区分）*

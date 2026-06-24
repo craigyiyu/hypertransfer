@@ -7,8 +7,14 @@ import { Redirect } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 
-export default function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
+export default function ProtectedRoute({
+  children,
+  requireStaff = false,
+}: {
+  children: ReactNode;
+  requireStaff?: boolean;
+}) {
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -20,6 +26,12 @@ export default function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (!isAuthenticated) {
     return <Redirect to="/login" />;
+  }
+
+  // 后台仅 staff 可访问；客户(patron)重定向回 dashboard。
+  // 前端守卫只是 UX；真正防越权靠后端 require_role（见 backend /api/staff/*）。
+  if (requireStaff && user?.userType !== "staff") {
+    return <Redirect to="/dashboard" />;
   }
 
   return <>{children}</>;

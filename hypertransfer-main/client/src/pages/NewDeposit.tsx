@@ -12,15 +12,20 @@ import { motion } from "framer-motion";
 import { Check, AlertTriangle } from "lucide-react";
 import {
   TRAVEL_RULE_THRESHOLD_USD,
+  ACTIVE_PHASE_ONE_ASSETS,
   getPhaseOneNetworks,
   requiresTravelRule,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
 
+// USDC 项保留备 Phase 2；当前仅显示 ACTIVE_PHASE_ONE_ASSETS（最终流程 v1：仅 USDT）。
 const ASSETS = [
   { id: "USDT", name: "Tether", symbol: "USDT", color: "#26A17B" },
   { id: "USDC", name: "USD Coin", symbol: "USDC", color: "#2775CA" },
 ];
+const ACTIVE_ASSETS = ASSETS.filter((asset) =>
+  (ACTIVE_PHASE_ONE_ASSETS as readonly string[]).includes(asset.id),
+);
 
 export default function NewDeposit() {
   const [, navigate] = useLocation();
@@ -63,7 +68,7 @@ export default function NewDeposit() {
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Select Asset</p>
           <div className="grid grid-cols-2 gap-2">
-            {ASSETS.map((asset) => (
+            {ACTIVE_ASSETS.map((asset) => (
               <button
                 key={asset.id}
                 onClick={() => {

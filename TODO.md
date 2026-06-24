@@ -1,0 +1,101 @@
+# VirtualAsset / HyperTransfer 项目级待办清单（TODO）
+
+> 本文件是**项目级**滚动待办，区别于用户级 `~/.claude/todolist.md`（个人 / 跨项目每日待办）。
+> 时间一律 CST（UTC+8）；相对时间转绝对日期 `YYYY-MM-DD（周X）`。
+> 维护机制：每天（或每次进入本项目工作时）跟进更新——完成的标 ✅ 注完成日期，新增的追加，过期的调状态，并更新下方「最后更新」。
+> 状态：⬜ 待办 / 🔄 进行中 / ❓ 待决策 / ⛔ 阻塞 / ✅ 已完成
+>
+> **最后更新：2026-06-23（周二）**
+
+## 🎯 里程碑
+
+| 里程碑 | 目标日期 | 状态 |
+|---|---|---|
+| Hex Trust sandbox API 联调启动 | 2026-06 下旬 | ⬜ 待办 |
+| 双方 QA 测试启动（客户口径"7 月中旬"） | 2026-07-15（周三）前后 | ⬜ 待办 |
+
+---
+
+## P0 — 阻塞推进 / 必须先定
+
+| 状态 | 事项 | 负责人 | 目标日期 | 来源 |
+|---|---|---|---|---|
+| ❓ | **退款方向口径对齐（三方冲突）**：客户要求"原路返回原钱包、严禁新地址" vs 现有产品"客户认证会话确认新 destination" vs Hex Trust"合规团队手动、无 API 退款信号"。需产品 + 合规拍板 | 产品 / 合规 | 2026-06-26（周五） | 客户会 + HT 会 |
+| ⬜ | 向 Hex Trust 取得 **sandbox 账户信息**并启动 API 联调 | HT（发）/ 技术（测） | 2026-06 下旬 | HT 会 |
+| 🔄 | 确认管理员 **Craig** 收到初始设置邮件并完成用户角色添加 | HT / Craig | — | HT 会 |
+| ⬜ | 技术方发送**香港实体公司信息**供客户法务审核 | 技术方 | 本周 | 客户会 |
+| ⬜ | 绘制**完整业务流程图** + 起草 **T&C 初稿** | 技术方 | QA 前 | 客户会 |
+| 🔄 | 整理 / 推进 **Hex Trust 问题清单**（下午会已答一部分，见 P1 未答项） | 技术方 | 持续 | 客户会 + HT 会 |
+| ⛔ | 获取并整理 **HT Q&A exercise 附件**（supported networks / gas fee / wallet arch / security & breach / confirmation policy & 通知 / Hex Safe API / reporting / access controls）——附件未到，阻塞 P1 多项 | 用户 / 技术 | ASAP | HT 补充邮件 |
+
+## P1 — Hex Trust 仍待澄清（技术对接）
+
+| 状态 | 事项 | 负责人 | 目标日期 | 来源 |
+|---|---|---|---|---|
+| ⬜ | API **auth / IP allowlist / key rotation** 机制 | 技术 / HT | sandbox 期 | HT 会未答 |
+| ⬜ | **Webhook** 事件 / payload / signature / retry / idempotency；到账监听是 webhook 还是轮询 | 技术 / HT | sandbox 期 | HT 会未答 |
+| ⬜ | 查询接口 schema（按 `txHash` / `addressId` / `transferId` / `vaultId`） | 技术 / HT | sandbox 期 | HT 会未答 |
+| ⬜ | **Confirmation payload** 字段（`confirmationCount` / `requiredConfirmations` / finality）+ 到账通知机制（待 Q&A 附件确认） | 技术 / HT | sandbox 期 | HT 会 / 待附件 |
+| ⬜ | **Travel Rule 平台责任边界**：港 Hex Trust Limited 合同下平台层是否仍不 hard-freeze pending TR（本次会议未讨论，重要缺口） | 合规 / HT | QA 前 | 两会均未闭环 |
+| ⬜ | **Reconciliation** API / webhook / SFTP / monthly statement schema、时区、fee 字段 | 技术 / HT | QA 前 | HT 会未答 |
+| ⬜ | supported networks / **gas fee 处理** / breach handling / reporting / access controls（以 Q&A 附件为准核对） | 技术 / HT | 附件到后 | 待附件 |
+
+## P1 — 客户侧业务 / 合规决策
+
+| 状态 | 事项 | 负责人 | 目标日期 | 来源 |
+|---|---|---|---|---|
+| ⬜ | 客户协调合规负责人 **Malcolm** 审核流程图与 T&C 草案 | 客户法务 | — | 客户会 |
+| ⬜ | 客户确认 **TK Team 与 CFO** 在新流程中的职责 | 客户方 | — | 客户会 |
+| ❓ | 决策：**邮箱注册 + Salesforce 背景查询 + 账户 6 个月有效期** 是否纳入产品（现有为手机号 + 短信 OTP） | 产品 / 合规 | — | 客户会 |
+| ❓ | 决策：存款发址前增加 **TK Team 人工前置审批** 节点（现有 `canIssueAddress` 无人工审批） | 产品 / 合规 | — | 客户会 |
+| ⬜ | 客户内部梳理**多签审批策略** + 各 Vault 交易门槛（高频低门槛 / 冷钱包高门槛） | 客户运营 | — | HT 会 |
+| ⬜ | 建立即时通讯支持群组（Slack / Telegram / WhatsApp） | 双方 | — | HT 会 |
+
+## P1 — 文档 / 交付准备
+
+| 状态 | 事项 | 负责人 | 目标日期 | 来源 |
+|---|---|---|---|---|
+| ⬜ | **准备系统安全开发项目文档**（安全开发生命周期 / 安全设计 / 威胁建模 / 访问控制 / 数据加密 / breach 处理 等；呼应 HT 会 security & access controls、客户会 2FA + 数据库加密 + HTTPS + 备份） | Eason / 技术方 | — | 用户 2026-06-23 |
+
+## P2 — 产品 / 代码评估（由会议引出，先评估不急改）
+
+| 状态 | 事项 | 负责人 | 目标日期 | 来源 |
+|---|---|---|---|---|
+| ⬜ | 评估**存款地址固定（非 single-use）**对 `DepositAddress` / `voided` 逻辑的影响（HT：稳定币地址固定不变） | 技术 | — | HT 会 |
+| ⬜ | 评估 **HT Markets OTC 高触人工（无 quote/order API）** 对 `casino-ops` / `treasury-ops.ts` 自动化建模的影响 | 技术 | — | HT 会 |
+| ⬜ | 明确**多签审批在 Hex Trust APP 完成**后"我方编排 + HT 审批"的职责边界 | 产品 | — | HT 会 |
+| ⬜ | 退款回执 / 对账获取方式设计（HT 无 API 退款信号，依赖邮件报告 / 人工） | 技术 / 产品 | — | HT 会 |
+| ⬜ | **Marker ID / 法币结算 / 线下纸质凭证** 业务建模（澳门现场只见法币 + Marker ID） | 产品 | — | 客户会 |
+| ⬜ | 确认部署落点 **阿里云香港节点**（现有部署文档为通用香港服务器 + SSH/rsync） | 技术 / 运维 | QA 前 | 客户会 |
+
+---
+
+## 最终流程 v1 改造（2026-06-23，决策已确认）
+
+> 决策记录 + 详细方案见 `ProjectInfo/20260623-System-Adjustment-Plan-vs-Process-v1.md`；流程源文件 `ProjectInfo/20260623_Hypertransfer_process_v1.md`。推进顺序：RBAC 地基 → 越权修复 → 认证主路径 → KYC 有效期 → 退款反转 → Marker/Forex/结算（XL，最后）。
+
+| 状态 | 事项 | 负责人 | 优先级 |
+|---|---|---|---|
+| ✅ | 资产收窄仅 USDT（前端禁用 USDC、保留代码） | 技术 | P0 |
+| ✅ | Travel Rule 阈值改 USD 1,000（≈HKD 8,000，修 bug） | 技术 | P0 |
+| ✅ | RBAC 地基：后端 user_type + user_roles + require_role + me 返回角色；前端 requireStaff 守卫 | 技术 | P0 |
+| ✅ | `/casino-ops` 后台越权修复（staffGuard 重定向 patron；后端 require_role 实测 403） | 技术 | P0 |
+| ⬜ | 认证改造：邀请制 + Email OTP + 账户 hold→active 状态机（短信留 step-up；phone→email 分阶段） | 技术 | P0 |
+| ⬜ | 退款方向反转：只退历史已验证原钱包 + re-KYC/原钱包KYT + Management 审批 + vault 余额 gate（不足挂起等补） | 技术 | P0 |
+| ⬜ | 2FA 改可选 + 入金/退款前 step-up 强制 | 技术 | P1 |
+| ⬜ | KYC 6 个月有效期 + 到期硬阻断、必须重跑 Sumsub | 技术 | P1 |
+| ⬜ | 保留到账后 Transaction KYT（funds-dirty 分支） | 技术 | P1 |
+| ⬜ | Marker 回录（外部编号只读）+ Forex 兑法币 + Receipt/Settlement 建模 | 技术 | P1 |
+| ⬜ | 数据隔离：澳门 operator 角色只见 Marker+法币视图（随 RBAC） | 技术 | P1 |
+| ⬜ | 邀请审核界面：Marketing 在本系统"批准申请 + 签发链接"（single-use+72h） | 技术 | P1 |
+| ⬜ | 同步口径文档 AGENTS/CLAUDE/design.md（退款/TR/资产/认证/2FA） | 文档 | P0 |
+| ❓ | 待客户确认：Forex 渠道 + 目标法币、Management 审批条件、TK Team/CFO 职责 | 客户 | P1 |
+
+## ✅ 已完成（近期）
+
+- 2026-06-22 整理客户会议纪要 `ClientMeetings/2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`
+- 2026-06-22 整理 Hex Trust 会议纪要 `ClientMeetings/2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`
+- 2026-06-23 最终流程 v1 归档 + 转 md + 多智能体系统调整方案 + 决策记录（`ProjectInfo/20260623_Hypertransfer_process_v1.*`、`20260623-System-Adjustment-Plan-vs-Process-v1.md`）
+- 2026-06-23 代码快改：仅 USDT（禁用 USDC）+ Travel Rule 阈值 USD 1,000，typecheck 通过
+- 2026-06-23 认证+RBAC 数据模型设计（`ProjectInfo/20260623-Auth-RBAC-Data-Model-Design.md`）
+- 2026-06-23 PR① 认证+RBAC 地基：user_type/user_roles、require_role、`/casino-ops` staffGuard 越权修复、admin env 种子、demo-staff 旁路（typecheck + 后端 smoke 实测 403/401 通过）

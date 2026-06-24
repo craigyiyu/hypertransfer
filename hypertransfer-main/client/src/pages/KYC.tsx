@@ -1,7 +1,7 @@
 /**
  * KYC — Know Your Customer. User submits identity documents and personal information.
  * This is a blocking step before any deposits can be made.
- * Travel Rule is conditional — shown only during deposit flow when amount > 8,000 USD.
+ * Travel Rule is conditional — shown only during deposit flow when amount >= USD 1,000 (≈ HKD 8,000).
  *
  * Sumsub API flow:
  * 1. User fills HyperTransfer identity summary fields

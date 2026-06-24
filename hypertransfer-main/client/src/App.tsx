@@ -42,6 +42,15 @@ function guard(Component: ComponentType) {
   );
 }
 
+/** 后台路由:仅 staff 角色可访问，patron 重定向回 dashboard（越权修复）。 */
+function staffGuard(Component: ComponentType) {
+  return () => (
+    <ProtectedRoute requireStaff>
+      <Component />
+    </ProtectedRoute>
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -65,8 +74,8 @@ function Router() {
       <Route path="/deposit-success" component={guard(DepositSuccess)} />
       <Route path="/refund" component={guard(RefundProcess)} />
       {/* Staff operations portal. Kept out of customer navigation. */}
-      <Route path="/casino-ops" component={guard(CasinoOpsPortal)} />
-      <Route path="/treasury-controls" component={guard(CasinoOpsPortal)} />
+      <Route path="/casino-ops" component={staffGuard(CasinoOpsPortal)} />
+      <Route path="/treasury-controls" component={staffGuard(CasinoOpsPortal)} />
       <Route path="/history" component={guard(History)} />
       <Route path="/support" component={guard(Support)} />
       <Route path="/settings" component={guard(Settings)} />

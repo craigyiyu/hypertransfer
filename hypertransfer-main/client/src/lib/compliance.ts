@@ -1,6 +1,12 @@
-export const TRAVEL_RULE_THRESHOLD_USD = 8000;
+// Travel Rule 法定门槛 = HKD 8,000 ≈ USD 1,000（香港 AMLO Travel Rule 口径）。
+// 入金资产为 USDT，按 USDT≈USD 1:1 用 USD 判定。此前误写为 8000（被当成 USD）已修正。
+export const TRAVEL_RULE_THRESHOLD_USD = 1000;
 export const SUPPORTED_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
 export type SupportedPhaseOneAsset = (typeof SUPPORTED_PHASE_ONE_ASSETS)[number];
+
+// 当前对客户开放的资产（最终流程 v1：仅 USDT）。USDC 定义保留备 Phase 2，由本白名单控制客户端是否显示。
+export const ACTIVE_PHASE_ONE_ASSETS = ["USDT"] as const;
+export type ActivePhaseOneAsset = (typeof ACTIVE_PHASE_ONE_ASSETS)[number];
 
 export const PHASE_ONE_NETWORKS: Record<
   string,
@@ -64,6 +70,10 @@ export function formatNetworkRail(network: string) {
 
 export function isSupportedPhaseOneAsset(asset: string): asset is SupportedPhaseOneAsset {
   return SUPPORTED_PHASE_ONE_ASSETS.includes(asset as SupportedPhaseOneAsset);
+}
+
+export function isActivePhaseOneAsset(asset: string): asset is ActivePhaseOneAsset {
+  return (ACTIVE_PHASE_ONE_ASSETS as readonly string[]).includes(asset);
 }
 
 export function requiresTravelRule(_asset: string, amount: number) {

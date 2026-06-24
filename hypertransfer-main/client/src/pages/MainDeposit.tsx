@@ -14,7 +14,7 @@ import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
-import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule } from "@/lib/compliance";
+import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule, TRAVEL_RULE_THRESHOLD_USD } from "@/lib/compliance";
 import {
   createCustodyLogs,
   createHexSafeStatus,
@@ -331,7 +331,7 @@ export default function MainDeposit() {
                     </>
                   ) : (
                     <>
-                      <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD 8,000 or above require additional compliance information. You will be asked to provide this before proceeding.
+                      <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()} or above require additional compliance information. You will be asked to provide this before proceeding.
                     </>
                   )}
                 </p>

@@ -70,6 +70,13 @@ corepack pnpm run build
 
 ## 业务规则
 
+> **⚠️ 最新口径（2026-06-23《HyperTransfer 最终流程 v1》，优先级最高）**：客户已确认最终流程 `ProjectInfo/20260623_Hypertransfer_process_v1.md`，决策记录 + 改造方案见 `ProjectInfo/20260623-System-Adjustment-Plan-vs-Process-v1.md` §〇。以下与之冲突的旧表述以 v1 决策为准：
+> - **退款**：只退回客户此前提供并验证过的**原钱包地址之一、不能输新地址**、退款前再次合规筛查（**取代**本文件下方及历史 Release Notes 中"客户确认新 destination wallet / 不要默认原路退回"）。原钱包失效走线下，不在 APP scope。
+> - **Travel Rule 阈值**：USD 1,000 ≈ HKD 8,000（**取代** 8000；旧 8000 实为把港币法定门槛当美元的 bug）。✅ 代码已改。
+> - **资产**：Phase 1 仅 USDT（**取代** USDT+USDC；USDC 前端禁用、保留代码备 Phase 2）。✅ 代码已改。
+> - **注册 / 2FA**：邀请制 + Email OTP（短信留 step-up）、2FA 可选 + 入金/退款 step-up 强制（已决策，代码待改造）。
+> - 其余新增（KYC 6 个月有效期、Marker 回录、Forex 法币结算、RBAC 5 角色、数据隔离、保留到账后 KYT）见决策记录。
+
 Wynn Demo 核心流程：
 
 1. Patron source wallet screened
@@ -96,6 +103,8 @@ Deposit 状态机要点：
 - Sumsub trial 当前仅作为候选合规 provider 评估；可覆盖 KYC、AML screening、questionnaire、Device Intelligence、Transaction Monitoring、Travel Rule、Crypto Monitoring、Case Management 等能力，但不得替代 Hex Trust / Hex Safe 的托管、vault、地址签发和链上 webhook 边界。
 - Sumsub KYC applicant 是 Sumsub 侧的被验证人档案；HyperTransfer 用户通过后端映射到一个 deterministic `externalUserId` 和一个 Sumsub `applicantId`。当前客户页走 API-only demo：后端创建/复用 applicant 并拉取 status，前端不嵌入 Sumsub WebSDK 面板；access-token API 仅保留给连接测试或未来可选 WebSDK 模式。
 - Hex Trust 链上确认门槛按链定义，不能承诺 Wynn 自定义确认数；当前客户回复口径为 EVM 5 confirmations、Tron 4 confirmations。
+- Hex Trust / Hex Safe 真实 API 当前尚未接入产品；`hex-safe.ts`、`treasury-ops.ts`、`refund-process.ts` 中的 Hex Safe、HT Markets、reconciliation、refund payout 仍是 mock。不要对用户或客户声称已经完成 Hex Trust API live integration。
+- `ProjectInfo/virtual-asset-ppt.md` 中的 Hex Trust endpoint 名称是概念清单；真实开发必须以 Hex Trust 合同、正式 API 文档、sandbox、webhook payload sample、OpenAPI/Postman collection 为准。
 - HT Markets OTC 可做 USDT/USDC 与 USD 双向兑换；客户回复口径为 0.50% all-in fee、USD 150 minimum fee。
 
 Provider adapter 约定：
@@ -176,6 +185,29 @@ Provider adapter 约定：
 - `http://127.0.0.1:3003/casino-ops`：Wynn VA Operations Portal，面向 casino treasury / compliance / finance / audit staff。
 - `http://127.0.0.1:3003/treasury-controls`：后台别名，暂时保留兼容旧链接；不要从客户端导航过去。
 
+## 线上测试入口
+
+当前线上站点：`https://h5.hypercypto.com`。
+
+Demo 登录：
+
+- Email：`demo.user@hypercrypto.com`
+- Password：`Demo@12345`
+- 也可以在登录页点击 `Use Demo Account`。
+
+客户/玩家端入口：
+
+- `https://h5.hypercypto.com/`：HyperTransfer landing page。
+- `https://h5.hypercypto.com/login`：客户登录页。
+- `https://h5.hypercypto.com/kyc`：客户身份验证页。
+- `https://h5.hypercypto.com/dashboard`：客户账户首页。
+- `https://h5.hypercypto.com/new-deposit`：客户创建入金请求。
+- `https://h5.hypercypto.com/refund`：客户退款请求 demo。
+
+澳门赌场工作人员后台入口：
+
+- `https://h5.hypercypto.com/casino-ops`：Wynn VA Operations Portal。
+
 ## Release Notes
 
 每次形成新版本或完成一组可测试改动时，必须在本节追加详细 release notes。Release notes 至少包含：
@@ -188,6 +220,53 @@ Provider adapter 约定：
 - 新增 / 修改 / 删除的关键代码文件。
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
+
+### 2026-06-22 Production Test Links And Hex Trust API Meeting Prep
+
+测试入口：
+
+- 线上首页：`https://h5.hypercypto.com/`
+- 线上登录：`https://h5.hypercypto.com/login`
+- 线上 KYC：`https://h5.hypercypto.com/kyc`
+- 线上 Dashboard：`https://h5.hypercypto.com/dashboard`
+- 线上新建入金：`https://h5.hypercypto.com/new-deposit`
+- 线上 Refund demo：`https://h5.hypercypto.com/refund`
+- 线上赌场工作人员后台：`https://h5.hypercypto.com/casino-ops`
+
+Demo 登录口径：
+
+- `demo.user@hypercrypto.com` / `Demo@12345`。
+- 用户自己在线上注册的账号密码不会明文保存；忘记密码只能走 `Forgot password?` 重置。
+
+Hex Trust API 会议口径：
+
+- 当前产品尚未接入真实 Hex Trust / Hex Safe API；已有的是流程、页面、mock adapter 和状态模型。
+- `hypertransfer-main/client/src/lib/hex-safe.ts`：仍是 Hex Safe deposit status、confirmation count、vault balance、custody logs mock。
+- `hypertransfer-main/client/src/lib/treasury-ops.ts`：仍是 HT Markets OTC、depeg、reconciliation、Macau access exclusion、custody evidence mock。
+- `hypertransfer-main/client/src/lib/refund-process.ts`：仍是 refund destination KYT、treasury approval、Hex Safe payout mock。
+- 下午与 Hex Trust 会议的目标是把对方从“商业上可用”推进到“工程上可接”：拿到正式 API docs、sandbox credentials、webhook payload examples、OpenAPI/Postman、vault/address/transfer/statement schema。
+
+需要向 Hex Trust 确认：
+
+- API auth、IP allowlist、key rotation、sandbox/production 切换方式。
+- Deposit address 创建/获取/禁用、one-time/session address、memo/tag/expiry。
+- Webhook event list、payload、signature、retry、idempotency、ordering、replay protection。
+- 查询接口是否支持按 `txHash`、`addressId`、`transferId`、`vaultId` 拉 status。
+- Confirmation payload 是否返回 `confirmationCount`、`requiredConfirmations`、finality timestamp。
+- Transfer/refund 是否要求 whitelisted address，以及 approval/reject/cancel/failure retry/quorum/maker-checker API。
+- Travel Rule 在香港 Hex Trust Limited 合同下的责任边界，特别是平台层是否仍不 hard-freeze pending Travel Rule。
+- Reconciliation 的 API/webhook/SFTP/monthly statement schema、时区、fee 字段。
+- HT Markets OTC 是否有 quote/order API，或仅 desk channel/email。
+
+验证结果：
+
+- `curl -L -s -o /dev/null -w "%{http_code}"` 检查 `/`、`/login`、`/kyc`、`/dashboard`、`/new-deposit`、`/refund`、`/casino-ops`：均返回 200。
+- 本次仅更新文档，未改产品代码；无需运行 `corepack pnpm run check` / `corepack pnpm run build`。
+
+已知限制：
+
+- 线上可跑 demo 页面，不代表 Hex Trust / Hex Safe 真实资金、真实托管签名、真实链上 webhook 已接入。
+- Sumsub KYC API-only demo 与 Hex Trust custody API 是两条边界；Sumsub 不替代 Hex Safe vault、地址签发、链上交易状态、payout 和 reconciliation。
 
 ### 2026-06-21 Sumsub API-Only KYC Demo And Refund Demo Seed
 
@@ -738,4 +817,4 @@ Provider adapter 约定：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-06-21，完成 Sumsub sandbox app token、本地 `.env`、GitHub `HK_ENV_FILE` secret、KYC level、Cockpit webhook 配置，并补 `2026-06-21 Sumsub Sandbox Credentials And Webhook Setup` release note。
+最后更新：2026-06-22，补充线上测试入口、demo 登录口径、Hex Trust API 会议口径，并追加 `2026-06-22 Production Test Links And Hex Trust API Meeting Prep` release note。
