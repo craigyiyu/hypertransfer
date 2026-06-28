@@ -4,7 +4,7 @@
 >
 > 项目级覆盖用户级——比如本项目演示账号 `va.host.demo@wynn.example` 是 demo 内置数据，**不视为** PII / 凭据违规。
 >
-> **配套文件 `AGENTS.md`**（仓库根）：Codex/OpenAI agents 的项目级工作入口，是**最新可测试版本的 Release Notes、本地测试入口清单、代码管理/分支/PR/GitHub 策略**的权威来源。本 `CLAUDE.md` 是长版领域记忆；两者冲突时以 `AGENTS.md` 为业务/运营口径基准，并回写同步本文件。改动业务流/版本时**两份都要看**。
+> **本 `CLAUDE.md` 是本项目的主口径 / 权威基准**（用户 2026-06-28 确认：Claude 以此为准）。**配套文件 `AGENTS.md`**（仓库根）是 Codex/OpenAI agents 的工作入口，承载**最新可测试版本的 Release Notes、本地测试入口清单、代码管理/分支/PR/GitHub 策略**，与本文件**保持同步**。**两者冲突时以 `CLAUDE.md` 为准**，并同步回写 `AGENTS.md`。改动业务流 / 版本时**两份都要更新**。
 >
 > 维护原则见文末「更新机制」。
 

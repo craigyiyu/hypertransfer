@@ -1,7 +1,7 @@
 # AGENTS.md
 
-> 本文件是 Codex / OpenAI agents 在本仓库的项目级工作说明。  
-> `CLAUDE.md` 是历史上为 Claude/Cursor 维护的长版项目记忆，可作为补充参考；**Codex 执行本项目时以本文件为入口和优先工作口径**。如发现两份文件冲突，优先更新本文件，并视需要同步 `CLAUDE.md`。
+> 本文件是 Codex / OpenAI agents 在本仓库的项目级工作入口，承载 Release Notes、测试入口、代码管理策略，并与 `CLAUDE.md` **保持同步**。  
+> **`CLAUDE.md` 是本项目的主口径 / 权威基准**（用户 2026-06-28 确认）。两者冲突时**以 `CLAUDE.md` 为准**；改动业务流 / 版本时两份都要更新。Codex 仍以本文件为执行入口，但口径以 `CLAUDE.md` 为准。
 
 ## 项目身份
 
