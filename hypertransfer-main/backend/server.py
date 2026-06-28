@@ -40,6 +40,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from hexsafe_client import HexSafeClient, HexSafeError  # 本地模块: Hex Safe 托管客户端
+
 BASE_DIR = Path(__file__).resolve().parent
 # DB 路径可由 HT_DB_PATH 覆盖(Docker 部署时指向挂载卷,本地不设则沿用原行为)
 DB_PATH = Path(os.environ.get("HT_DB_PATH") or (BASE_DIR / "hypertransfer_auth.db"))
@@ -71,6 +73,8 @@ ISSUER = "HyperTransfer"
 SESSION_TTL = 60 * 60 * 12        # 会话 12 小时
 CHALLENGE_TTL = 5 * 60            # 登录第一步后的 challenge 5 分钟内要完成 TOTP
 TOTP_ENROLL_TTL = 10 * 60         # 注册后绑定 TOTP 的会话时限:10 分钟内须完成,否则 secret 作废
+KYC_VALIDITY_SECS = 180 * 24 * 60 * 60   # PR③: KYC(Sumsub) 有效期 6 个月(最终流程 v1);到期硬阻断须重跑
+STEPUP_TTL = 5 * 60               # PR③: 资金动作 step-up 二次验证有效期(前端据此判定是否需重验)
 PBKDF2_ITERS = 200_000
 TOTP_VALID_WINDOW = 1
 
@@ -148,7 +152,8 @@ NEW_SCHEMA_SQL = """
         email           TEXT UNIQUE,             -- 可空唯一
         pw_hash         TEXT NOT NULL,
         pw_salt         TEXT NOT NULL,
-        totp_secret     TEXT NOT NULL,           -- PR②-1 仍强制 2FA(可选化留 PR③)
+        totp_secret     TEXT NOT NULL,           -- secret 始终生成(备用); 是否启用看 totp_enabled
+        totp_enabled    INTEGER NOT NULL DEFAULT 1, -- PR③: 2FA 可选。1=已启用(默认/兼容旧 active 账户),0=已跳过
         status          TEXT NOT NULL,
         user_type       TEXT NOT NULL DEFAULT 'patron',
         last_counter    INTEGER,
@@ -199,6 +204,8 @@ NEW_SCHEMA_SQL = """
         fixed_info_json   TEXT,
         applicant_json    TEXT,
         last_webhook_json TEXT,
+        approved_at       INTEGER,                 -- PR③: KYC 首次通过(GREEN)的时间
+        valid_until       INTEGER,                 -- PR③: approved_at + 6 个月; 到期硬阻断
         created_at        INTEGER NOT NULL,
         updated_at        INTEGER NOT NULL
     );
@@ -254,6 +261,50 @@ NEW_SCHEMA_SQL = """
         day_count   INTEGER NOT NULL DEFAULT 1,
         day_start   INTEGER NOT NULL
     );
+    -- Hex Safe 写操作幂等: 客户端带相同 idem_key 重发 → 返回缓存的成功响应, 不再调托管方。
+    -- 仅缓存成功(2xx)结果; 业务/网络错误不缓存, 允许重试。x-request-id 也用此 key。
+    CREATE TABLE IF NOT EXISTS hexsafe_idempotency (
+        idem_key      TEXT PRIMARY KEY,
+        action        TEXT NOT NULL,              -- e.g. withdrawal
+        response_json TEXT NOT NULL,
+        created_at    INTEGER NOT NULL
+    );
+    -- 已验证原钱包: 客户在入金流(wallet screening + 1 USDT 验证)证明过控制权的钱包。
+    -- 退款只能退回这里的某一个(process v1: 强制原钱包, 禁止自由输入新地址)。由入金流写入。
+    CREATE TABLE IF NOT EXISTS verified_wallets (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        address     TEXT NOT NULL,
+        chain_id    TEXT NOT NULL,              -- Hex Safe chainId, 如 11155111 / tron:nile
+        asset       TEXT NOT NULL DEFAULT 'USDT',
+        method      TEXT,                       -- wallet_screening / 1usdt_verification
+        verified_at INTEGER NOT NULL,
+        UNIQUE(user_id, address, chain_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vw_user ON verified_wallets(user_id);
+    -- 退款单: 目标钱包只能引用 verified_wallets(原钱包), 经 re-KYC + re-KYT + 管理层审批 +
+    -- vault 余额校验后由 custodian 经 Hex Safe withdrawal 退回; transfer_id ↔ id(request_id) 留痕。
+    CREATE TABLE IF NOT EXISTS refund_requests (
+        id              TEXT PRIMARY KEY,
+        user_id         TEXT NOT NULL,
+        wallet_id       TEXT NOT NULL,          -- verified_wallets.id(强制原钱包)
+        to_address      TEXT NOT NULL,          -- 冗余原钱包地址(来自 verified_wallets, 非自由输入)
+        chain_id        TEXT NOT NULL,
+        asset           TEXT NOT NULL,
+        amount_decimal  TEXT NOT NULL,
+        reason          TEXT,
+        status          TEXT NOT NULL,          -- requested/kyc_failed/kyt_failed/approval_pending/approved/rejected/insufficient_funds/completed/failed
+        kyc_ok          INTEGER,
+        kyt_status      TEXT,                   -- pass/manual_review/reject
+        approved_by     TEXT,
+        transfer_id     TEXT,                   -- Hex Safe withdrawal 返回
+        idempotency_key TEXT,
+        detail_json     TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_refund_user ON refund_requests(user_id);
+    CREATE INDEX IF NOT EXISTS idx_refund_status ON refund_requests(status);
 """
 
 # otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
@@ -439,6 +490,15 @@ def init_db() -> None:
         user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "invited_by" not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN invited_by TEXT")
+        if "totp_enabled" not in user_cols:
+            # 旧库 active 账户均已强制 2FA → 默认 1(保持其登录仍需 TOTP)
+            conn.execute("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 1")
+        kyc_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(sumsub_kyc_applications)").fetchall()}
+        if "approved_at" not in kyc_cols:
+            conn.execute("ALTER TABLE sumsub_kyc_applications ADD COLUMN approved_at INTEGER")
+        if "valid_until" not in kyc_cols:
+            conn.execute("ALTER TABLE sumsub_kyc_applications ADD COLUMN valid_until INTEGER")
 
 
 # --------------------------------------------------------------------------- #
@@ -1095,6 +1155,7 @@ def user_public(user) -> dict:
     area = user["area_code"] if "area_code" in keys else ""
     number = user["number"] if "number" in keys else ""
     phone_label = f"+{area} {number}".strip() if (area or number) else ""
+    totp_enabled = bool(user["totp_enabled"]) if "totp_enabled" in keys else True
     return {
         "phone": phone_label if phone_label != "+" else "",
         "name": user["name"],
@@ -1102,6 +1163,7 @@ def user_public(user) -> dict:
         "status": user["status"],
         "userType": user_type,
         "roles": get_user_roles(user["id"]),
+        "totpEnabled": totp_enabled,   # PR③: 2FA 可选 → 前端据此决定登录/step-up 是否验 TOTP
     }
 
 
@@ -1119,6 +1181,7 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
             "email": "demo.user@hypercrypto.com",
             "status": "active",
             "user_type": "patron",
+            "totp_enabled": 1,
         }
     with db() as conn:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
@@ -1302,6 +1365,18 @@ class SumsubKycStartIn(BaseModel):
     apiOnly: bool = Field(default=False)
 
 
+class SumsubTravelRuleIn(BaseModel):
+    # 本人(originator)钱包 = 客户来源钱包; counterparty = 受益方(WTA/对手 VASP 侧)
+    direction: str = Field(default="out")            # out=出金/付款方为本人, in=入金
+    amount: float = Field(gt=0)
+    currencyCode: str = Field(default="USDT", max_length=16)
+    cryptoChain: str = Field(default="ETH", max_length=24)  # Sumsub cryptoParams.cryptoChain
+    originatorWallet: str = Field(default="", max_length=120)
+    counterpartyName: str = Field(default="", max_length=160)
+    counterpartyWallet: str = Field(default="", max_length=120)
+    counterpartyVasp: str = Field(default="", max_length=160)
+
+
 # --- 邀请制 / 员工管理 / Email OTP（PR②-2）---
 class CreateStaffIn(BaseModel):
     email: str = Field(min_length=3, max_length=120)
@@ -1335,6 +1410,26 @@ class RegisterInviteIn(BaseModel):
     emailOtp: str = Field(min_length=4, max_length=10)
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=8, max_length=128)
+
+
+# --- 2FA 可选 / step-up（PR③）---
+class RegisterActivateSkipIn(BaseModel):
+    # 跳过 2FA 直接激活: 手机注册用 areaCode+phoneNumber, 邀请注册用 email 定位 pending 用户
+    areaCode: str = Field(default="86")
+    phoneNumber: str = Field(default="")
+    email: str = Field(default="")
+
+
+class Confirm2faIn(BaseModel):
+    code: str = Field(min_length=4, max_length=10)
+
+
+class Disable2faIn(BaseModel):
+    code: str = Field(min_length=4, max_length=10)
+
+
+class StepupVerifyIn(BaseModel):
+    code: str = Field(min_length=4, max_length=10)
 
 
 # --------------------------------------------------------------------------- #
@@ -1433,7 +1528,7 @@ def confirm_totp(body: ConfirmIn):
         if counter is None:
             raise HTTPException(status_code=400, detail="验证码错误或已过期")
         conn.execute(
-            "UPDATE users SET status='active', last_counter=?, totp_expires_at=NULL WHERE id=?",
+            "UPDATE users SET status='active', totp_enabled=1, last_counter=?, totp_expires_at=NULL WHERE id=?",
             (counter, user["id"]),
         )
         user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
@@ -1471,6 +1566,39 @@ def regenerate_totp(body: RegenerateIn):
         "expires_at": expires_at,
         "expires_in": TOTP_ENROLL_TTL,
     }
+
+
+@app.post("/api/register/activate-skip")
+def register_activate_skip(body: RegisterActivateSkipIn):
+    """PR③: 2FA 可选 —— 跳过 TOTP 直接激活 pending_totp 用户(不验码、不签恢复码)。
+    手机注册用 phone 定位; 邀请注册用 email 定位。激活后 totp_enabled=0。
+    员工账户(staff)禁止跳过 2FA。"""
+    email = normalize_email(body.email)
+    with db() as conn:
+        if body.phoneNumber:
+            _, _, phone = normalize_phone(body.areaCode, body.phoneNumber)
+            user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        elif email:
+            user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        else:
+            raise HTTPException(status_code=400, detail="缺少手机号或邮箱")
+        if not user:
+            raise HTTPException(status_code=404, detail="请先注册")
+        if user["status"] == "active":
+            raise HTTPException(status_code=409, detail="该账户已激活, 请直接登录")
+        if user["user_type"] == "staff":
+            raise HTTPException(status_code=403, detail="员工账户必须启用双重验证")
+        exp = user["totp_expires_at"]
+        if exp is not None and int(time.time()) > exp:
+            raise HTTPException(status_code=410, detail="绑定已超时，请返回重新获取二维码")
+        conn.execute(
+            "UPDATE users SET status='active', totp_enabled=0, last_counter=NULL, "
+            "totp_expires_at=NULL WHERE id=?",
+            (user["id"],),
+        )
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    token = create_session(user["id"])
+    return {"ok": True, "token": token, "user": user_public(user)}
 
 
 @app.post("/api/password/send-otp")
@@ -1520,6 +1648,11 @@ def login_start(body: LoginStartIn):
     generic = HTTPException(status_code=401, detail="账号或密码有误")
     if not user or not verify_password(body.password, user["pw_hash"], user["pw_salt"]):
         raise generic
+    # PR③: 2FA 可选。totp_enabled=0 的 patron 直接发会话; staff 永远强制 2FA。
+    needs_totp = bool(user["totp_enabled"]) or user["user_type"] == "staff"
+    if not needs_totp:
+        token = create_session(user["id"])
+        return {"ok": True, "next": "done", "token": token, "user": user_public(user)}
     challenge = create_challenge(user["id"])
     return {"ok": True, "challenge": challenge, "next": "totp"}
 
@@ -1583,6 +1716,81 @@ def me(authorization: Optional[str] = Header(default=None)):
 def staff_whoami(user: Any = Depends(require_role(*STAFF_ROLES))):
     """Staff-only 探针：patron 调用返回 403，用于前端后台守卫与未来后台端点的样板。"""
     return {"user": user_public(user)}
+
+
+# --------------------------------------------------------------------------- #
+# 2FA 可选 / step-up（PR③）
+# --------------------------------------------------------------------------- #
+def _user_label(user: Any) -> str:
+    keys = user.keys()
+    email = user["email"] if "email" in keys else ""
+    area = user["area_code"] if "area_code" in keys else ""
+    number = user["number"] if "number" in keys else ""
+    return email or (f"+{area or ''} {number or ''}".strip()) or "HyperTransfer"
+
+
+@app.post("/api/2fa/enable")
+def enable_2fa(authorization: Optional[str] = Header(default=None)):
+    """PR③: 已登录用户(此前跳过 2FA)补启用 —— 重签 TOTP secret 返回二维码;
+    需再调 /2fa/confirm 验码后 totp_enabled=1。"""
+    user = user_from_token(authorization)
+    secret = pyotp.random_base32()
+    with db() as conn:
+        conn.execute("UPDATE users SET totp_secret=?, last_counter=NULL WHERE id=?",
+                     (secret, user["id"]))
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=_user_label(user), issuer_name=ISSUER)
+    return {"ok": True, "otpauth_uri": otpauth, "secret": secret,
+            "qr_png_base64": qr_data_uri(otpauth)}
+
+
+@app.post("/api/2fa/confirm")
+def confirm_2fa(body: Confirm2faIn, authorization: Optional[str] = Header(default=None)):
+    """PR③: 已登录用户验码激活 2FA(totp_enabled=1);首次启用签发一组恢复码。"""
+    user = user_from_token(authorization)
+    counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
+    if counter is None:
+        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+    with db() as conn:
+        conn.execute("UPDATE users SET totp_enabled=1, last_counter=? WHERE id=?",
+                     (counter, user["id"]))
+        has_codes = conn.execute(
+            "SELECT COUNT(*) c FROM recovery_codes WHERE user_id=?", (user["id"],)
+        ).fetchone()["c"]
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    recovery_codes = [] if has_codes else generate_recovery_codes(user["id"])
+    return {"ok": True, "user": user_public(user), "recovery_codes": recovery_codes}
+
+
+@app.post("/api/2fa/disable")
+def disable_2fa(body: Disable2faIn, authorization: Optional[str] = Header(default=None)):
+    """PR③: 关闭 2FA(需验当前 TOTP);员工账户不允许关闭。"""
+    user = user_from_token(authorization)
+    if user["user_type"] == "staff":
+        raise HTTPException(status_code=403, detail="员工账户必须启用双重验证")
+    counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
+    if counter is None:
+        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+    with db() as conn:
+        conn.execute("UPDATE users SET totp_enabled=0, last_counter=? WHERE id=?",
+                     (counter, user["id"]))
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    return {"ok": True, "user": user_public(user)}
+
+
+@app.post("/api/stepup/verify")
+def stepup_verify(body: StepupVerifyIn, authorization: Optional[str] = Header(default=None)):
+    """PR③: 资金动作(入金/退款)前 step-up 二次验证。要求已启用 2FA;
+    未启用返回 409 —— 前端应先引导用户启用 2FA。"""
+    user = user_from_token(authorization)
+    enabled = bool(user["totp_enabled"]) if "totp_enabled" in user.keys() else True
+    if not enabled:
+        raise HTTPException(status_code=409, detail="请先启用双重验证")
+    counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
+    if counter is None:
+        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+    with db() as conn:
+        conn.execute("UPDATE users SET last_counter=? WHERE id=?", (counter, user["id"]))
+    return {"ok": True, "verifiedAt": int(time.time()), "ttl": STEPUP_TTL}
 
 
 # --------------------------------------------------------------------------- #
@@ -1904,7 +2112,36 @@ def sumsub_access_token(body: SumsubAccessTokenIn, authorization: Optional[str] 
     }
 
 
+def _row_get(row: Any, key: str, default: Any = None) -> Any:
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
+def sumsub_persist_validity(user_id: str) -> Optional[sqlite3.Row]:
+    """PR③: KYC 首次通过(GREEN→status=approved)时落 approved_at + valid_until
+    (= approved_at + 6 个月)。幂等:已落过不覆盖。"""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM sumsub_kyc_applications WHERE user_id=?", (user_id,)
+        ).fetchone()
+        if not row:
+            return None
+        if row["status"] == "approved" and not _row_get(row, "approved_at"):
+            approved_at = row["updated_at"] or int(time.time())
+            conn.execute(
+                "UPDATE sumsub_kyc_applications SET approved_at=?, valid_until=? WHERE user_id=?",
+                (approved_at, approved_at + KYC_VALIDITY_SECS, user_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM sumsub_kyc_applications WHERE user_id=?", (user_id,)
+            ).fetchone()
+    return row
+
+
 def sumsub_kyc_response_from_row(row: Optional[sqlite3.Row]) -> dict[str, Any]:
+    validity_days = KYC_VALIDITY_SECS // 86400
     if not row:
         return {
             "ok": True,
@@ -1918,7 +2155,13 @@ def sumsub_kyc_response_from_row(row: Optional[sqlite3.Row]) -> dict[str, Any]:
             "applicantId": "",
             "levelName": SUMSUB_KYC_LEVEL_NAME,
             "updatedAt": None,
+            "approvedAt": None,
+            "validUntil": None,
+            "expired": False,
+            "validityDays": validity_days,
         }
+    valid_until = _row_get(row, "valid_until")
+    expired = bool(valid_until and int(time.time()) > valid_until)
     return {
         "ok": True,
         "provider": "sumsub",
@@ -1931,7 +2174,99 @@ def sumsub_kyc_response_from_row(row: Optional[sqlite3.Row]) -> dict[str, Any]:
         "applicantId": row["applicant_id"] or "",
         "levelName": row["level_name"],
         "updatedAt": row["updated_at"],
+        "approvedAt": _row_get(row, "approved_at"),
+        "validUntil": valid_until,
+        "expired": expired,
+        "validityDays": validity_days,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Sumsub Travel Rule（口径: KYC + Travel Rule 都走 Sumsub）
+#   TR 建在 Sumsub Transaction Monitoring 之上: POST /resources/applicants/{id}/kyt/txns/-/data
+#   (type=travelRule, Content-Type=application/json — 实测 ndjson 返 415)。复用 KYC 阶段
+#   创建的 applicant —— **任何 KYC applicant 都可提交 TR, 不需要专门 TR level**(官方文档)。
+#   请求端点/类型/Content-Type 已对真实 Sumsub 账户实测正确。
+#   ⚠️ 当前账户**未激活 Travel Rule 产品**: 提交返回 403 "This type of check is not allowed"
+#   (语义拒绝, 非媒体/签名错), 故成功路径未验证。激活方式(账户级, 非 per-level):
+#   Sumsub Cockpit → Rules Library 安装 Travel Rule 规则包并激活 + Settings → Travel Rule 配置;
+#   TR 是独立(可能需 sales 在账户开通的)产品。激活后本代码即可用, 届时再核成功响应结构。
+# --------------------------------------------------------------------------- #
+def sumsub_build_travel_rule_txn(body: "SumsubTravelRuleIn") -> dict[str, Any]:
+    txn: dict[str, Any] = {
+        "txnId": "tr-" + uuid.uuid4().hex,
+        "type": "travelRule",
+        "info": {
+            "direction": body.direction,
+            "amount": body.amount,
+            "currencyCode": body.currencyCode,
+            "cryptoParams": {"cryptoChain": body.cryptoChain},
+        },
+    }
+    if body.originatorWallet:
+        txn["applicant"] = {"paymentMethod": {"type": "crypto", "accountId": body.originatorWallet}}
+    counterparty: dict[str, Any] = {"type": "individual"}
+    if body.counterpartyName:
+        parts = body.counterpartyName.split(" ", 1)
+        counterparty["firstName"] = parts[0]
+        counterparty["lastName"] = parts[1] if len(parts) > 1 else parts[0]
+    if body.counterpartyWallet:
+        counterparty["paymentMethod"] = {"type": "crypto", "accountId": body.counterpartyWallet}
+    if body.counterpartyVasp:
+        counterparty["institutionInfo"] = {"name": body.counterpartyVasp}
+    txn["counterparty"] = counterparty
+    return txn
+
+
+def sumsub_normalize_tr(result: Any) -> dict[str, Any]:
+    """归一化 Sumsub TR 结果为前端状态。模块未启用时 Sumsub 返回 403。"""
+    if isinstance(result, dict) and result.get("_http_status") == 403:
+        return {"status": "provider_not_enabled", "providerStatus": "", "reviewAnswer": "", "txnId": "",
+                "detail": result.get("description") or "Travel Rule module not enabled on Sumsub account"}
+    data = result if isinstance(result, dict) else {}
+    review = data.get("review", {}) if isinstance(data.get("review"), dict) else {}
+    review_result = review.get("reviewResult", {}) if isinstance(review.get("reviewResult"), dict) else {}
+    answer = review_result.get("reviewAnswer", "")   # GREEN / RED
+    review_status = review.get("reviewStatus", "")    # init / pending / completed
+    if answer == "GREEN":
+        status = "travel_rule_accepted"
+    elif answer == "RED":
+        status = "travel_rule_rejected"
+    elif not answer:
+        status = "travel_rule_submitted"
+    else:
+        status = "manual_review"
+    return {"status": status, "providerStatus": review_status or "", "reviewAnswer": answer,
+            "txnId": data.get("txnId") or data.get("id") or "", "detail": ""}
+
+
+@app.post("/api/sumsub/travel-rule/submit")
+def sumsub_travel_rule_submit(body: SumsubTravelRuleIn, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    row = sumsub_get_local_kyc(user["id"])
+    if not row or not row["applicant_id"]:
+        raise HTTPException(status_code=409, detail="请先完成 KYC(创建 Sumsub applicant)再提交 Travel Rule")
+    applicant_id = row["applicant_id"]
+    txn = sumsub_build_travel_rule_txn(body)
+    # 403(模块未启用)作为数据返回而非抛错, 让前端拿到明确状态而非崩流程。
+    result = sumsub_request("POST", f"/resources/applicants/{applicant_id}/kyt/txns/-/data", txn,
+                            allow_statuses={403})
+    norm = sumsub_normalize_tr(result)
+    write_audit(user["id"], "sumsub.travel_rule.submit", "applicant", applicant_id,
+                {"txnId": txn["txnId"], "status": norm["status"], "amount": body.amount,
+                 "currencyCode": body.currencyCode, "chain": body.cryptoChain})
+    return {"ok": norm["status"] != "provider_not_enabled", "provider": "sumsub",
+            "submittedTxnId": txn["txnId"], **norm}
+
+
+@app.get("/api/sumsub/travel-rule/transactions")
+def sumsub_travel_rule_txns(limit: int = 20, authorization: Optional[str] = Header(default=None)):
+    """查 Travel Rule / KYT 交易(staff 排障用)。TR/KYT 模块未启用时上游可能 403/404。"""
+    user = user_from_token(authorization)
+    n = max(1, min(limit, 100))
+    result = sumsub_request("GET", f"/resources/kyt/txns/query/-?limit={n}&order=-createdAt",
+                            allow_statuses={403, 404})
+    return {"ok": True, "provider": "sumsub", "result": result}
 
 
 @app.post("/api/sumsub/kyc/start")
@@ -1985,6 +2320,7 @@ def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
             applicant=review_payload,
         )
         row = sumsub_get_local_kyc(user["id"])
+    row = sumsub_persist_validity(user["id"]) or row
     return sumsub_kyc_response_from_row(row)
 
 
@@ -2081,6 +2417,8 @@ async def sumsub_webhook(request: Request):
                     row["user_id"],
                 ),
             )
+    if row:
+        sumsub_persist_validity(row["user_id"])  # PR③: GREEN 落 valid_until
     return {
         "ok": True,
         "provider": "sumsub",
@@ -2095,12 +2433,420 @@ async def sumsub_webhook(request: Request):
     }
 
 
+# --------------------------------------------------------------------------- #
+# Hex Safe (Hex Trust) 托管集成 —— 发址 / 到账查询 / 提现
+#   客户端 hexsafe_client.HexSafeClient 已对 sandbox 实测(发址按 vault×链固定 / 到账查询 /
+#   提现 schema)。边界: Hex Safe 只做托管/发址/到账/提现/webhook; KYC + Travel Rule 走
+#   Sumsub(见 memory tr-provider-sumsub)——两条边界不混。配置全走 env, 未配置时端点返回
+#   503, 不影响认证 API 启动。资金/托管动作用 custodian 角色守卫 + write_audit 留痕。
+# --------------------------------------------------------------------------- #
+HEXSAFE_VAULT_ID = os.environ.get("HEXSAFE_VAULT_ID", "").strip()            # 默认 WTA vault(发址时也可显式传)
+HEXSAFE_ENTERPRISE_ID = os.environ.get("HEXSAFE_ENTERPRISE_ID", "").strip()  # 提现必填 enterpriseId 的默认值
+
+_hexsafe_client: Optional[HexSafeClient] = None
+
+
+def hexsafe_configured() -> bool:
+    has_key = bool(os.environ.get("HEXSAFE_API_KEY", "").strip())
+    has_pk = bool(os.environ.get("HEXSAFE_PRIVATE_KEY", "").strip()
+                  or os.environ.get("HEXSAFE_PRIVATE_KEY_PATH", "").strip())
+    return has_key and has_pk
+
+
+def get_hexsafe_client() -> HexSafeClient:
+    """惰性单例。未配置 key/私钥 → 503(认证 API 仍可独立启动)。"""
+    global _hexsafe_client
+    if not hexsafe_configured():
+        raise HTTPException(status_code=503, detail="Hex Safe 未配置(缺 HEXSAFE_API_KEY / 私钥)")
+    if _hexsafe_client is None:
+        try:
+            _hexsafe_client = HexSafeClient()
+        except HexSafeError as e:
+            raise HTTPException(status_code=503, detail=f"Hex Safe 初始化失败: {e}")
+    return _hexsafe_client
+
+
+def _hexsafe_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """统一把 HexSafeError 映射成 HTTPException(上游 4xx 透传, 5xx/网络归 502)。"""
+    try:
+        return fn(*args, **kwargs)
+    except HexSafeError as e:
+        status = e.status if (e.status and 400 <= e.status < 600) else 502
+        raise HTTPException(status_code=status,
+                            detail={"provider": "hexsafe", "error": str(e), "body": e.body})
+
+
+def _hexsafe_idem_get(idem_key: str) -> Optional[dict]:
+    """命中则返回缓存的成功响应; 否则 None。"""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT response_json FROM hexsafe_idempotency WHERE idem_key=?", (idem_key,)
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["response_json"])
+    except Exception:
+        return None
+
+
+def _hexsafe_idem_put(idem_key: str, action: str, response: dict) -> None:
+    """仅缓存成功响应; INSERT OR IGNORE 防并发重复写。"""
+    with db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO hexsafe_idempotency(idem_key, action, response_json, created_at) VALUES (?,?,?,?)",
+            (idem_key, action, json_dumps(response), int(time.time())),
+        )
+        conn.commit()
+
+
+class HexSafeAddressIn(BaseModel):
+    chainId: str
+    vaultId: Optional[str] = None
+
+
+class HexSafeWithdrawalIn(BaseModel):
+    ticker: str
+    chainId: str
+    amountDecimal: str
+    fromAddress: str
+    toAddress: str
+    enterpriseId: Optional[str] = None
+    idempotencyKey: Optional[str] = None
+
+
+@app.get("/api/hexsafe/health")
+def hexsafe_health(user: Any = Depends(require_role(*STAFF_ROLES))):
+    configured = hexsafe_configured()
+    info: dict[str, Any] = {
+        "ok": True,
+        "provider": "hexsafe",
+        "configured": configured,
+        "baseUrl": os.environ.get("HEXSAFE_BASE_URL", "https://api.sandbox.hexsafe.hextrust.com"),
+        "defaultVaultId": HEXSAFE_VAULT_ID or None,
+        "status": "missing_credentials" if not configured else "configured",
+    }
+    if configured:
+        try:
+            vaults = get_hexsafe_client().list_vaults()
+            vlist = vaults.get("vaultList", []) if isinstance(vaults, dict) else []
+            info["status"] = "live"
+            info["vaultCount"] = len(vlist)
+        except (HexSafeError, HTTPException) as e:
+            info["status"] = "configured_but_unreachable"
+            info["error"] = str(getattr(e, "detail", e))
+    return info
+
+
+@app.get("/api/hexsafe/vaults")
+def hexsafe_vaults(user: Any = Depends(require_role(*STAFF_ROLES))):
+    return _hexsafe_call(get_hexsafe_client().list_vaults)
+
+
+@app.post("/api/hexsafe/deposit-address")
+def hexsafe_deposit_address(body: HexSafeAddressIn,
+                            user: Any = Depends(require_role("custodian", "ops"))):
+    """生成入金地址(Hex Safe 地址按 vault×链固定, 链级非资产级)。
+
+    ⚠️ 业务上发址前须过 KYC(Sumsub) + source wallet KYT + Travel Rule(Sumsub) gate +
+       TK Team 审批(process v1 §五④); 本端点只做托管侧发址, 门禁/审批由上层流程保证,
+       此处仅 custodian/ops 角色守卫 + 审计留痕。
+    """
+    vault_id = (body.vaultId or HEXSAFE_VAULT_ID).strip()
+    if not vault_id:
+        raise HTTPException(status_code=400, detail="缺少 vaultId(也未配置 HEXSAFE_VAULT_ID)")
+    result = _hexsafe_call(get_hexsafe_client().create_deposit_address, vault_id, body.chainId)
+    write_audit(user["id"], "hexsafe.deposit_address.create", "vault", vault_id,
+                {"chainId": body.chainId, "address": (result or {}).get("address")})
+    return {"ok": True, "provider": "hexsafe", **(result or {})}
+
+
+@app.get("/api/hexsafe/transactions")
+def hexsafe_transactions(vaultId: Optional[str] = None, limit: Optional[int] = None,
+                         offset: Optional[int] = None, sort: Optional[str] = None,
+                         user: Any = Depends(require_role(*STAFF_ROLES))):
+    return _hexsafe_call(get_hexsafe_client().list_transactions,
+                         vault_id=(vaultId or HEXSAFE_VAULT_ID or None),
+                         limit=limit, offset=offset, sort=sort)
+
+
+@app.get("/api/hexsafe/transactions/{trace_id}")
+def hexsafe_transaction(trace_id: str, user: Any = Depends(require_role(*STAFF_ROLES))):
+    return _hexsafe_call(get_hexsafe_client().get_transaction, trace_id)
+
+
+@app.get("/api/hexsafe/deposit/{tx_hash}")
+def hexsafe_deposit_by_tx(tx_hash: str, user: Any = Depends(require_role(*STAFF_ROLES))):
+    result = _hexsafe_call(get_hexsafe_client().get_deposit_by_tx_hash, tx_hash)
+    return {"ok": True, "provider": "hexsafe", "found": result is not None, "deposit": result}
+
+
+@app.post("/api/hexsafe/withdrawal")
+def hexsafe_withdrawal(body: HexSafeWithdrawalIn,
+                       user: Any = Depends(require_role("custodian"))):
+    """发起提现 / 退款(payout)。⚠️ 真实资金动作。
+
+    放行由 Hex Safe 侧审批 / quorum 决定; 本端点只构造并提交请求 + 幂等 key + 审计。
+    退款口径(process v1 §五⑤): to 只能是客户此前已验证过的原钱包之一——该校验须由上层
+    退款审批流保证, 此处不放开任意地址。
+    """
+    enterprise_id = (body.enterpriseId or HEXSAFE_ENTERPRISE_ID).strip()
+    if not enterprise_id:
+        raise HTTPException(status_code=400, detail="缺少 enterpriseId(也未配置 HEXSAFE_ENTERPRISE_ID)")
+    # 幂等: 客户端带相同 idempotencyKey 重发 → 直接返回缓存的成功响应, 不重复发起转账。
+    if body.idempotencyKey:
+        cached = _hexsafe_idem_get(body.idempotencyKey)
+        if cached is not None:
+            write_audit(user["id"], "hexsafe.withdrawal.replay", "withdrawal", body.idempotencyKey, None)
+            return {**cached, "replayed": True}
+    idem = body.idempotencyKey or str(uuid.uuid4())
+    # 提交前先审计, 即使上游超时也有留痕。
+    write_audit(user["id"], "hexsafe.withdrawal.submit", "withdrawal", idem,
+                {"ticker": body.ticker, "chainId": body.chainId, "amountDecimal": body.amountDecimal,
+                 "from": body.fromAddress, "to": body.toAddress, "enterpriseId": enterprise_id})
+    # 失败(余额/审批/网络)抛 HTTPException → 不缓存, 允许重试; 仅成功结果落缓存。
+    result = _hexsafe_call(get_hexsafe_client().create_withdrawal,
+                           enterprise_id, body.ticker, body.chainId, body.amountDecimal,
+                           body.fromAddress, body.toAddress, idempotency_key=idem)
+    payload = result if isinstance(result, dict) else {"result": result}
+    response = {"ok": True, "provider": "hexsafe", "idempotencyKey": idem, **payload}
+    _hexsafe_idem_put(idem, "withdrawal", response)
+    return response
+
+
+# --------------------------------------------------------------------------- #
+# KYC 闸门(②) + 已验证原钱包 + 退款流(①, process v1 RETURN)
+#   KYC 闸门: 关键动作前要求 KYC approved 且未过期(6 个月)。
+#   退款强制原路: 目标只能是 verified_wallets 里本人的原钱包, 不接受自由输入新地址。
+#   re-KYC + re-KYT(compliance 决策, 真实 KYT 接入见 ③) + 管理层审批 + vault 余额校验 +
+#   真实 Hex Safe withdrawal 退回原钱包, transfer_id ↔ request_id 留痕。
+# --------------------------------------------------------------------------- #
+def user_kyc_ok(user_id: str) -> "tuple[bool, str]":
+    """KYC 是否有效(approved 且未过期)。返回 (ok, reason)。供 KYC 闸门(②)与退款 re-KYC 复用。"""
+    row = sumsub_persist_validity(user_id) or sumsub_get_local_kyc(user_id)
+    if not row:
+        return False, "KYC 未开始"
+    if row["status"] != "approved":
+        return False, f"KYC 未通过(status={row['status']})"
+    valid_until = _row_get(row, "valid_until")
+    if valid_until and int(time.time()) > valid_until:
+        return False, "KYC 已过期(超过 6 个月), 需重新认证"
+    return True, ""
+
+
+def require_kyc(user_id: str) -> None:
+    """KYC 硬阻断闸门(②): 不通过抛 403。用于发址/入金/退款等关键动作前。"""
+    ok, reason = user_kyc_ok(user_id)
+    if not ok:
+        raise HTTPException(status_code=403, detail=f"KYC 闸门未通过: {reason}")
+
+
+def record_verified_wallet(user_id: str, address: str, chain_id: str,
+                           asset: str = "USDT", method: str = "wallet_screening") -> str:
+    """记录客户已验证控制权的原钱包(入金流 ③ 调用)。退款只能退到这些钱包。"""
+    wid = str(uuid.uuid4())
+    with db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO verified_wallets(id,user_id,address,chain_id,asset,method,verified_at) VALUES(?,?,?,?,?,?,?)",
+            (wid, user_id, address, chain_id, asset, method, int(time.time())),
+        )
+        conn.commit()
+    return wid
+
+
+def _vw_public(r: sqlite3.Row) -> dict[str, Any]:
+    return {"id": r["id"], "address": r["address"], "chainId": r["chain_id"],
+            "asset": r["asset"], "method": r["method"], "verifiedAt": r["verified_at"]}
+
+
+def _refund_public(r: sqlite3.Row) -> dict[str, Any]:
+    return {"id": r["id"], "userId": r["user_id"], "walletId": r["wallet_id"],
+            "toAddress": r["to_address"], "chainId": r["chain_id"], "asset": r["asset"],
+            "amountDecimal": r["amount_decimal"], "reason": r["reason"], "status": r["status"],
+            "kycOk": bool(r["kyc_ok"]), "kytStatus": r["kyt_status"], "approvedBy": r["approved_by"],
+            "transferId": r["transfer_id"], "createdAt": r["created_at"], "updatedAt": r["updated_at"]}
+
+
+def _refund_get_or_404(rid: str) -> sqlite3.Row:
+    with db() as conn:
+        r = conn.execute("SELECT * FROM refund_requests WHERE id=?", (rid,)).fetchone()
+    if not r:
+        raise HTTPException(status_code=404, detail="退款单不存在")
+    return r
+
+
+def _hexsafe_vault_has_balance(vault_id: str, ticker: str, amount_decimal: str) -> "tuple[bool, str]":
+    """best-effort vault 余额校验: 取 vault assetList 对应 ticker 余额。sandbox 空 vault → 不足。"""
+    try:
+        v = get_hexsafe_client().get_vault(vault_id)
+    except HexSafeError as e:
+        return False, f"无法查询 vault: {e}"
+    assets = (v.get("assetList") or []) if isinstance(v, dict) else []
+    for a in assets:
+        if isinstance(a, dict) and (a.get("ticker") or "").upper() == ticker.upper():
+            try:
+                bal = float(a.get("balance") or a.get("available") or 0)
+                need = float(amount_decimal)
+            except Exception:
+                return False, "余额/金额解析失败"
+            return (bal >= need), f"balance={bal} need={need}"
+    return False, f"vault 无 {ticker} 余额"
+
+
+class RefundCreateIn(BaseModel):
+    walletId: str = Field(min_length=1)          # 必须是本人 verified_wallets 的 id(强制原钱包)
+    amountDecimal: str = Field(min_length=1)
+    reason: str = Field(default="", max_length=64)
+
+
+class RefundScreenIn(BaseModel):
+    decision: str = Field(default="pass")        # compliance 录入: pass / manual_review / reject
+
+
+@app.get("/api/refunds/wallets")
+def refund_wallets(authorization: Optional[str] = Header(default=None)):
+    """客户已验证原钱包 = 退款唯一可选目标(不接受自由输入新地址)。"""
+    user = user_from_token(authorization)
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM verified_wallets WHERE user_id=? ORDER BY verified_at DESC",
+                            (user["id"],)).fetchall()
+    return {"ok": True, "wallets": [_vw_public(r) for r in rows]}
+
+
+@app.post("/api/refunds")
+def refund_create(body: RefundCreateIn, authorization: Optional[str] = Header(default=None)):
+    """客户提交退款。强制原钱包: walletId 必须属于本人 verified_wallets(否则 400)。"""
+    user = user_from_token(authorization)
+    with db() as conn:
+        w = conn.execute("SELECT * FROM verified_wallets WHERE id=? AND user_id=?",
+                         (body.walletId, user["id"])).fetchone()
+    if not w:
+        raise HTTPException(status_code=400, detail="退款目标必须是您已验证过的原钱包之一(不接受新地址)")
+    kyc_ok, kyc_reason = user_kyc_ok(user["id"])
+    rid = "RF-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
+    now = int(time.time())
+    status = "requested" if kyc_ok else "kyc_failed"
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO refund_requests(id,user_id,wallet_id,to_address,chain_id,asset,amount_decimal,
+                  reason,status,kyc_ok,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (rid, user["id"], w["id"], w["address"], w["chain_id"], w["asset"], body.amountDecimal,
+             body.reason or None, status, 1 if kyc_ok else 0, now, now),
+        )
+        conn.commit()
+    write_audit(user["id"], "refund.create", "refund", rid,
+                {"walletId": w["id"], "amount": body.amountDecimal, "kycOk": kyc_ok})
+    resp: dict[str, Any] = {"ok": kyc_ok, "requestId": rid, "status": status}
+    if not kyc_ok:
+        resp["detail"] = f"KYC 闸门未通过: {kyc_reason}"
+    return resp
+
+
+@app.get("/api/refunds/mine")
+def refund_mine(authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM refund_requests WHERE user_id=? ORDER BY created_at DESC",
+                            (user["id"],)).fetchall()
+    return {"ok": True, "refunds": [_refund_public(r) for r in rows]}
+
+
+@app.get("/api/refunds")
+def refund_queue(status: Optional[str] = None,
+                 user: Any = Depends(require_role("compliance", "ops", "custodian"))):
+    with db() as conn:
+        if status:
+            rows = conn.execute("SELECT * FROM refund_requests WHERE status=? ORDER BY created_at DESC",
+                                (status,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM refund_requests ORDER BY created_at DESC").fetchall()
+    return {"ok": True, "refunds": [_refund_public(r) for r in rows]}
+
+
+@app.post("/api/refunds/{rid}/screen")
+def refund_screen(rid: str, body: RefundScreenIn, user: Any = Depends(require_role("compliance"))):
+    """重新 KYT 原钱包(process v1: Wallet clear?)。
+    ⚠️ KYT 暂由 compliance 录入决策(pass/manual_review/reject); 真实 KYT(Hex Safe/外部)接入见 ③。"""
+    _refund_get_or_404(rid)
+    decision = body.decision if body.decision in ("pass", "manual_review", "reject") else "manual_review"
+    new_status = "kyt_failed" if decision == "reject" else "requested"
+    with db() as conn:
+        conn.execute("UPDATE refund_requests SET kyt_status=?, status=?, updated_at=? WHERE id=?",
+                     (decision, new_status, int(time.time()), rid))
+        conn.commit()
+    write_audit(user["id"], "refund.screen", "refund", rid, {"decision": decision})
+    return {"ok": True, "requestId": rid, "kytStatus": decision, "status": new_status}
+
+
+@app.post("/api/refunds/{rid}/approve")
+def refund_approve(rid: str, user: Any = Depends(require_role("compliance", "admin"))):
+    """管理层/合规审批(process v1: Approved? by Management)。要求 KYC ok + 原钱包 KYT pass。"""
+    r = _refund_get_or_404(rid)
+    if not r["kyc_ok"]:
+        raise HTTPException(status_code=409, detail="KYC 未通过, 不能审批")
+    if r["kyt_status"] != "pass":
+        raise HTTPException(status_code=409, detail="原钱包 KYT 未通过, 不能审批")
+    with db() as conn:
+        conn.execute("UPDATE refund_requests SET status='approved', approved_by=?, updated_at=? WHERE id=?",
+                     (user["id"], int(time.time()), rid))
+        conn.commit()
+    write_audit(user["id"], "refund.approve", "refund", rid, None)
+    return {"ok": True, "requestId": rid, "status": "approved"}
+
+
+@app.post("/api/refunds/{rid}/reject")
+def refund_reject(rid: str, user: Any = Depends(require_role("compliance", "admin"))):
+    _refund_get_or_404(rid)
+    with db() as conn:
+        conn.execute("UPDATE refund_requests SET status='rejected', approved_by=?, updated_at=? WHERE id=?",
+                     (user["id"], int(time.time()), rid))
+        conn.commit()
+    write_audit(user["id"], "refund.reject", "refund", rid, None)
+    return {"ok": True, "requestId": rid, "status": "rejected"}
+
+
+@app.post("/api/refunds/{rid}/execute")
+def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
+    """custodian 执行退款: vault 余额校验 → 真实 Hex Safe withdrawal 退回原钱包 → transfer_id 留痕。"""
+    r = _refund_get_or_404(rid)
+    if r["status"] != "approved":
+        raise HTTPException(status_code=409, detail="退款单未审批通过, 不能执行")
+    enterprise_id = HEXSAFE_ENTERPRISE_ID
+    vault_id = HEXSAFE_VAULT_ID
+    if not enterprise_id or not vault_id:
+        raise HTTPException(status_code=400, detail="未配置 HEXSAFE_ENTERPRISE_ID / HEXSAFE_VAULT_ID")
+    # vault 余额校验(process v1: Sufficient Fund in Vault?)
+    bal_ok, bal_note = _hexsafe_vault_has_balance(vault_id, r["asset"], r["amount_decimal"])
+    if not bal_ok:
+        with db() as conn:
+            conn.execute("UPDATE refund_requests SET status='insufficient_funds', updated_at=? WHERE id=?",
+                         (int(time.time()), rid))
+            conn.commit()
+        write_audit(user["id"], "refund.insufficient_funds", "refund", rid, {"note": bal_note})
+        raise HTTPException(status_code=409, detail=f"Vault 余额不足: {bal_note}")
+    idem = r["idempotency_key"] or str(uuid.uuid4())
+    client = get_hexsafe_client()
+    from_addr = (client.create_deposit_address(vault_id, r["chain_id"]) or {}).get("address", "")
+    write_audit(user["id"], "refund.execute.submit", "refund", rid,
+                {"to": r["to_address"], "amount": r["amount_decimal"], "idem": idem})
+    result = _hexsafe_call(client.create_withdrawal, enterprise_id, r["asset"], r["chain_id"],
+                           r["amount_decimal"], from_addr, r["to_address"], idempotency_key=idem)
+    transfer_id = (result.get("traceId") or result.get("transferId") or idem) if isinstance(result, dict) else idem
+    with db() as conn:
+        conn.execute("UPDATE refund_requests SET status='completed', transfer_id=?, idempotency_key=?, updated_at=? WHERE id=?",
+                     (transfer_id, idem, int(time.time()), rid))
+        conn.commit()
+    write_audit(user["id"], "refund.completed", "refund", rid, {"transferId": transfer_id})
+    return {"ok": True, "requestId": rid, "status": "completed", "transferId": transfer_id}
+
+
 @app.get("/api/health")
 def health():
     return {
         "ok": True,
         "service": "hypertransfer-auth",
         "sumsubConfigured": sumsub_configured(),
+        "hexsafeConfigured": hexsafe_configured(),
     }
 
 

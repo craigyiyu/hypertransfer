@@ -102,6 +102,37 @@ declare global {
 
 const DEFAULT_SCRIPT_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js";
 
+// Travel Rule（口径: TR 走 Sumsub）。提交建在 KYC 阶段创建的 applicant 上。
+// status: provider_not_enabled 表示 Sumsub 账户尚未启用 TR 模块（需在 Cockpit 开通）。
+export type SumsubTravelRuleStatus =
+  | "travel_rule_submitted"
+  | "travel_rule_accepted"
+  | "travel_rule_rejected"
+  | "manual_review"
+  | "provider_not_enabled";
+
+export interface SumsubTravelRulePayload {
+  direction?: "in" | "out";
+  amount: number;
+  currencyCode?: string;
+  cryptoChain?: string;
+  originatorWallet?: string;
+  counterpartyName?: string;
+  counterpartyWallet?: string;
+  counterpartyVasp?: string;
+}
+
+export interface SumsubTravelRuleResult {
+  ok: boolean;
+  provider: "sumsub";
+  submittedTxnId: string;
+  status: SumsubTravelRuleStatus;
+  providerStatus: string;
+  reviewAnswer: string;
+  txnId: string;
+  detail: string;
+}
+
 export const sumsubApi = {
   config: () => api.get<SumsubConfig>("/sumsub/config"),
   health: () => api.get<SumsubHealth>("/sumsub/health"),
@@ -112,6 +143,12 @@ export const sumsubApi = {
     api.post<SumsubAccessToken>("/sumsub/access-token", payload),
   connectionTest: (payload: { levelName?: string; ttlInSecs?: number } = {}) =>
     api.post<SumsubConnectionTest>("/sumsub/connection-test", payload),
+  travelRuleSubmit: (payload: SumsubTravelRulePayload) =>
+    api.post<SumsubTravelRuleResult>("/sumsub/travel-rule/submit", payload),
+  travelRuleTransactions: (limit = 20) =>
+    api.get<{ ok: boolean; provider: "sumsub"; result: unknown }>("/sumsub/travel-rule/transactions", {
+      params: { limit },
+    }),
 };
 
 export function loadSumsubWebSdk(scriptUrl = DEFAULT_SCRIPT_URL): Promise<SumsubSdkGlobal> {

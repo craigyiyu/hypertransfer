@@ -222,6 +222,33 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-06-28 Hex Safe Sandbox 集成 + Sumsub Travel Rule + 退款后端
+
+- 测试方式：后端 TestClient + 对 Hex Safe / Sumsub **真实 sandbox 实测**；前端 `tsc` 通过 + vite proxy 端到端；⚠️ 未做真机浏览器渲染（preview 沙箱受限）。
+- ⚠️ 本批次按用户要求**直接提交并推送 `main`**（不走 PR），并删除历史残枝、只留 main。
+
+**Hex Safe (Hex Trust) 托管 — sandbox 实接（不再纯 mock）**
+- 客户端 `backend/hexsafe_client.py`：`create_deposit_address`（`POST /v1/vaults/{id}/address`，body 仅 `{chainId}`，地址按 vault×链固定）、到账查询 `list_transactions`/`get_transaction`/`get_deposit_by_tx_hash`、`create_withdrawal`（6 字段）、`list_enterprises`、`min_confirmations`，全部对 sandbox 实测。
+- 后端 `backend/server.py` `/api/hexsafe/*`（staff/custodian RBAC + 审计 + 提现幂等持久化 `hexsafe_idempotency`）：health / vaults / deposit-address / transactions(+`/{traceId}`) / deposit/{txHash} / withdrawal。
+- 前端 `client/src/components/HexSafeLivePanel.tsx`（casino-ops 用真实 `hexsafeApi`，`lib/api.ts` 新增）。
+- 到账监听 = **轮询**（sandbox 无 webhook 注册 API）；提现验证到余额边界（0 余额→业务层拒，无转账）。配置走 env（`.env.example` 补 `HEXSAFE_*`），密钥在仓库外 `~/hexsafe-keys/`。
+
+**Sumsub Travel Rule — 代码接好，账户未激活**
+- 口径：**KYC + Travel Rule 都走 Sumsub**（KYC 已可用）。
+- 后端 `/api/sumsub/travel-rule/submit` + `/transactions`（复用 KYC applicant，`POST /resources/applicants/{id}/kyt/txns/-/data` type=travelRule，Content-Type application/json）；前端 `TravelRule.tsx` 接真实 + mock 回退；`lib/sumsub.ts` 新增。
+- ⛔ 账户未激活 Travel Rule 产品 → `403 "This type of check is not allowed"`（用账户 level 列表证实：仅 3 个 KYC level，无 TR）。需 Sumsub Cockpit 装/激活 Travel Rule 规则包 + Settings 配置（可能需 sales 开通）。激活后代码即用。
+
+**退款后端 — process v1 RETURN（合规红线落地）**
+- 表 `verified_wallets`（入金验证过的原钱包）+ `refund_requests`；端点 `/api/refunds*`（wallets/create/mine/queue/screen/approve/reject/execute）。
+- **合规红线**：退款只能退本人已验证**原钱包**（传非本人 `walletId`→400），不接受自由输入新地址（取代旧 `destinationAddress` 自由输入）。
+- 流程：re-KYC 闸门（`user_kyc_ok`/`require_kyc`）+ compliance KYT 决策 + 管理层 approve（角色守卫）+ vault 余额校验 + 真实 hexsafe withdrawal + `transfer_id↔request_id` + 全程 audit。TestClient 实测全绿。
+
+**已知限制 / 下一步**
+- 客户入金流仍 mock（`DepositAddress` 随机地址）；真实化需「入金单 + TK 审批后 staff 发址」编排（③）；`record_verified_wallet` 钩子已留给入金流写 `verified_wallets`。
+- KYC 硬阻断闸门函数已写（`require_kyc`）但未挂到入金/发址端点（②）。
+- 待做：Wallet Screening / 1 USDT 验证用 Hex Safe API、Forex 兑法币（④，先探 sandbox 是否有 forex/兑换端点；Fiat account 归属 + HexTrust 是否提供法币 rail 待客户/HT 确认）；Marker / Receipt→Settlement = demo（⑤）；SMTP 真实投递（⑥，现 console）。
+- ① 退款前端 `RefundProcess.tsx` 改 wallet-picker 接真实（去自由地址）待做。
+
 ### 2026-06-24 Auth Process v1: RBAC + user_id 重建 + 邀请制 + Email OTP
 
 合并 PR #5 / #6 / #7（最终流程 v1 认证改造第一批），main commits `71ed4fe` / `2171cad` / `8e42478`。
@@ -852,4 +879,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-06-24，合并最终流程 v1 认证改造第一批（PR #5/#6/#7：仅 USDT / TR=USD1,000 快改 + RBAC + user_id 主键重建 + 邀请制 + Email OTP），追加 `2026-06-24 Auth Process v1` release note 与 `/invite` 测试入口。
+最后更新：2026-06-28，追加 `2026-06-28 Hex Safe Sandbox 集成 + Sumsub Travel Rule + 退款后端` release note：Hex Safe sandbox 实接（客户端+后端 `/api/hexsafe/*`+casino-ops 面板+提现幂等，到账=轮询）、Sumsub Travel Rule 代码接好但账户未激活 TR（403）、退款后端落地 process v1 合规红线（只退已验证原钱包）。按用户要求直接提交推送 main 并清理历史残枝。

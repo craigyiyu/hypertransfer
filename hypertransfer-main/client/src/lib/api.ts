@@ -85,6 +85,15 @@ export interface AuthUser {
   status: string;
   userType?: string;      // 'patron' | 'staff'（RBAC，PR①）
   roles?: string[];       // staff 细分角色：rm/marketing/compliance/ops/custodian/admin
+  totpEnabled?: boolean;  // PR③ 2FA 可选：是否已启用 TOTP（登录/step-up 是否验码）
+}
+
+// 启用/确认 2FA 后返回的 TOTP 绑定信息（已登录用户补启用）。
+export interface Enable2faResult {
+  ok: boolean;
+  otpauth_uri: string;
+  secret: string;
+  qr_png_base64: string;
 }
 export interface RegisterResult {
   phone: string;
@@ -153,7 +162,8 @@ export const authApi = {
     phoneNumber?: string;
     email?: string;
     password: string;
-  }) => api.post<{ ok: boolean; challenge: string; next: string }>("/login/start", p),
+    // PR③: next='done' 时（用户未启用 2FA）直接带回 token+user，无需第二步
+  }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser }>("/login/start", p),
 
   loginVerify: (challenge: string, code: string) =>
     api.post<{ ok: boolean; token: string; user: AuthUser }>("/login/verify", {
@@ -179,6 +189,21 @@ export const authApi = {
     otp: string;
     newPassword: string;
   }) => api.post<{ ok: boolean }>("/password/reset", p),
+
+  // PR③: 2FA 可选 —— 跳过 TOTP 直接激活（手机用 areaCode+phoneNumber，邀请用 email）
+  activateSkip: (p: { areaCode?: string; phoneNumber?: string; email?: string }) =>
+    api.post<{ ok: boolean; token: string; user: AuthUser }>("/register/activate-skip", p),
+
+  // PR③: 已登录用户补启用 2FA（出二维码 → confirm 验码激活）
+  enable2fa: () => api.post<Enable2faResult>("/2fa/enable", {}),
+  confirm2fa: (code: string) =>
+    api.post<{ ok: boolean; user: AuthUser; recovery_codes?: string[] }>("/2fa/confirm", { code }),
+  disable2fa: (code: string) =>
+    api.post<{ ok: boolean; user: AuthUser }>("/2fa/disable", { code }),
+
+  // PR③: 资金动作（入金/退款）前 step-up 二次验证 TOTP
+  stepupVerify: (code: string) =>
+    api.post<{ ok: boolean; verifiedAt: number; ttl: number }>("/stepup/verify", { code }),
 };
 
 // ---------- 邀请制 / Email OTP / 员工管理 (PR②-2) ----------
@@ -253,4 +278,69 @@ export const adminApi = {
       expires_at: number;
       expires_in: number;
     }>("/admin/staff", p),
+};
+
+// ---------- Hex Safe 托管 API (staff/custodian) ----------
+// 边界: Hex Safe 只做托管/发址/到账/提现/webhook; KYC + Travel Rule 走 Sumsub。
+// 这些端点后端是 staff/custodian 角色守卫的, 仅供 casino-ops 后台调用, 客户端不要直连。
+export interface HexSafeHealth {
+  ok: boolean;
+  provider: string;
+  configured: boolean;
+  baseUrl: string;
+  defaultVaultId: string | null;
+  // missing_credentials | configured | live | configured_but_unreachable
+  status: string;
+  vaultCount?: number;
+  error?: string;
+}
+export interface HexSafeVault {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  assetList: unknown[] | null;
+}
+export interface HexSafeAddress {
+  ok: boolean;
+  provider: string;
+  chainId: string;
+  address: string;
+}
+export interface HexSafeTransactions {
+  transactionList: Array<Record<string, unknown>>;
+  paging: { limit: number; offset: number; sort: string };
+}
+export interface HexSafeWithdrawalResult {
+  ok: boolean;
+  provider: string;
+  idempotencyKey: string;
+  [k: string]: unknown;
+}
+
+export const hexsafeApi = {
+  health: () => api.get<HexSafeHealth>("/hexsafe/health"),
+  vaults: () =>
+    api.get<{ vaultList: HexSafeVault[]; currentCount: number; totalCount: number }>("/hexsafe/vaults"),
+  // 生成入金地址(链级, Hex Safe 地址按 vault×链固定)。chainId 如 11155111(Sepolia)/ tron:nile。
+  createDepositAddress: (p: { chainId: string; vaultId?: string }) =>
+    api.post<HexSafeAddress>("/hexsafe/deposit-address", p),
+  transactions: (p: { vaultId?: string; limit?: number; offset?: number; sort?: string } = {}) =>
+    api.get<HexSafeTransactions>("/hexsafe/transactions", { params: p }),
+  transaction: (traceId: string) =>
+    api.get<Record<string, unknown>>(`/hexsafe/transactions/${encodeURIComponent(traceId)}`),
+  depositByTxHash: (txHash: string) =>
+    api.get<{ ok: boolean; provider: string; found: boolean; deposit: unknown }>(
+      `/hexsafe/deposit/${encodeURIComponent(txHash)}`,
+    ),
+  // ⚠️ 真实资金动作: 放行由 Hex Safe 审批/quorum 决定; 退款 to 须是客户已验证过的原钱包。
+  withdrawal: (p: {
+    ticker: string;
+    chainId: string;
+    amountDecimal: string;
+    fromAddress: string;
+    toAddress: string;
+    enterpriseId?: string;
+    idempotencyKey?: string;
+  }) => api.post<HexSafeWithdrawalResult>("/hexsafe/withdrawal", p),
 };

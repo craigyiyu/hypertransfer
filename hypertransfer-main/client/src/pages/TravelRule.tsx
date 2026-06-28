@@ -22,7 +22,16 @@ import {
   createTravelRuleRecord,
   mockTravelRuleProvider,
 } from "@/lib/travel-rule";
+import { sumsubApi } from "@/lib/sumsub";
 import { toast } from "sonner";
+
+// 客户端网络代号 → Sumsub cryptoParams.cryptoChain（Phase 1 仅稳定币 rail）
+function networkToCryptoChain(network: string): string {
+  const n = (network || "").toLowerCase();
+  if (n.includes("tron")) return "TRON";
+  if (n.includes("eth")) return "ETH";
+  return network.toUpperCase();
+}
 
 export default function TravelRule() {
   const [, navigate] = useLocation();
@@ -62,13 +71,50 @@ export default function TravelRule() {
       travelRuleRecord: baseRecord,
     });
 
-    const providerRecord = await mockTravelRuleProvider.submit(baseRecord);
-    const canPass = canPassTravelRuleGate(providerRecord.status, providerRecord.required);
+    // 口径: TR 走 Sumsub。优先调真实 Sumsub Travel Rule;若账户未启用 TR 模块
+    // (provider_not_enabled) 或后端报错, 回退到本地 demo adapter 并如实提示, 保证 demo 不中断。
+    let status = baseRecord.status;
+    let providerReference = baseRecord.providerReference;
+    let rejectionReason = baseRecord.rejectionReason ?? "";
+    let usedFallback = false;
+    let fallbackNote = "";
+
+    try {
+      const { data } = await sumsubApi.travelRuleSubmit({
+        direction: "out",
+        amount: plannedAmount,
+        currencyCode: state.selectedAsset,
+        cryptoChain: networkToCryptoChain(state.selectedNetwork),
+        originatorWallet: state.sourceWallet,
+        counterpartyName: beneficiaryVasp,
+        counterpartyWallet: state.depositAddress || "",
+        counterpartyVasp: beneficiaryVasp,
+      });
+      if (data.status === "provider_not_enabled") {
+        usedFallback = true;
+        fallbackNote = "Sumsub Travel Rule module not enabled on the account; used demo adapter.";
+      } else {
+        status = data.status;
+        providerReference = data.submittedTxnId || data.txnId;
+      }
+    } catch {
+      usedFallback = true;
+      fallbackNote = "Sumsub Travel Rule call failed; used demo adapter.";
+    }
+
+    if (usedFallback) {
+      const providerRecord = await mockTravelRuleProvider.submit(baseRecord);
+      status = providerRecord.status;
+      providerReference = providerRecord.providerReference;
+      rejectionReason = providerRecord.rejectionReason ?? "";
+    }
+
+    const canPass = canPassTravelRuleGate(status, baseRecord.required);
 
     updateState({
       travelRuleComplete: canPass,
-      travelRuleStatus: providerRecord.status,
-      travelRuleRecord: providerRecord,
+      travelRuleStatus: status,
+      travelRuleRecord: { ...baseRecord, status, providerReference, rejectionReason },
       travelRuleInfo: {
         address,
         city,
@@ -77,22 +123,24 @@ export default function TravelRule() {
         originatorVasp,
         beneficiaryVasp,
         provider,
-        providerReference: providerRecord.providerReference,
+        providerReference,
       },
     });
 
     setSubmitting(false);
 
+    if (usedFallback) {
+      toast.message("Travel Rule (demo adapter)", { description: fallbackNote });
+    }
+
     if (canPass) {
-      toast.success("Travel Rule gate accepted", {
-        description: providerRecord.providerReference,
-      });
+      toast.success("Travel Rule gate accepted", { description: providerReference });
       navigate("/deposit-address");
       return;
     }
 
-    toast.error(providerRecord.status === "manual_review" ? "Manual review required" : "Travel Rule rejected", {
-      description: providerRecord.rejectionReason,
+    toast.error(status === "manual_review" ? "Manual review required" : "Travel Rule rejected", {
+      description: rejectionReason,
     });
   };
 
@@ -260,7 +308,7 @@ export default function TravelRule() {
           disabled={!canSubmit || submitting}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          {submitting ? "Submitting Provider Adapter..." : "Accept Gate & Request Hex Safe Address"}
+          {submitting ? "Submitting to Sumsub Travel Rule..." : "Accept Gate & Request Hex Safe Address"}
         </button>
       </div>
     </Shell>
