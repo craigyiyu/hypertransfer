@@ -42,15 +42,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate deployment secrets
+      - name: Check deployment secrets
+        id: guard
         shell: bash
         run: |
           set -euo pipefail
-          : "${HK_HOST:?Missing HK_HOST secret}"
-          : "${HK_SSH_USER:?Missing HK_SSH_USER secret}"
-          : "${HK_SSH_KEY:?Missing HK_SSH_KEY secret}"
+          # HK 服务器/密钥未配齐时优雅跳过(job 仍 green), 避免每次 push main 都收到"部署失败"邮件;
+          # 配置 HK_HOST/HK_SSH_USER/HK_SSH_KEY 后自动启用真实部署(见 DEPLOY.md §5)。
+          # 真实失败(密钥已配但服务器不可达/构建失败)仍会如实 fail。
+          if [ -z "${HK_HOST:-}" ] || [ -z "${HK_SSH_USER:-}" ] || [ -z "${HK_SSH_KEY:-}" ]; then
+            echo "::notice title=HK deploy skipped::HK_HOST/HK_SSH_USER/HK_SSH_KEY 未配置, 跳过自动部署。配置 secrets 后即自动启用(DEPLOY.md §5)。"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare SSH
+        if: steps.guard.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -64,6 +72,7 @@ jobs:
           fi
 
       - name: Sync repository to HK server
+        if: steps.guard.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -87,7 +96,7 @@ jobs:
             ./ "${HK_SSH_USER}@${HK_HOST}:${DEPLOY_PATH}/"
 
       - name: Write server environment file
-        if: env.HK_ENV_FILE != ''
+        if: steps.guard.outputs.configured == 'true' && env.HK_ENV_FILE != ''
         shell: bash
         run: |
           set -euo pipefail
@@ -100,6 +109,7 @@ jobs:
           $SSH "${HK_SSH_USER}@${HK_HOST}" "chmod 600 '${DEPLOY_PATH}/hypertransfer-main/.env'"
 
       - name: Deploy with Docker Compose
+        if: steps.guard.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
