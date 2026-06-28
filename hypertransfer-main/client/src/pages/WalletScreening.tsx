@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Shield, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
+import { depositApi } from "@/lib/api";
 
 type ScreeningState = "idle" | "scanning" | "passed" | "failed";
 
@@ -22,24 +23,33 @@ export default function WalletScreening() {
   const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
   const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
 
-  const handleScreen = () => {
+  const handleScreen = async () => {
     if (!walletAddress) return;
     updateState({ sourceWallet: walletAddress });
     setScreening("scanning");
 
-    // Simulate screening process
-    setTimeout(() => {
-      // Demo: addresses starting with "bad" fail screening
-      if (walletAddress.toLowerCase().startsWith("bad")) {
-        setScreening("failed");
-      } else {
-        setScreening("passed");
-        updateState({
-          screeningPassed: true,
-          travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
-        });
+    // 真实: 有后端入金单 → 走后端来源钱包 KYT(server-authoritative + 留痕); 否则 mock("bad*")。
+    // EDD / fail 一律阻断发址(UI 仅 pass/fail 两态)。
+    let decision: "pass" | "fail" = walletAddress.toLowerCase().startsWith("bad") ? "fail" : "pass";
+    if (state.depositRequestId) {
+      try {
+        const { data } = await depositApi.screen(state.depositRequestId, walletAddress);
+        decision = data.screeningStatus === "pass" ? "pass" : "fail";
+      } catch {
+        /* 后端不可用 → 回退 mock decision */
       }
-    }, 3000);
+    }
+    // 保留筛查动画观感
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    if (decision === "pass") {
+      setScreening("passed");
+      updateState({
+        screeningPassed: true,
+        travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+      });
+    } else {
+      setScreening("failed");
+    }
   };
 
   const handleContinue = () => {

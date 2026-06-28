@@ -5,14 +5,16 @@
 > 维护机制：每天（或每次进入本项目工作时）跟进更新——完成的标 ✅ 注完成日期，新增的追加，过期的调状态，并更新下方「最后更新」。
 > 状态：⬜ 待办 / 🔄 进行中 / ❓ 待决策 / ⛔ 阻塞 / ✅ 已完成
 >
-> **最后更新：2026-06-28（周日）**
+> **最后更新：2026-06-28（周日）— 入金编排 ②③④⑤⑥ + 退款前端①**
 
 ---
 
 > ## ▶ 下一步从这里继续（新会话入口）
-> ① 退款【后端】已完成并推送 main（commit `983ba99`）。**接着做 ② KYC 硬阻断** —— 闸门函数 `user_kyc_ok` / `require_kyc` 已写好（`backend/server.py`），只差挂到入金/发址端点。
-> 之后按序：**② KYC 硬阻断 → ③ 客户入金接真实发址（Wallet Screening + 1 USDT 用 Hex Safe）→ ① 退款【前端】RefundProcess 改 wallet-picker 接真实 → ④ Forex（先探端点）→ ⑤ Marker/Receipt（demo）→ ⑥ SMTP/DB 迁移**。
-> 完整清单 + real/demo 决策见下方「入金/退款流真实化 — 构建清单（2026-06-28）」；口径见 `AGENTS.md` 2026-06-28 release note + memory `tr-provider-sumsub`。每块对 sandbox / TestClient 验证后再继续。
+> **②③④⑤⑥ + ①前端 已全部实现并验证（本批已直接 commit + 推送 main(按用户确认)）**：见 §「入金/退款流真实化 — 构建清单」逐项状态。
+> 已落地：**②KYC 硬阻断**（`require_kyc` 挂 create/screen/issue/main）；**③入金编排后端**（`deposit_requests` 表 + `/api/deposits*` 状态机：create→screen→issue-address→confirm-test(1USDT→写 verified_wallets)→main + staff 队列/marker/settle + forex probe）；**③前端**（NewDeposit/WalletScreening/DepositAddress/MainDeposit backend-first + mock 回退）；**①前端**（RefundProcess 自由地址输入→**verified-wallet picker**，合规红线落地）；**④Forex**（探测端点 + demo 结算，无真实 OTC API 如实回报）；**⑤Marker/Receipt**（demo）；**⑥SMTP**（已 env-gated 真实化 + `.env.example` 补全）+ **迁移**（旧库迁移在副本上验证通过）。
+> 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund 通过；前端 `tsc` + `vite build` 全绿。（浏览器可视化验证被 preview-MCP 沙箱 cwd 故障阻断，非代码问题。）
+> **下一步（需外部依赖，本机无凭据无法做）**：①接 Hex Safe sandbox 真实凭据 → 把 issue-address / 1 USDT 轮询 / refund withdrawal 从 demo 切真实；②真实 Wallet KYT（Chainalysis/TRM 或 Hex Trust KYT 合同端点，现为 server 端 mock adapter 占位，已结构化可换）；③Sumsub 账户激活 Travel Rule 产品后切真实；④生产化（SMTP 真实中继、PostgreSQL 迁移、2FA 可选 + step-up）。
+> 口径见 `AGENTS.md` 2026-06-28 release note + memory `tr-provider-sumsub`。
 
 ---
 
@@ -90,9 +92,9 @@
 | ✅ | RBAC 地基：后端 user_type + user_roles + require_role + me 返回角色；前端 requireStaff 守卫 | 技术 | P0 |
 | ✅ | `/casino-ops` 后台越权修复（staffGuard 重定向 patron；后端 require_role 实测 403） | 技术 | P0 |
 | ✅ | 认证改造：邀请制 + Email OTP + user_id 主键重建（短信注册并存；hold→active KYC 闸门挪 PR④） | 技术 | P0 |
-| ⬜ | 退款方向反转：只退历史已验证原钱包 + re-KYC/原钱包KYT + Management 审批 + vault 余额 gate（不足挂起等补） | 技术 | P0 |
-| ⬜ | 2FA 改可选 + 入金/退款前 step-up 强制 | 技术 | P1 |
-| ⬜ | KYC 6 个月有效期 + 到期硬阻断、必须重跑 Sumsub | 技术 | P1 |
+| ✅ | 退款方向反转：只退历史已验证原钱包 + re-KYC/原钱包KYT + Management 审批 + vault 余额 gate（后端 commit `983ba99` + 前端 picker 本批；KYT 仍 staff 录入 mock） | 技术 | P0 |
+| ⬜ | 2FA 改可选 + 入金/退款前 step-up 强制（2FA 可选已做；入金/退款 step-up 强制待接） | 技术 | P1 |
+| ✅ | KYC 6 个月有效期 + 到期硬阻断（`require_kyc`/`user_kyc_ok` 查 `valid_until`，挂入金/退款关键动作；本批） | 技术 | P1 |
 | ⬜ | 保留到账后 Transaction KYT（funds-dirty 分支） | 技术 | P1 |
 | ⬜ | Marker 回录（外部编号只读）+ Forex 兑法币 + Receipt/Settlement 建模 | 技术 | P1 |
 | ⬜ | 数据隔离：澳门 operator 角色只见 Marker+法币视图（随 RBAC） | 技术 | P1 |
@@ -103,43 +105,43 @@
 ## 入金 / 退款流真实化 — 构建清单（2026-06-28 用户决策，本次主攻）
 
 > 决策来源：用户 2026-06-28。**真实**=接 Hex Safe sandbox / Sumsub 真实 API；**demo**=本地 mock 即可。
-> 已铺好的地基（本会话，⚠️未提交）：Hex Safe 客户端（发址/到账/提现/min_confirmations）+ 后端 `/api/hexsafe/*`（RBAC+审计+提现幂等持久化）+ casino-ops `HexSafeLivePanel`；Sumsub KYC 真实可用 + TR 后端代码已接（账户未激活 TR，止于 403）。
+> 已铺好的地基（已提交 main commit `983ba99`）：Hex Safe 客户端（发址/到账/提现/min_confirmations）+ 后端 `/api/hexsafe/*`（RBAC+审计+提现幂等持久化）+ casino-ops `HexSafeLivePanel`；Sumsub KYC 真实可用 + TR 后端代码已接（账户未激活 TR，止于 403）。
 > 建议推进顺序：① 退款流（合规红线，现状相反）→ ② KYC 硬阻断 → ③ 客户入金接真实发址 → ④ Forex（先探端点）→ ⑤ Marker/Receipt(demo) → ⑥ SMTP/迁移收尾。
 
 ### 基础设施 / 收尾
 | 状态 | 事项 | 真实/demo | 备注 |
 |---|---|---|---|
-| ⬜ | **邮件投递接真实 SMTP**（现 `send_email` 仅 console 打印；`SMTP_*` env 已预留） | 真实(生产) | 邀请链接 + Email OTP 都依赖；上线前必接 |
-| ⬜ | 核实并迁移持久化 demo 库到新 schema（invitations/user_id/totp_enabled）；现有 `hypertransfer_auth.db` 可能仍旧 schema | — | 审计旗标；新建库已 OK |
+| ✅ | **邮件投递接真实 SMTP**（`send_email` 已 env-gated：`SMTP_HOST` 配则真发，否则 console；`.env.example` 已补 `EMAIL_FROM`/`SMTP_*`） | 真实(env-gated) | 上线前填真实中继即可；2026-06-28 完成 |
+| ✅ | 核实并迁移持久化 demo 库到新 schema | — | 在持久库**副本**上跑 `init_db()`：旧 phone-PK → user_id + 全部新表(含 `deposit_requests`) + `.bak` 备份，0 用户无损；持久库下次起后端自动迁移。2026-06-28 完成 |
 
 ### KYC — 完成未做完的部分（真实）
 | 状态 | 事项 | 真实/demo | 备注 |
 |---|---|---|---|
-| ⬜ | **发址/入金前硬阻断**：KYC approved 且未过期才放行（现仅角色守卫，无 KYC gate） | 真实 | 在 `/api/hexsafe/deposit-address` 等加 KYC `valid_until` 校验 |
-| ⬜ | **KYC 6 个月到期硬阻断**（status 已有 expired 标记，但关键操作未卡） | 真实 | 关键操作前查过期 |
-| ⬜ | hold→active 显式状态（users 表无 hold 字段，KYC 未过未显式 hold） | 真实 | |
+| ✅ | **发址/入金前硬阻断**：KYC approved 且未过期才放行 | 真实 | `require_kyc` 挂在 `/api/deposits` create/screen/issue-address/main（patron 编排层，非 staff `/api/hexsafe/*`）；2026-06-28 |
+| ✅ | **KYC 6 个月到期硬阻断** | 真实 | `user_kyc_ok` 查 `valid_until`；TestClient 验证过期→403 |
+| ✅ | hold→active 显式状态 | 真实 | 无独立 hold 列，KYC 有效性即闸门；`/api/deposits/eligibility` 返回 `accountState` active/hold |
 
 ### 入金流真实化
 | 状态 | 事项 | 真实/demo | 备注 |
 |---|---|---|---|
-| ⬜ | **Wallet Screening 用 Hex Safe API**（现纯前端 mock `bad*`） | 真实(Hex Safe) | ⚠️ 先探测 sandbox 是否有 screening/KYT 端点 |
-| ⬜ | **1 USDT 验证用 Hex Safe API**（发真实地址 + 轮询到账 1 USDT） | 真实(Hex Safe) | 复用 `create_deposit_address` + `list_transactions`/`get_deposit_by_tx_hash` |
-| ⬜ | 客户端 DepositAddress 接真实发址（替换随机假地址）——需「入金单 + TK 审批后 staff 发址」编排 | 真实(Hex Safe) | 后端发址已就绪；缺 patron 入金单 + 审批编排 |
+| 🟡 | **Wallet Screening**（现 server 端 mock adapter `screen_source_wallet`） | mock(可换) | ⚠️ Hex Safe sandbox 无文档化 screening/KYT 端点 + 本机无凭据无法探测；真实 KYT 口径=Chainalysis/TRM 或 Hex Trust KYT(合同级)。已封装成 server 端 adapter，接通仅换实现 |
+| ✅/🟡 | **1 USDT 验证**（发址 + 确认到账 → 写 verified_wallets） | 真实(配置时)/demo | `confirm-test`：配 Hex Safe + txHash → `get_deposit_by_tx_hash` 核到账；否则非 prod demo 确认。均写 verified_wallets。轮询真实到账需凭据 |
+| ✅/🟡 | 客户端 DepositAddress 接真实发址（替换随机假地址）+ 入金单编排 | 真实(配置时)/demo | `deposit_requests` 编排 + `issue-address` 调 `create_deposit_address`(配置时)，否则 demo 占位；前端 backend-first + mock 回退。注：v1 未强制 TK 前置审批(❓未决)，故未加该节点 |
 | 🟡 | **Travel Rule：因 Sumsub 账户未激活 TR，仅做 demo 效果** | demo | 前端已有 mock 回退；账户激活后切真实（后端代码已就绪） |
-| ⬜ | **Forex 兑法币（USDT→HKD/USD 结算法币账户）用真实 Hex Safe sandbox API** | 真实(Hex Safe) | ⚠️ **先探测 sandbox 是否有 forex/conversion/OTC 端点**；无则如实回报再定 |
-| 🟡 | Int'l Marketing 签发 Marker + reference 录回 | **demo** | 仅 demo（外部编号录入展示） |
-| 🟡 | Receipt → Settlement | **demo** | 仅 demo |
+| 🟡 | **Forex 兑法币** —— 探测无真实 OTC API，结算用 demo 汇率 | demo + 探测 | `/api/hexsafe/forex/probe`(只读端点探测 + 如实回报)；据 Hex Trust 口径 HT Markets OTC 无 quote/order API；`settle` 用 `DEPOSIT_FIAT_RATE` demo 兑换 |
+| 🟡 | Int'l Marketing 签发 Marker + reference 录回 | **demo** | `/api/deposits/{id}/marker`(marketing 角色，外部编号只读录入) |
+| 🟡 | Receipt → Settlement | **demo** | `/api/deposits/{id}/settle` → 生成 `receipt_ref` + 法币结算(demo) |
 
 ### 退款流（整体做好 —— 现状最弱，含合规红线）
 | 状态 | 事项 | 真实/demo | 备注 |
 |---|---|---|---|
-| ⬜ | **提交退款请求：补齐前端 mock + 后端退款单端点**（现前端 mock 不完整、无后端、不持久化） | 前端 mock 补全 + 后端真实 | |
-| ⬜ | 重新 KYC（6 个月有效期）校验 | 真实(Sumsub) | 现退款流完全不查 |
-| ⬜ | 重新 Wallet KYT | 真实(Hex Safe，同 wallet screening) | 现 mock |
-| ⬜ | 管理层审批（后端端点 + 角色守卫 + 留痕） | 真实 | 现仅前端按钮 mock |
-| ⬜ | Vault 余额校验（不足挂起/通知 ops） | 真实(Hex Safe vaults) | 现无 |
-| ⬜ | **只能退回原钱包（禁止输新地址；与历史已验证钱包比对）** | 真实 | ⚠️**合规红线，现状相反**（前端允许输任意地址） |
-| ⬜ | Custodian 真实退款（调 `hexsafe withdrawal`）+ TransferID↔RequestID 留痕 | 真实(Hex Safe) | 现 mock txHash，未调真实 withdrawal |
+| ✅ | **提交退款请求**：后端退款单端点 + 前端 wallet-picker | 后端真实 + 前端接真实 | `①后端`commit `983ba99` + `①前端`本批：RefundProcess 自由地址输入→verified-wallet picker |
+| ✅ | 重新 KYC（6 个月有效期）校验 | 真实(本地 KYC 表) | `refund_create` 调 `user_kyc_ok`，不过则 `kyc_failed` |
+| 🟡 | 重新 Wallet KYT | mock(可换) | `refund_screen` 由 compliance 录入决策；真实 KYT 同入金 wallet screening 待接 |
+| ✅ | 管理层审批（后端端点 + 角色守卫 + 留痕） | 真实 | `refund_approve`(compliance/admin) 要求 kyc_ok + kyt pass + 审计 |
+| ✅/🟡 | Vault 余额校验（不足挂起/通知 ops） | 真实(配置时) | `refund_execute` 调 `_hexsafe_vault_has_balance`(配置时)；sandbox 空 vault → insufficient_funds |
+| ✅ | **只能退回原钱包（禁止输新地址；与历史已验证钱包比对）** | 真实 | ⚠️**合规红线落地**：后端 walletId 必属本人 verified_wallets(否则 400)；前端 picker 无自由输入。TestClient + 活动服务器 curl 双验证 |
+| ✅/🟡 | Custodian 真实退款 + TransferID↔RequestID 留痕 | 真实(配置时) | `refund_execute` 调 `hexsafe withdrawal`(配置时) + `transfer_id↔id`；真实放行需 funded vault + Hex Safe quorum |
 
 ---
 
@@ -155,7 +157,16 @@
 - 2026-06-24 PR②-2 合并：邀请制 + Email OTP + 前端 /invite（TestClient 42 断言 + 对抗安全审计无 blocker）
 - 2026-06-24 PR #5/#6/#7 全部 squash 合并 main（71ed4fe / 2171cad / 8e42478）
 - 2026-06-27 Hex Safe sandbox 客户端 commit 71c394b（ES256 JWT，GET 端点实测）
-- 2026-06-28 **Hex Safe 集成地基（⚠️未提交，在工作区）**：客户端写端点（发址按 vault×链固定 / 提现 schema 验证到余额边界 / 到账查询 / min_confirmations）+ 后端 `/api/hexsafe/*` 7 路由（RBAC+审计+错误映射）+ 提现幂等持久化（TestClient 全绿）+ casino-ops `HexSafeLivePanel`（proxy 端到端验证）；查清到账监听=轮询（sandbox 无 webhook 注册 API）
+- 2026-06-28 **Hex Safe 集成地基（已提交 commit `983ba99`）**：客户端写端点（发址按 vault×链固定 / 提现 schema 验证到余额边界 / 到账查询 / min_confirmations）+ 后端 `/api/hexsafe/*` 7 路由（RBAC+审计+错误映射）+ 提现幂等持久化（TestClient 全绿）+ casino-ops `HexSafeLivePanel`（proxy 端到端验证）；查清到账监听=轮询（sandbox 无 webhook 注册 API）
 - 2026-06-28 **Sumsub TR 后端代码已接**（`/api/sumsub/travel-rule/*`，端点/类型/签名实测正确）+ 前端 `TravelRule.tsx` 接真实并 mock 回退；⛔ **账户未激活 Travel Rule 产品**（403 "this type of check is not allowed"，需 Cockpit 激活，见 memory `tr-provider-sumsub`）
 - 2026-06-28 决策：KYC+TR=Sumsub；本次入金/退款真实化构建清单见上（含 SMTP/KYC硬阻断/Wallet Screening+1USDT用HexSafe/Forex真实/Marker+Receipt仅demo/退款整体做好）
-- 2026-06-28 **① 退款后端完成+TestClient 实测（⚠️未提交）**：`verified_wallets`+`refund_requests` 表；`/api/refunds*` 端点（wallets/create/mine/queue/screen/approve/reject/execute）；**合规红线落地：退款只能退本人已验证原钱包(非本人 walletId→400)**；re-KYC 闸门(`user_kyc_ok`/`require_kyc`，②复用)；compliance screen+管理层 approve(角色守卫)；vault 余额校验(sandbox 0→insufficient_funds)；execute 调真实 hexsafe withdrawal + transfer_id↔request_id；全程 audit。**剩：① 前端 RefundProcess.tsx 改 wallet-picker 接真实(去掉自由地址输入)；与 ③ 耦合(verified_wallets 由入金流写入)**
+- 2026-06-28 **① 退款后端完成+TestClient 实测**：`verified_wallets`+`refund_requests` 表；`/api/refunds*` 端点（wallets/create/mine/queue/screen/approve/reject/execute）；**合规红线落地：退款只能退本人已验证原钱包(非本人 walletId→400)**；re-KYC 闸门(`user_kyc_ok`/`require_kyc`，②复用)；compliance screen+管理层 approve(角色守卫)；vault 余额校验(sandbox 0→insufficient_funds)；execute 调真实 hexsafe withdrawal + transfer_id↔request_id；全程 audit。（commit `983ba99`）
+- 2026-06-28 **②③④⑤⑥ + ①前端 完成（本批已直接 commit + 推送 main(按用户确认)）**：
+  - **②KYC 硬阻断**：`require_kyc` 挂 `/api/deposits` create/screen/issue-address/main；`user_kyc_ok` 查 approved + `valid_until`(6 个月)；`/api/deposits/eligibility` 返回 active/hold（hold→active = KYC 有效性，无独立列）。
+  - **③入金编排后端**：`deposit_requests` 表 + 状态机 `created→screening_passed/failed→address_issued→verified→main_submitted→settled`；patron 端点 create/screen/issue-address/confirm-test(1USDT→写 `verified_wallets`)/main + staff 端点 queue/marker/settle；发址/1USDT 配 Hex Safe 走真实、否则非 prod demo 占位。
+  - **③前端**：NewDeposit/WalletScreening/DepositAddress/MainDeposit backend-first + mock 回退（不破坏 demo）；`lib/api.ts` 加 `depositApi`/`refundApi`；DemoContext 加 `depositRequestId`。
+  - **①前端**：RefundProcess 自由地址输入 → **verified-wallet picker**（后端 `refundApi.wallets()`，demo 回退=入金来源钱包），合规红线 UI 落地。
+  - **④Forex**：`/api/hexsafe/forex/probe`（只读端点探测 + 如实回报无 OTC API）+ `settle` demo 兑换。
+  - **⑤Marker/Receipt**：`marker`/`settle` demo 端点。
+  - **⑥SMTP**：`send_email` 已 env-gated 真实化 + `.env.example` 补全；持久库迁移在副本验证通过。
+  - 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund 通过；前端 `tsc` + `vite build` 全绿。（浏览器可视化被 preview-MCP 沙箱 cwd 故障阻断，非代码问题。）

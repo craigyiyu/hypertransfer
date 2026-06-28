@@ -305,6 +305,41 @@ NEW_SCHEMA_SQL = """
     );
     CREATE INDEX IF NOT EXISTS idx_refund_user ON refund_requests(user_id);
     CREATE INDEX IF NOT EXISTS idx_refund_status ON refund_requests(status);
+    -- 入金编排单(process v1 §B DEPOSIT + SETTLEMENT)。承载 patron 入金的状态机:
+    --   created → screening_passed/screening_failed → address_issued → verified
+    --           → main_submitted → settled (custodian 确认入 vault / Forex 兑法币)。
+    --   'cancelled' 为预留终态(defensive 守卫引用, 暂无端点写入)。
+    -- KYC 硬阻断(②)在 create/screen/issue-address 强制(require_kyc); 1 USDT 验证通过即把
+    -- source_wallet 写入 verified_wallets(退款①只能退这些原钱包)。地址按 Hex Safe vault×链固定。
+    CREATE TABLE IF NOT EXISTS deposit_requests (
+        id                 TEXT PRIMARY KEY,        -- DR-YYYYMM-XXXXXXXX
+        user_id            TEXT NOT NULL,           -- patron
+        asset              TEXT NOT NULL DEFAULT 'USDT',  -- process v1: 仅 USDT
+        network            TEXT NOT NULL,           -- 展示用: ethereum / tron
+        chain_id           TEXT NOT NULL,           -- Hex Safe chainId: 11155111 / tron:nile
+        amount_decimal     TEXT,                    -- 主入金金额(patron 在 main 步骤填)
+        source_wallet      TEXT,                    -- patron 来源钱包(screen 步骤填)
+        screening_status   TEXT,                    -- pending/pass/edd/fail
+        screening_ref      TEXT,
+        screening_detail   TEXT,
+        travel_rule_required INTEGER NOT NULL DEFAULT 0,
+        travel_rule_status TEXT NOT NULL DEFAULT 'not_required',
+        deposit_address    TEXT,                    -- Hex Safe vault 在该链的固定地址
+        vault_id           TEXT,
+        verify_tx_hash     TEXT,                    -- 1 USDT 验证的 txHash
+        verify_status      TEXT NOT NULL DEFAULT 'pending',  -- pending/confirmed
+        verified_wallet_id TEXT,                    -- 写入 verified_wallets 后的 id
+        marker_ref         TEXT,                    -- ⑤ Int'l Marketing 录回的 Marker 外部编号(demo)
+        fiat_currency      TEXT,                    -- ④ Forex 结算法币(demo)
+        fiat_amount        TEXT,                    -- ④ Forex 结算金额(demo)
+        receipt_ref        TEXT,                    -- ⑤ 回执编号(demo)
+        status             TEXT NOT NULL,
+        detail_json        TEXT,
+        created_at         INTEGER NOT NULL,
+        updated_at         INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_deposit_user ON deposit_requests(user_id);
+    CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status);
 """
 
 # otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
@@ -2643,15 +2678,27 @@ def require_kyc(user_id: str) -> None:
 
 def record_verified_wallet(user_id: str, address: str, chain_id: str,
                            asset: str = "USDT", method: str = "wallet_screening") -> str:
-    """记录客户已验证控制权的原钱包(入金流 ③ 调用)。退款只能退到这些钱包。"""
-    wid = str(uuid.uuid4())
+    """记录客户已验证控制权的原钱包(入金流 ③ 调用)。退款只能退到这些钱包。
+    幂等: 同 (user_id,address,chain_id) 已存在则返回既有 id(而非新 uuid)。"""
     with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM verified_wallets WHERE user_id=? AND address=? AND chain_id=?",
+            (user_id, address, chain_id),
+        ).fetchone()
+        if existing:
+            return existing["id"]
+        wid = str(uuid.uuid4())
+        # OR IGNORE + 回查: 并发下若他事务抢先插了同 (user,address,chain), UNIQUE 冲突被忽略, 回查取胜者 id。
         conn.execute(
             "INSERT OR IGNORE INTO verified_wallets(id,user_id,address,chain_id,asset,method,verified_at) VALUES(?,?,?,?,?,?,?)",
             (wid, user_id, address, chain_id, asset, method, int(time.time())),
         )
         conn.commit()
-    return wid
+        row = conn.execute(
+            "SELECT id FROM verified_wallets WHERE user_id=? AND address=? AND chain_id=?",
+            (user_id, address, chain_id),
+        ).fetchone()
+    return row["id"] if row else wid
 
 
 def _vw_public(r: sqlite3.Row) -> dict[str, Any]:
@@ -2838,6 +2885,406 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
         conn.commit()
     write_audit(user["id"], "refund.completed", "refund", rid, {"transferId": transfer_id})
     return {"ok": True, "requestId": rid, "status": "completed", "transferId": transfer_id}
+
+
+# --------------------------------------------------------------------------- #
+# 入金编排(②KYC 硬阻断 + ③真实发址 / 1 USDT 验证 / verified_wallets)
+#   process v1 §B: Select network+wallet → Wallet Screening → 1 USDT verification →
+#                  Main deposit → (≥USD1k 收 Travel Rule) → Custodian 确认入 vault / Forex 兑法币 →
+#                  Marker 录回 → Receipt → Settlement。
+#   KYC 硬阻断(②): create / screen / issue-address 前 require_kyc(approved 且未过期 6 个月),
+#                  这就是 "hold→active" 的实现 —— 无独立 hold 列, KYC 有效性即闸门(见 user_kyc_ok)。
+#   发址(③): Hex Safe 地址按 vault×链固定, 由平台(后端持 key)在 gate 通过后签发; 1 USDT 到账
+#            即把 source_wallet 写入 verified_wallets, 供退款①强制原路退回。
+#   真实 vs demo: 配置了 Hex Safe → 走真实(发址/查到账); 未配置且非 production → demo 占位
+#                (与 DEMO_LOCAL_SESSION_TOKEN 同语义), 让本地/演示全链路可跑。
+# --------------------------------------------------------------------------- #
+DEPOSIT_TR_THRESHOLD_USD = 1000.0          # process v1: ≥ USD 1,000 触发 Travel Rule(USDT≈USD)
+DEPOSIT_FIAT_CURRENCY = os.environ.get("DEPOSIT_FIAT_CURRENCY", "HKD").strip() or "HKD"
+DEPOSIT_FIAT_RATE = float(os.environ.get("DEPOSIT_FIAT_RATE", "7.8"))  # ④ demo: USDT→法币参考汇率
+
+
+def resolve_chain_id(network: str) -> str:
+    """把前端 network(ethereum/tron) 解析成 Hex Safe chainId。sandbox testnet 默认
+    ethereum→11155111(Sepolia)、tron→tron:nile, 可经 env 覆盖到 mainnet。已是 chainId 形态原样用。"""
+    n = (network or "").strip().lower()
+    overrides = {
+        "ethereum": os.environ.get("HEXSAFE_CHAIN_ETHEREUM", "11155111").strip(),
+        "tron": os.environ.get("HEXSAFE_CHAIN_TRON", "tron:nile").strip(),
+    }
+    if n in overrides and overrides[n]:
+        return overrides[n]
+    if n.isdigit() or ":" in n:
+        return network.strip()
+    raise HTTPException(status_code=400, detail=f"不支持的网络: {network}(Phase 1 仅 ethereum / tron)")
+
+
+def screen_source_wallet(address: str, chain_id: str) -> dict[str, Any]:
+    """来源钱包 KYT 筛查(③ Wallet Screening)。
+
+    ⚠️ 真实 KYT 口径见 CLAUDE.md §4.4: Chainalysis / TRM / Elliptic 或 Hex Trust KYT(合同级)。
+    Hex Safe sandbox 未提供文档化的 screening/KYT 端点(本仓库 hexsafe_client 无该方法), 且本机
+    无 Hex Safe 凭据无法探测 —— 故先用确定性 mock(与前端 WalletScreening 同口径), 结构化封装,
+    接通真实 KYT 时仅换本函数实现、不动编排。# MOCK
+    """
+    a = (address or "").lower()
+    ref = "KYT-DEP-" + uuid.uuid4().hex[:8].upper()
+    if any(k in a for k in ("bad", "sanction", "blocked", "ofac")):
+        return {"decision": "fail", "provider": "mock", "riskScore": 92, "reference": ref,
+                "note": "来源钱包命中高风险/受制裁示例规则"}
+    if any(k in a for k in ("edd", "review", "mixer", "tornado")):
+        return {"decision": "edd", "provider": "mock", "riskScore": 61, "reference": ref,
+                "note": "来源钱包触发增强尽调(EDD)示例规则"}
+    return {"decision": "pass", "provider": "mock", "riskScore": 9, "reference": ref,
+            "note": "来源钱包未命中风险规则"}
+
+
+def _deposit_vault_id() -> str:
+    return HEXSAFE_VAULT_ID or "demo-wta-vault"
+
+
+def _demo_deposit_address(vault_id: str, chain_id: str) -> str:
+    """非生产 demo 占位地址(无 Hex Safe 凭据时)。按 vault×链确定性派生, 与真实"地址固定"语义一致。"""
+    seed = hashlib.sha256(f"{vault_id}|{chain_id}".encode()).hexdigest()
+    if chain_id.startswith("tron"):
+        return "T" + seed[:33].upper()
+    return "0x" + seed[:40]
+
+
+def _deposit_public(r: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": r["id"], "userId": r["user_id"], "asset": r["asset"], "network": r["network"],
+        "chainId": r["chain_id"], "amountDecimal": r["amount_decimal"], "sourceWallet": r["source_wallet"],
+        "screeningStatus": r["screening_status"], "screeningRef": r["screening_ref"],
+        "screeningDetail": r["screening_detail"],
+        "travelRuleRequired": bool(r["travel_rule_required"]), "travelRuleStatus": r["travel_rule_status"],
+        "depositAddress": r["deposit_address"], "vaultId": r["vault_id"],
+        "verifyTxHash": r["verify_tx_hash"], "verifyStatus": r["verify_status"],
+        "verifiedWalletId": r["verified_wallet_id"], "markerRef": r["marker_ref"],
+        "fiatCurrency": r["fiat_currency"], "fiatAmount": r["fiat_amount"], "receiptRef": r["receipt_ref"],
+        "status": r["status"], "createdAt": r["created_at"], "updatedAt": r["updated_at"],
+    }
+
+
+def _deposit_get_or_404(did: str) -> sqlite3.Row:
+    with db() as conn:
+        r = conn.execute("SELECT * FROM deposit_requests WHERE id=?", (did,)).fetchone()
+    if not r:
+        raise HTTPException(status_code=404, detail="入金单不存在")
+    return r
+
+
+def _deposit_owned_or_404(did: str, user_id: str) -> sqlite3.Row:
+    r = _deposit_get_or_404(did)
+    if r["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="入金单不存在")  # 不泄露他人单据存在性
+    return r
+
+
+def _deposit_update(did: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = int(time.time())
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with db() as conn:
+        conn.execute(f"UPDATE deposit_requests SET {cols} WHERE id=?", (*fields.values(), did))
+        conn.commit()
+
+
+def _tr_required(amount_decimal: Optional[str]) -> bool:
+    try:
+        return float(amount_decimal or 0) >= DEPOSIT_TR_THRESHOLD_USD
+    except (TypeError, ValueError):
+        return False
+
+
+class DepositCreateIn(BaseModel):
+    asset: str = Field(default="USDT")
+    network: str = Field(min_length=1)            # ethereum / tron
+    amountDecimal: str = Field(default="")        # 可空: 主金额通常在 main 步骤填
+
+
+class DepositScreenIn(BaseModel):
+    sourceWallet: str = Field(min_length=4, max_length=128)
+
+
+class DepositIssueAddressIn(BaseModel):
+    # 前端在 TR 步骤(Sumsub 驱动; 账户未激活时 mock 接受)拿到的 Travel Rule gate 结果, 回填对齐入金单。
+    travelRuleStatus: str = Field(default="", max_length=48)
+
+
+class DepositConfirmTestIn(BaseModel):
+    txHash: str = Field(default="", max_length=128)
+
+
+class DepositMainIn(BaseModel):
+    amountDecimal: str = Field(min_length=1)
+    travelRuleStatus: str = Field(default="")     # 前端 TR gate 结果回填
+
+
+class DepositMarkerIn(BaseModel):
+    markerRef: str = Field(min_length=1, max_length=64)
+
+
+class DepositSettleIn(BaseModel):
+    fiatCurrency: str = Field(default="")
+
+
+@app.get("/api/deposits/eligibility")
+def deposit_eligibility(authorization: Optional[str] = Header(default=None)):
+    """入金资格(②): KYC approved 且未过期才 active, 否则 hold。前端据此显示/灰化入金入口。"""
+    user = user_from_token(authorization)
+    ok, reason = user_kyc_ok(user["id"])
+    return {"ok": True, "kycOk": ok, "accountState": "active" if ok else "hold",
+            "reason": reason, "asset": "USDT", "travelRuleThresholdUsd": DEPOSIT_TR_THRESHOLD_USD}
+
+
+@app.post("/api/deposits")
+def deposit_create(body: DepositCreateIn, authorization: Optional[str] = Header(default=None)):
+    """patron 发起入金单。②KYC 硬阻断: 未过 KYC 闸门直接 403(不建单)。"""
+    user = user_from_token(authorization)
+    require_kyc(user["id"])                                   # ② 硬阻断
+    asset = (body.asset or "USDT").strip().upper()
+    if asset != "USDT":
+        raise HTTPException(status_code=400, detail="Phase 1 仅支持 USDT")
+    chain_id = resolve_chain_id(body.network)
+    tr_required = _tr_required(body.amountDecimal)
+    did = "DR-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO deposit_requests(id,user_id,asset,network,chain_id,amount_decimal,
+                  travel_rule_required,travel_rule_status,verify_status,status,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (did, user["id"], asset, body.network.strip().lower(), chain_id,
+             body.amountDecimal or None, 1 if tr_required else 0,
+             "travel_rule_required" if tr_required else "not_required", "pending", "created", now, now),
+        )
+        conn.commit()
+    write_audit(user["id"], "deposit.create", "deposit", did,
+                {"asset": asset, "network": body.network, "chainId": chain_id, "trRequired": tr_required})
+    return {"ok": True, "requestId": did, "status": "created", "chainId": chain_id,
+            "travelRuleRequired": tr_required}
+
+
+@app.get("/api/deposits/mine")
+def deposit_mine(authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM deposit_requests WHERE user_id=? ORDER BY created_at DESC",
+                            (user["id"],)).fetchall()
+    return {"ok": True, "deposits": [_deposit_public(r) for r in rows]}
+
+
+@app.get("/api/deposits")
+def deposit_queue(status: Optional[str] = None,
+                  user: Any = Depends(require_role("compliance", "ops", "custodian"))):
+    """staff 入金队列(运营/合规/托管)。"""
+    with db() as conn:
+        if status:
+            rows = conn.execute("SELECT * FROM deposit_requests WHERE status=? ORDER BY created_at DESC",
+                                (status,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM deposit_requests ORDER BY created_at DESC").fetchall()
+    return {"ok": True, "deposits": [_deposit_public(r) for r in rows]}
+
+
+@app.get("/api/deposits/{did}")
+def deposit_get(did: str, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    r = _deposit_get_or_404(did)
+    if r["user_id"] != user["id"] and not (set(get_user_roles(user["id"])) & ({"admin"} | STAFF_ROLES)):
+        raise HTTPException(status_code=404, detail="入金单不存在")
+    return {"ok": True, "deposit": _deposit_public(r)}
+
+
+@app.post("/api/deposits/{did}/screen")
+def deposit_screen(did: str, body: DepositScreenIn, authorization: Optional[str] = Header(default=None)):
+    """提交来源钱包做 KYT(③ Wallet Screening)。②KYC 硬阻断同样在此校验。"""
+    user = user_from_token(authorization)
+    require_kyc(user["id"])                                   # ② 硬阻断
+    r = _deposit_owned_or_404(did, user["id"])
+    # 来源钱包在发址后不可变(地址已固定、可能已进入 1 USDT 验证)→ 只允许发址前筛查/改钱包。
+    if r["status"] not in ("created", "screening_passed", "screening_failed"):
+        raise HTTPException(status_code=409, detail="入金地址已签发, 不能再更换来源钱包/重新筛查")
+    result = screen_source_wallet(body.sourceWallet, r["chain_id"])
+    decision = result["decision"]
+    new_status = "screening_passed" if decision == "pass" else "screening_failed"
+    _deposit_update(did, source_wallet=body.sourceWallet.strip(), screening_status=decision,
+                    screening_ref=result["reference"], screening_detail=result["note"], status=new_status)
+    write_audit(user["id"], "deposit.screen", "deposit", did,
+                {"decision": decision, "provider": result["provider"], "riskScore": result["riskScore"]})
+    return {"ok": decision == "pass", "requestId": did, "screeningStatus": decision,
+            "status": new_status, "provider": result["provider"], "reference": result["reference"],
+            "riskScore": result["riskScore"], "note": result["note"]}
+
+
+@app.post("/api/deposits/{did}/issue-address")
+def deposit_issue_address(did: str, body: DepositIssueAddressIn = DepositIssueAddressIn(),
+                          authorization: Optional[str] = Header(default=None)):
+    """签发入金地址(③)。三闸门: ②KYC ok + source wallet KYT pass + Travel Rule gate(若需要)。
+    地址按 Hex Safe vault×链固定; 平台(后端持 key)签发, 未配置且非 prod 走 demo 占位。"""
+    user = user_from_token(authorization)
+    require_kyc(user["id"])                                   # ② 硬阻断(再次校验, 防 KYC 中途过期)
+    r = _deposit_owned_or_404(did, user["id"])
+    if r["screening_status"] != "pass":
+        raise HTTPException(status_code=409, detail="来源钱包 KYT 未通过, 不能发址")
+    # Travel Rule gate: 需要 TR 时, 用前端回填的 TR 结果(TR 步骤先于发址完成)对齐到入金单后再判闸门。
+    # 否则 ≥USD1k 的单 travel_rule_status 永远停在 'travel_rule_required' → 永久 409。
+    tr_status = r["travel_rule_status"]
+    if r["travel_rule_required"] and body.travelRuleStatus.strip():
+        tr_status = body.travelRuleStatus.strip()
+    if r["travel_rule_required"] and tr_status not in ("travel_rule_accepted", "not_required"):
+        raise HTTPException(status_code=409, detail="Travel Rule 未通过, 不能发址")
+    vault_id = _deposit_vault_id()
+    if hexsafe_configured():
+        result = _hexsafe_call(get_hexsafe_client().create_deposit_address, vault_id, r["chain_id"])
+        address = (result or {}).get("address", "")
+        provider = "hexsafe"
+    elif SUMSUB_ENVIRONMENT != "production":
+        address = _demo_deposit_address(vault_id, r["chain_id"])
+        provider = "mock"
+    else:
+        raise HTTPException(status_code=503, detail="Hex Safe 未配置, 无法签发入金地址")
+    if not address:
+        raise HTTPException(status_code=502, detail="Hex Safe 未返回地址")
+    _deposit_update(did, deposit_address=address, vault_id=vault_id,
+                    travel_rule_status=tr_status, status="address_issued")
+    write_audit(user["id"], "deposit.issue_address", "deposit", did,
+                {"provider": provider, "chainId": r["chain_id"], "vaultId": vault_id, "address": address})
+    return {"ok": True, "requestId": did, "status": "address_issued", "depositAddress": address,
+            "chainId": r["chain_id"], "vaultId": vault_id, "provider": provider}
+
+
+@app.post("/api/deposits/{did}/confirm-test")
+def deposit_confirm_test(did: str, body: DepositConfirmTestIn,
+                         authorization: Optional[str] = Header(default=None)):
+    """1 USDT 验证(③): 确认 source_wallet→vault 地址的 1 USDT 到账 → 写入 verified_wallets。
+    真实: 配置 Hex Safe → 必须凭真实 txHash 查到账; 仅**未配置**且非 prod 才 demo 确认。"""
+    user = user_from_token(authorization)
+    require_kyc(user["id"])                                   # ② 硬阻断: verified_wallets 是退款信任锚, 写入前 KYC 必须 ok
+    r = _deposit_owned_or_404(did, user["id"])
+    if r["status"] not in ("address_issued", "verified", "main_submitted"):
+        raise HTTPException(status_code=409, detail="尚未签发入金地址, 不能确认 1 USDT 验证")
+    if not r["source_wallet"]:
+        raise HTTPException(status_code=409, detail="缺少来源钱包, 无法记录已验证钱包")
+    tx_hash = body.txHash.strip()
+    # 真实优先且不可绕过: 配置 Hex Safe 时, 必须有真实 txHash 且查得到到账(不接受空/伪造 hash, 任何
+    # 环境都如此, 防 verified_wallets 被无证据污染); 仅在**未配置** Hex Safe 且非 prod 时才 demo 占位。
+    if hexsafe_configured():
+        provider = "hexsafe"
+        if not tx_hash:
+            raise HTTPException(status_code=400, detail="缺少 txHash, 无法核验 1 USDT 到账")
+        dep = _hexsafe_call(get_hexsafe_client().get_deposit_by_tx_hash, tx_hash)
+        if not dep:
+            raise HTTPException(status_code=409, detail="未在 Hex Safe 查到该 txHash 的到账, 请稍后重试")
+    elif SUMSUB_ENVIRONMENT != "production":
+        provider = "mock"                                    # demo 确认(无 Hex Safe 凭据)
+        if not tx_hash:
+            tx_hash = "0xdemo" + uuid.uuid4().hex
+    else:
+        raise HTTPException(status_code=503, detail="Hex Safe 未配置, 无法验证 1 USDT 到账")
+    wid = record_verified_wallet(user["id"], r["source_wallet"], r["chain_id"],
+                                 asset=r["asset"], method="1usdt_verification")
+    # 幂等再确认不回退状态: 已进入 main_submitted/settled 的单不降回 verified。
+    new_status = "verified" if r["status"] == "address_issued" else r["status"]
+    _deposit_update(did, verify_tx_hash=tx_hash, verify_status="confirmed",
+                    verified_wallet_id=wid, status=new_status)
+    write_audit(user["id"], "deposit.confirm_test", "deposit", did,
+                {"provider": provider, "txHash": tx_hash, "verifiedWalletId": wid,
+                 "sourceWallet": r["source_wallet"]})
+    return {"ok": True, "requestId": did, "status": "verified", "verifiedWalletId": wid,
+            "txHash": tx_hash, "provider": provider}
+
+
+@app.post("/api/deposits/{did}/main")
+def deposit_main(did: str, body: DepositMainIn, authorization: Optional[str] = Header(default=None)):
+    """主入金金额(③/process v1 §B4-5): 填最终金额, ≥USD1k 标记 Travel Rule required。"""
+    user = user_from_token(authorization)
+    require_kyc(user["id"])                                   # ② 硬阻断
+    r = _deposit_owned_or_404(did, user["id"])
+    if r["status"] in ("settled", "cancelled"):
+        raise HTTPException(status_code=409, detail="该入金单已结束, 不能再提交主入金")
+    if r["verify_status"] != "confirmed":
+        raise HTTPException(status_code=409, detail="请先完成 1 USDT 验证")
+    tr_required = _tr_required(body.amountDecimal)
+    tr_status = body.travelRuleStatus.strip() or r["travel_rule_status"]
+    if tr_required and tr_status == "not_required":
+        tr_status = "travel_rule_required"
+    if not tr_required:
+        tr_status = "not_required"
+    _deposit_update(did, amount_decimal=body.amountDecimal, travel_rule_required=1 if tr_required else 0,
+                    travel_rule_status=tr_status, status="main_submitted")
+    write_audit(user["id"], "deposit.main", "deposit", did,
+                {"amount": body.amountDecimal, "trRequired": tr_required, "trStatus": tr_status})
+    return {"ok": True, "requestId": did, "status": "main_submitted",
+            "travelRuleRequired": tr_required, "travelRuleStatus": tr_status}
+
+
+@app.post("/api/deposits/{did}/marker")
+def deposit_marker(did: str, body: DepositMarkerIn,
+                   user: Any = Depends(require_role("marketing", "ops", "admin"))):
+    """⑤(demo): Int'l Marketing 把外部签发的 Marker 编号录回系统(只读外部编号)。"""
+    r = _deposit_get_or_404(did)
+    _deposit_update(did, marker_ref=body.markerRef.strip())
+    write_audit(user["id"], "deposit.marker", "deposit", did, {"markerRef": body.markerRef})
+    return {"ok": True, "requestId": did, "markerRef": body.markerRef.strip()}
+
+
+@app.post("/api/deposits/{did}/settle")
+def deposit_settle(did: str, body: DepositSettleIn,
+                   user: Any = Depends(require_role("custodian", "ops"))):
+    """④+⑤(demo): Custodian 确认入 vault → Forex 兑法币(demo 汇率) → 生成 Receipt → settled。
+    ⚠️ Forex 为 demo: Hex Trust 口径 HT Markets OTC 无 quote/order API(见 CLAUDE.md §8.5),
+       真实兑换为高触人工; 接通真实端点见 /api/hexsafe/forex/probe 的探测结论。"""
+    r = _deposit_get_or_404(did)
+    if r["verify_status"] != "confirmed":
+        raise HTTPException(status_code=409, detail="入金未完成 1 USDT 验证, 不能结算")
+    fiat_ccy = (body.fiatCurrency or DEPOSIT_FIAT_CURRENCY).strip().upper()
+    try:
+        fiat_amount = f"{float(r['amount_decimal'] or 0) * DEPOSIT_FIAT_RATE:.2f}"
+    except (TypeError, ValueError):
+        fiat_amount = ""
+    receipt_ref = "RC-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
+    _deposit_update(did, fiat_currency=fiat_ccy, fiat_amount=fiat_amount,
+                    receipt_ref=receipt_ref, status="settled")
+    write_audit(user["id"], "deposit.settle", "deposit", did,
+                {"fiatCurrency": fiat_ccy, "fiatAmount": fiat_amount, "receiptRef": receipt_ref,
+                 "forex": "demo"})
+    return {"ok": True, "requestId": did, "status": "settled", "fiatCurrency": fiat_ccy,
+            "fiatAmount": fiat_amount, "receiptRef": receipt_ref, "forex": "demo"}
+
+
+@app.get("/api/hexsafe/forex/probe")
+def hexsafe_forex_probe(user: Any = Depends(require_role("custodian", "ops", "admin"))):
+    """④ 探测 Hex Safe 是否提供 forex / conversion / OTC 端点。
+
+    口径(CLAUDE.md §8.5 / Hex Trust 36 问澄清): HT Markets OTC 无 quote/order API, 真实兑换
+    为高触人工。本探测仅用文档化只读端点(supported_assets / enterprises.baseCurrency)判断是否
+    存在 fiat 结算线索, 不臆造路径乱打 404。无凭据时如实回报 unconfigured。
+    """
+    if not hexsafe_configured():
+        return {"ok": True, "configured": False, "forexApiAvailable": False,
+                "note": "无 Hex Safe 凭据, 无法探测; 结算 Forex 当前为 demo(汇率参考值)。",
+                "guidance": "接通真实凭据后再核; 据 Hex Trust 口径 HT Markets OTC 无 quote/order API。"}
+    findings: dict[str, Any] = {"ok": True, "configured": True, "forexApiAvailable": False}
+    try:
+        assets = get_hexsafe_client().supported_assets()
+        alist = assets.get("supportedAssetList", []) if isinstance(assets, dict) else []
+        fiat = [a for a in alist if isinstance(a, dict) and str(a.get("type", "")).lower() in ("fiat", "currency")]
+        findings["supportedAssetCount"] = len(alist)
+        findings["fiatAssetsSeen"] = [a.get("ticker") or a.get("symbol") for a in fiat]
+    except (HexSafeError, HTTPException) as e:
+        findings["supportedAssetsError"] = str(getattr(e, "detail", e))
+    try:
+        ents = get_hexsafe_client().list_enterprises()
+        elist = ents.get("enterpriseList", []) if isinstance(ents, dict) else []
+        findings["enterpriseBaseCurrencies"] = [e.get("baseCurrency") for e in elist if isinstance(e, dict)]
+    except (HexSafeError, HTTPException) as e:
+        findings["enterprisesError"] = str(getattr(e, "detail", e))
+    findings["note"] = ("Hex Safe 未暴露 quote/order 转换 API(据 Hex Trust 口径); 上方仅为 fiat 结算线索。"
+                        " 结算 Forex 暂为 demo, 真实兑换走高触人工 / 合同约定渠道。")
+    return findings
 
 
 @app.get("/api/health")

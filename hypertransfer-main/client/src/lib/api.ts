@@ -344,3 +344,113 @@ export const hexsafeApi = {
     idempotencyKey?: string;
   }) => api.post<HexSafeWithdrawalResult>("/hexsafe/withdrawal", p),
 };
+
+// ---------- 入金编排 API(②KYC 硬阻断 + ③真实发址 / 1 USDT 验证) ----------
+// patron 视角: create → screen → issue-address → confirm-test(1 USDT) → main。
+// 后端在 create/screen/issue/main 强制 require_kyc; 1 USDT 到账写入 verified_wallets(供退款①)。
+// 未配置 Hex Safe 且非 production 时后端走 demo 占位, 前端再叠一层 try/catch mock 回退保证演示不断。
+export interface DepositRecord {
+  id: string;
+  userId: string;
+  asset: string;
+  network: string;
+  chainId: string;
+  amountDecimal: string | null;
+  sourceWallet: string | null;
+  screeningStatus: string | null;
+  travelRuleRequired: boolean;
+  travelRuleStatus: string;
+  depositAddress: string | null;
+  verifyTxHash: string | null;
+  verifyStatus: string;
+  verifiedWalletId: string | null;
+  markerRef: string | null;
+  fiatCurrency: string | null;
+  fiatAmount: string | null;
+  receiptRef: string | null;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const depositApi = {
+  // 入金资格: KYC ok → active, 否则 hold(②)
+  eligibility: () =>
+    api.get<{ ok: boolean; kycOk: boolean; accountState: string; reason: string; travelRuleThresholdUsd: number }>(
+      "/deposits/eligibility",
+    ),
+  create: (p: { network: string; asset?: string; amountDecimal?: string }) =>
+    api.post<{ ok: boolean; requestId: string; status: string; chainId: string; travelRuleRequired: boolean }>(
+      "/deposits",
+      p,
+    ),
+  screen: (id: string, sourceWallet: string) =>
+    api.post<{ ok: boolean; requestId: string; screeningStatus: string; status: string; provider: string; reference: string; riskScore: number; note: string }>(
+      `/deposits/${id}/screen`,
+      { sourceWallet },
+    ),
+  // travelRuleStatus: 前端 TR 步骤拿到的 gate 结果(≥USD1k 必须回填 'travel_rule_accepted' 才放行发址)
+  issueAddress: (id: string, travelRuleStatus = "") =>
+    api.post<{ ok: boolean; requestId: string; status: string; depositAddress: string; chainId: string; vaultId: string; provider: string }>(
+      `/deposits/${id}/issue-address`,
+      { travelRuleStatus },
+    ),
+  // 1 USDT 验证: 带 txHash 走真实(Hex Safe 查到账), 不带则非 prod demo 确认。写入 verified_wallets。
+  confirmTest: (id: string, txHash = "") =>
+    api.post<{ ok: boolean; requestId: string; status: string; verifiedWalletId: string; txHash: string; provider: string }>(
+      `/deposits/${id}/confirm-test`,
+      { txHash },
+    ),
+  main: (id: string, amountDecimal: string, travelRuleStatus = "") =>
+    api.post<{ ok: boolean; requestId: string; status: string; travelRuleRequired: boolean; travelRuleStatus: string }>(
+      `/deposits/${id}/main`,
+      { amountDecimal, travelRuleStatus },
+    ),
+  mine: () => api.get<{ ok: boolean; deposits: DepositRecord[] }>("/deposits/mine"),
+  get: (id: string) => api.get<{ ok: boolean; deposit: DepositRecord }>(`/deposits/${id}`),
+};
+
+// ---------- 退款 API(①: 强制原路退回已验证原钱包) ----------
+// 合规红线: 退款目标只能是 verified_wallets 里本人的原钱包(walletId), 不接受自由输入新地址。
+export interface VerifiedWallet {
+  id: string;
+  address: string;
+  chainId: string;
+  asset: string;
+  method: string | null;
+  verifiedAt: number;
+}
+export interface RefundRecord {
+  id: string;
+  userId: string;
+  walletId: string;
+  toAddress: string;
+  chainId: string;
+  asset: string;
+  amountDecimal: string;
+  reason: string | null;
+  status: string;
+  kycOk: boolean;
+  kytStatus: string | null;
+  approvedBy: string | null;
+  transferId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const refundApi = {
+  // 客户已验证原钱包 = 退款唯一可选目标
+  wallets: () => api.get<{ ok: boolean; wallets: VerifiedWallet[] }>("/refunds/wallets"),
+  create: (p: { walletId: string; amountDecimal: string; reason?: string }) =>
+    api.post<{ ok: boolean; requestId: string; status: string; detail?: string }>("/refunds", p),
+  mine: () => api.get<{ ok: boolean; refunds: RefundRecord[] }>("/refunds/mine"),
+  // staff 队列(compliance/ops/custodian)
+  queue: (status?: string) =>
+    api.get<{ ok: boolean; refunds: RefundRecord[] }>("/refunds", { params: status ? { status } : undefined }),
+  screen: (id: string, decision: "pass" | "manual_review" | "reject") =>
+    api.post<{ ok: boolean; requestId: string; kytStatus: string; status: string }>(`/refunds/${id}/screen`, { decision }),
+  approve: (id: string) => api.post<{ ok: boolean; requestId: string; status: string }>(`/refunds/${id}/approve`, {}),
+  reject: (id: string) => api.post<{ ok: boolean; requestId: string; status: string }>(`/refunds/${id}/reject`, {}),
+  execute: (id: string) =>
+    api.post<{ ok: boolean; requestId: string; status: string; transferId: string }>(`/refunds/${id}/execute`, {}),
+};

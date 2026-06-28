@@ -1,8 +1,12 @@
 /**
  * RefundProcess — Customer-facing refund request and destination verification.
  * Treasury approval and Hex Safe payout execution stay in the staff portal.
+ *
+ * 合规红线(process v1 §C / §10): 退款只能退回客户**此前已验证过的原钱包**,
+ * 严禁自由输入新地址。本页用 wallet-picker(后端 verified_wallets, demo 回退=入金来源钱包)
+ * 取代旧的自由地址输入框。真实登录客户选真实原钱包 → 调 refundApi.create(walletId)。
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -18,6 +22,7 @@ import { toast } from "sonner";
 import Shell from "@/components/Shell";
 import { useDemo } from "@/contexts/DemoContext";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
+import { apiError, refundApi, type VerifiedWallet } from "@/lib/api";
 import {
   createRefundRequest,
   formatRefundStatus,
@@ -25,12 +30,19 @@ import {
   REFUND_REASON_LABELS,
   submitRefundDestination,
   submitRefundForApproval,
-  validateRefundDestination,
   type RefundReason,
   type RefundStatus,
 } from "@/lib/refund-process";
 
 const reasonOptions = Object.entries(REFUND_REASON_LABELS) as [RefundReason, string][];
+
+// 退款可选目标(只读): 来自后端 verified_wallets, 无则回退到本次入金的来源钱包(demo)。
+interface RefundWalletOption {
+  id: string;
+  address: string;
+  chainLabel: string;
+  source: "verified" | "demo";
+}
 
 function statusTone(status: RefundStatus) {
   if (status === "completed" || status === "approved" || status === "destination_kyt_passed") return "text-success";
@@ -39,12 +51,34 @@ function statusTone(status: RefundStatus) {
   return "text-gold";
 }
 
+function shortAddr(addr: string) {
+  return addr.length > 18 ? `${addr.slice(0, 10)}…${addr.slice(-6)}` : addr;
+}
+
 export default function RefundProcess() {
   const [, navigate] = useLocation();
   const { state, updateState, seedRefundDemo } = useDemo();
   const [reason, setReason] = useState<RefundReason>("customer_cancelled");
-  const [destinationAddress, setDestinationAddress] = useState(state.refundRequest?.destinationAddress || "");
-  const [addressError, setAddressError] = useState("");
+  const [verifiedWallets, setVerifiedWallets] = useState<VerifiedWallet[]>([]);
+  const [selectedWalletId, setSelectedWalletId] = useState("");
+  const [pickError, setPickError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // 拉取本人已验证原钱包(后端真实)。失败/为空 → 回退 demo(入金来源钱包)。
+  useEffect(() => {
+    let alive = true;
+    refundApi
+      .wallets()
+      .then(({ data }) => {
+        if (alive) setVerifiedWallets(data.wallets || []);
+      })
+      .catch(() => {
+        if (alive) setVerifiedWallets([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const latestMainTx = useMemo(
     () => state.transactions.find((tx) => tx.type === "main" && (tx.status === "confirmed" || tx.status === "cleared")),
@@ -54,10 +88,36 @@ export default function RefundProcess() {
   const hasRefundableDeposit = Boolean(latestMainTx && refundAmount > 0 && state.mainDepositConfirmed);
   const request = state.refundRequest;
   const networkLabel = state.selectedNetwork === "tron" ? "TRC-20" : "ERC-20";
-  const placeholder =
-    state.selectedNetwork === "tron"
-      ? "TQ2fL7pXJ9m3J8aVvYpYcFh7q7D4Qm5B1T"
-      : "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
+
+  // 候选钱包: 优先后端 verified_wallets; 否则回退到入金来源钱包(demo, 客户已通过筛查+1USDT验证)。
+  const walletOptions = useMemo<RefundWalletOption[]>(() => {
+    if (verifiedWallets.length) {
+      return verifiedWallets.map((w) => ({
+        id: w.id,
+        address: w.address,
+        chainLabel: w.chainId.includes("tron") ? "TRC-20" : "ERC-20",
+        source: "verified" as const,
+      }));
+    }
+    if (state.sourceWallet) {
+      return [
+        {
+          id: `demo:${state.sourceWallet}`,
+          address: state.sourceWallet,
+          chainLabel: networkLabel,
+          source: "demo" as const,
+        },
+      ];
+    }
+    return [];
+  }, [verifiedWallets, state.sourceWallet, networkLabel]);
+
+  // 默认选中首项; 候选变化(后端 verified wallets 异步到达, 替换掉 demo 回退)时, 若当前选中已不在列表则重选。
+  useEffect(() => {
+    if (walletOptions.length && !walletOptions.some((w) => w.id === selectedWalletId)) {
+      setSelectedWalletId(walletOptions[0].id);
+    }
+  }, [walletOptions, selectedWalletId]);
 
   const createRequest = () => {
     if (!latestMainTx) return;
@@ -72,7 +132,7 @@ export default function RefundProcess() {
       });
       updateState({ refundRequest: next });
       toast.success("Refund request created", {
-        description: "Please confirm the refund destination wallet.",
+        description: "Select the original wallet to receive the refund.",
       });
     } catch (err) {
       toast.error("Refund unavailable", {
@@ -84,44 +144,61 @@ export default function RefundProcess() {
   const loadDemoRefundCase = () => {
     seedRefundDemo();
     setReason("customer_cancelled");
-    setDestinationAddress("");
-    setAddressError("");
+    setSelectedWalletId("");
+    setPickError("");
     toast.success("Demo refundable deposit loaded", {
       description: "A cleared 12,500 USDT TRC-20 deposit is ready for refund testing.",
     });
   };
 
-  const useDemoDestination = () => {
-    setDestinationAddress(placeholder);
-    setAddressError("");
-    toast.success("Demo refund wallet filled", {
-      description: `${networkLabel} destination address is ready for KYT screening.`,
-    });
-  };
-
-  const submitAddress = () => {
+  const submitWallet = async () => {
     if (!request) return;
-    const validation = validateRefundDestination(destinationAddress, request.network);
-    if (!validation.valid) {
-      setAddressError(validation.error || "Invalid refund address.");
+    const picked = walletOptions.find((w) => w.id === selectedWalletId);
+    if (!picked) {
+      setPickError("Select a previously verified wallet to receive the refund.");
       return;
     }
-
-    setAddressError("");
-    const next = submitRefundDestination(request, destinationAddress);
-    updateState({ refundRequest: next });
-    if (next.status === "destination_kyt_passed") {
-      toast.success("Refund wallet passed KYT", {
-        description: next.kytResult?.reference,
-      });
-    } else if (next.status === "manual_review") {
-      toast.warning("Manual review required", {
-        description: next.kytResult?.note,
-      });
-    } else {
-      toast.error("Refund wallet rejected", {
-        description: next.kytResult?.note,
-      });
+    setPickError("");
+    setSubmitting(true);
+    try {
+      // 真实路径: 选中的是后端已验证原钱包 → 创建真实退款单(强制 walletId, 后端再校验所属)。
+      if (picked.source === "verified") {
+        try {
+          const { data } = await refundApi.create({
+            walletId: picked.id,
+            amountDecimal: String(refundAmount),
+            reason,
+          });
+          const next = submitRefundForApproval(submitRefundDestination(request, picked.address));
+          updateState({ refundRequest: { ...next, id: data.requestId } });
+          toast.success("Refund request submitted", {
+            description: `Request ${data.requestId} — compliance & treasury will review in the staff portal.`,
+          });
+          return;
+        } catch (err) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          // 真实拒绝(walletId 非本人 400 / 未登录 401 / KYC 403 等) → 如实暴露, 不伪装成功;
+          // 仅网络不可达 / 未部署(无响应或 404)才落回本地 demo, 保证演示不中断。
+          if (status && status !== 404) {
+            setPickError(apiError(err));
+            toast.error("Refund request rejected", { description: apiError(err) });
+            return;
+          }
+          toast.message("Using local demo flow", { description: apiError(err) });
+        }
+      }
+      // demo 路径: 仅退回入金来源钱包(已验证), 走本地状态机做 KYT 展示。
+      const next = submitRefundDestination(request, picked.address);
+      updateState({ refundRequest: next });
+      if (next.status === "destination_kyt_passed") {
+        toast.success("Refund wallet passed KYT", { description: next.kytResult?.reference });
+      } else if (next.status === "manual_review") {
+        toast.warning("Manual review required", { description: next.kytResult?.note });
+      } else {
+        toast.error("Refund wallet rejected", { description: next.kytResult?.note });
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -135,7 +212,7 @@ export default function RefundProcess() {
   };
 
   return (
-    <Shell showBack backTo="/deposit-success" title="Refund Request" subtitle="Verify destination before treasury review">
+    <Shell showBack backTo="/deposit-success" title="Refund Request" subtitle="Return only to a verified original wallet">
       <div className="space-y-5">
         {!hasRefundableDeposit && (
           <motion.div
@@ -235,36 +312,69 @@ export default function RefundProcess() {
                     <div className="flex items-start gap-3">
                       <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
                       <div>
-                        <p className="text-sm font-semibold text-foreground">Confirm refund wallet</p>
+                        <p className="text-sm font-semibold text-foreground">Choose verified original wallet</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Use a wallet you control on the same {networkLabel} network. Do not provide private keys,
-                          seed phrases, or exchange account passwords.
+                          For your protection, refunds can only be returned to a wallet you previously verified during
+                          deposit. New or untested addresses cannot be entered.
                         </p>
                       </div>
                     </div>
-                    <input
-                      value={destinationAddress}
-                      onChange={(event) => setDestinationAddress(event.target.value)}
-                      placeholder={placeholder}
-                      className="h-12 w-full rounded-xl border border-border bg-input px-3 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/40 focus:border-gold/50"
-                    />
-                    <button
-                      onClick={useDemoDestination}
-                      className="w-full rounded-xl border border-border/60 py-3 text-xs font-semibold text-foreground transition-colors hover:border-gold/40 hover:text-gold"
-                    >
-                      Use Demo {networkLabel} Wallet
-                    </button>
-                    {addressError && (
+
+                    {walletOptions.length === 0 ? (
+                      <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-3 text-xs text-warning">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          No verified wallet on file. Complete a deposit&apos;s 1 USDT wallet verification first, then
+                          the refund can be returned to that original wallet.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {walletOptions.map((w) => {
+                          const active = selectedWalletId === w.id;
+                          return (
+                            <button
+                              key={w.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedWalletId(w.id);
+                                setPickError("");
+                              }}
+                              className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                                active ? "border-gold/70 bg-gold/5" : "border-border bg-input hover:border-gold/40"
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-mono text-xs text-foreground">{shortAddr(w.address)}</p>
+                                <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  {w.chainLabel} · {w.source === "verified" ? "Verified wallet" : "Deposit source wallet"}
+                                </p>
+                              </div>
+                              <span
+                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                  active ? "border-gold" : "border-border"
+                                }`}
+                              >
+                                {active && <span className="h-2 w-2 rounded-full bg-gold" />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {pickError && (
                       <p className="flex items-center gap-1.5 text-xs text-destructive">
                         <AlertTriangle className="h-3 w-3" />
-                        {addressError}
+                        {pickError}
                       </p>
                     )}
                     <button
-                      onClick={submitAddress}
-                      className="w-full rounded-xl bg-gold py-4 text-sm font-semibold text-background"
+                      onClick={submitWallet}
+                      disabled={submitting || walletOptions.length === 0}
+                      className="w-full rounded-xl bg-gold py-4 text-sm font-semibold text-background disabled:opacity-50"
                     >
-                      Submit Refund Wallet
+                      {submitting ? "Submitting…" : "Submit Refund to Verified Wallet"}
                     </button>
                   </div>
                 )}

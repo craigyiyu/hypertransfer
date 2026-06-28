@@ -33,6 +33,7 @@ interface DemoState {
   selectedNetwork: string;
   sourceWallet: string;
   screeningPassed: boolean;
+  depositRequestId: string;   // ③ 后端入金编排单 id(DR-...); 空=未走真实后端(纯 demo)
   depositAddress: string;
   hexSafeStatus: HexSafeDepositStatus | null;
   vaultBalance: VaultBalance | null;
@@ -96,6 +97,7 @@ const defaultState: DemoState = {
   selectedNetwork: "",
   sourceWallet: "",
   screeningPassed: false,
+  depositRequestId: "",
   depositAddress: "",
   hexSafeStatus: null,
   vaultBalance: null,
@@ -187,6 +189,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       selectedNetwork: "",
       sourceWallet: "",
       screeningPassed: false,
+      depositRequestId: "",
       travelRuleComplete: false,
       travelRuleStatus: "not_required",
       travelRuleRecord: null,

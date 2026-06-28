@@ -222,6 +222,43 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-06-28 入金编排后端 + ②KYC 硬阻断 + ③真实发址 + ①退款前端 wallet-picker
+
+- 测试方式：后端 **TestClient 31/31** + **活动服务器 curl 全链路** deposit→refund；前端 `corepack pnpm run check`(tsc) + `corepack pnpm run build`(vite) **全绿**。⚠️ 浏览器可视化验证被 preview-MCP 沙箱 cwd 故障阻断（环境问题，非代码）。
+- 本批次按用户确认**直接 commit + 推送 `main`**（沿用上一批 Hex Safe `983ba99` 的做法）。
+- 本机**无 Hex Safe 凭据**：发址 / 1 USDT 轮询 / refund withdrawal 的真实路径已编码但本地走 demo 占位；Forex / Wallet-KYT 端点无法实地探测，已如实回报。
+
+**②KYC 硬阻断（真实）**
+- 闸门 `user_kyc_ok`（approved 且 `valid_until` 未过 6 个月）/ `require_kyc`，挂 `/api/deposits` 的 create / screen / issue-address / main。
+- `GET /api/deposits/eligibility` 返回 `accountState: active|hold`（**hold→active = KYC 有效性本身**，不加独立 hold 列）。`/api/hexsafe/*` 仍是 staff 手工工具，KYC gate 落在 patron 编排层。
+
+**③入金编排后端（`deposit_requests` 表 + `/api/deposits*`）**
+- 状态机 `created → screening_passed/screening_failed → address_issued → verified → main_submitted → settled`。
+- patron 端点：`create`（KYC gate，仅 USDT，network→chainId）、`screen`（来源钱包 KYT，server 端 mock adapter `screen_source_wallet`，可换真实 KYT）、`issue-address`（三闸门后发址：配 Hex Safe 调 `create_deposit_address`，否则非 prod demo 占位）、`confirm-test`（1 USDT 到账 → **写 `verified_wallets`**：配 Hex Safe + txHash 调 `get_deposit_by_tx_hash`，否则非 prod demo 确认）、`main`（最终金额，≥USD1k 标 TR）。
+- staff 端点：`GET /api/deposits` 队列、`marker`（⑤ demo）、`settle`（④+⑤ demo Forex 兑法币 + receipt）。
+
+**③入金流前端（backend-first + mock 回退，演示不中断）**
+- `client/src/lib/api.ts` 新增 `depositApi` / `refundApi`；`contexts/DemoContext.tsx` 加 `depositRequestId`。
+- `NewDeposit`（建单）、`WalletScreening`（后端筛查 + mock 回退）、`DepositAddress`（真实发址 + 占位回退）、`MainDeposit`（1 USDT confirm 写 verified_wallets + main 回填）。后端不可用/未登录/未过 KYC → 落回原 mock。
+
+**①退款前端 wallet-picker（合规红线 UI 落地）**
+- `pages/RefundProcess.tsx`：自由地址 `<input>` → **verified-wallet picker**（`refundApi.wallets()`，demo 回退=入金来源钱包）。只能选已验证原钱包，无自由输入；前后端双重落地（后端 `refund_create` 校验 walletId 必属本人）。
+
+**④Forex（探测 + demo）**
+- `GET /api/hexsafe/forex/probe`：只读端点探测 + 如实回报（无凭据→ unconfigured）。据 Hex Trust 口径 HT Markets OTC 无 quote/order API，`settle` 兑法币用 `DEPOSIT_FIAT_RATE` demo。
+
+**⑥SMTP / 迁移**
+- `send_email` 已 env-gated（`SMTP_HOST` 配则真发，否则 console）；`.env.example` 补 `EMAIL_FROM`/`SMTP_*` + `HEXSAFE_CHAIN_*` + `DEPOSIT_FIAT_*`。
+- 持久库 `hypertransfer_auth.db`（旧 phone-PK schema）在 init_db 自动迁移（→user_id + 全部新表含 `deposit_requests` + `.bak`），已在**副本**验证（0 用户无损）。
+
+**关键文件**：`backend/server.py`（deposit_requests schema + 编排端点 + KYC 闸门 + forex probe + record_verified_wallet 幂等化）、`client/src/lib/api.ts`、`contexts/DemoContext.tsx`、`pages/{NewDeposit,WalletScreening,DepositAddress,MainDeposit,RefundProcess}.tsx`、`.env.example`。
+
+**已知限制 / 下一步**
+- 真实 Hex Safe 联调（发真实地址 / 轮询真实 1 USDT 到账 / refund 真实放行）需 sandbox 凭据 + funded vault + quorum。
+- Wallet KYT 仍 server 端 mock（Hex Safe sandbox 无 screening 端点；真实口径=Chainalysis/TRM 或 Hex Trust KYT 合同级）。
+- Travel Rule 真实化待 Sumsub 账户激活 TR 产品。
+- 生产化：SMTP 真实中继、PostgreSQL 迁移、2FA 可选 + 入金/退款 step-up 强制。
+
 ### 2026-06-28 Hex Safe Sandbox 集成 + Sumsub Travel Rule + 退款后端
 
 - 测试方式：后端 TestClient + 对 Hex Safe / Sumsub **真实 sandbox 实测**；前端 `tsc` 通过 + vite proxy 端到端；⚠️ 未做真机浏览器渲染（preview 沙箱受限）。
@@ -879,4 +916,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-06-28，追加 `2026-06-28 Hex Safe Sandbox 集成 + Sumsub Travel Rule + 退款后端` release note：Hex Safe sandbox 实接（客户端+后端 `/api/hexsafe/*`+casino-ops 面板+提现幂等，到账=轮询）、Sumsub Travel Rule 代码接好但账户未激活 TR（403）、退款后端落地 process v1 合规红线（只退已验证原钱包）。按用户要求直接提交推送 main 并清理历史残枝。
+最后更新：2026-06-28（入金编排批），追加 `2026-06-28 入金编排后端 + ②KYC 硬阻断 + ③真实发址 + ①退款前端 wallet-picker` release note：`deposit_requests` 表 + `/api/deposits*` 状态机、KYC 硬阻断挂入金/退款关键动作、退款只退已验证原钱包（前后端双重落地 + 前端 picker）、Forex 探测 + demo、Marker/Receipt demo、SMTP env-gated 真实化 + 持久库迁移验证。真实 vs demo 约定=配 Hex Safe 走真实、否则非 production demo 占位。验证 TestClient 31/31 + 活动服务器 curl + tsc/build 全绿。本批已直接 commit + 推送 main(按用户确认)。CLAUDE.md §4.4d/§5/§8 已同步。

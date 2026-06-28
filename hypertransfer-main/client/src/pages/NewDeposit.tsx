@@ -17,6 +17,7 @@ import {
   requiresTravelRule,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
+import { depositApi } from "@/lib/api";
 
 // USDC 项保留备 Phase 2；当前仅显示 ACTIVE_PHASE_ONE_ASSETS（最终流程 v1：仅 USDT）。
 const ASSETS = [
@@ -38,13 +39,21 @@ export default function NewDeposit() {
   const plannedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
   const travelRuleRequired = requiresTravelRule(selectedAsset, plannedAmount);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     resetSession();
-    updateState({
-      selectedAsset,
-      selectedNetwork,
-      mainDepositAmount: amount.replace(/,/g, ""),
-    });
+    const cleanAmount = amount.replace(/,/g, "");
+    updateState({ selectedAsset, selectedNetwork, mainDepositAmount: cleanAmount });
+    // 在后端建入金编排单(②KYC 闸门锚点 + ③真实发址)。失败(未部署/未登录/未过 KYC)→ 纯 demo 继续。
+    try {
+      const { data } = await depositApi.create({
+        network: selectedNetwork,
+        asset: selectedAsset,
+        amountDecimal: cleanAmount,
+      });
+      updateState({ depositRequestId: data.requestId });
+    } catch {
+      updateState({ depositRequestId: "" });
+    }
     navigate("/wallet-screening");
   };
 

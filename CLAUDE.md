@@ -269,6 +269,21 @@ draft
 - 旧 `/treasury-controls` 仅作后台**别名**保留；**不要**从客户 Dashboard / Deposit Success 链接过去（旧 `TreasuryControls.tsx` 已删）
 - custody evidence（冷存储/RBAC/quorum/maker-checker/保险 SLA）明确标注为 **Hex Trust provided controls**，不是 HyperTransfer 自营托管
 
+### 4.4d 入金编排后端 + ②KYC 硬阻断 + 退款①前端（2026-06-28，backend/server.py + client）
+
+> process v1 §B/§C 落地。**新增后端 `deposit_requests` 表 + `/api/deposits*` 编排**（patron 入金状态机），把 ②KYC 硬阻断、③真实发址 / 1 USDT 验证、verified_wallets 写入串成一条链；退款①前端从自由地址输入改为 verified-wallet picker。
+
+- **②KYC 硬阻断**：闸门 `user_kyc_ok(user_id)`（approved 且 `valid_until` 未过 6 个月）/ `require_kyc`。挂在 `/api/deposits` 的 **create / screen / issue-address / main**（money-touching steps）。**hold→active = KYC 有效性本身**，不加独立 `hold` 列；`GET /api/deposits/eligibility` 返回 `accountState: active|hold`。注：`/api/hexsafe/*` 是 **staff 手工工具**（custodian/ops 角色守卫，casino-ops 用），其 KYC gate 落在 patron 编排层而非 staff 端点。
+- **③入金编排（`deposit_requests`）**：状态机 `created → screening_passed/screening_failed → address_issued → verified → main_submitted → settled`（任意可 cancelled）。patron 端点：`create`（建单，KYC gate）、`screen`（来源钱包 KYT）、`issue-address`（三闸门=KYC+screening pass+TR gate 后发址）、`confirm-test`（1 USDT 到账 → **写 `verified_wallets`**）、`main`（最终金额，≥USD1k 标 TR）。staff 端点：`GET /api/deposits` 队列、`marker`、`settle`。
+- **真实 vs demo（关键约定）**：配置 Hex Safe → `issue-address` 调 `create_deposit_address`、`confirm-test` 带 txHash 调 `get_deposit_by_tx_hash`、`refund execute` 调真实 withdrawal；**未配置且 `SUMSUB_ENVIRONMENT != production`** → 走 demo 占位（同 `DEMO_LOCAL_SESSION_TOKEN` 语义），让本地/演示全链路可跑；**production 未配置则 503（不静默 demo）**。
+- **Wallet Screening 仍是 server 端 mock adapter** `screen_source_wallet`（Hex Safe sandbox 无文档化 screening/KYT 端点；真实 KYT 口径=Chainalysis/TRM/Elliptic 或 Hex Trust KYT 合同级）。已封装，接通仅换实现。
+- **④Forex**：`GET /api/hexsafe/forex/probe`（只读端点探测 + 如实回报）。据 Hex Trust 口径 **HT Markets OTC 无 quote/order API**，故 `settle` 的 USDT→法币兑换为 **demo**（`DEPOSIT_FIAT_RATE`）。
+- **⑤Marker / Receipt**：`marker`（marketing 录回外部编号，只读）、`settle`（生成 `receipt_ref` + 法币结算）均 **demo**。
+- **①退款前端**：`pages/RefundProcess.tsx` 自由地址 `<input>` → **verified-wallet picker**（`refundApi.wallets()`，demo 回退=入金来源钱包）；合规红线（只退已验证原钱包、禁止自由输入新地址）前后端双重落地，后端 `refund_create` 校验 walletId 必属本人 `verified_wallets`（否则 400）。
+- **前端客户端 API**：`client/src/lib/api.ts` 加 `depositApi` / `refundApi`；4 个入金页 **backend-first + try/catch mock 回退**（后端不可用/未登录/未过 KYC → 落回原 mock，演示不中断）。
+- **⑥SMTP / 迁移**：`send_email` 已 env-gated（`SMTP_HOST` 配则真发，否则 console）；旧 `hypertransfer_auth.db` 旧 schema 在 init_db 自动迁移（phone-PK→user_id + 全部新表 + `.bak`，已在副本验证）。
+- 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund；前端 `tsc` + `vite build` 全绿。
+
 ### 4.5 Hex Safe REST API 接入要点
 
 - **Base URL**：`https://api.hexsafe.hextrust.com`
@@ -317,7 +332,8 @@ Password: Wynn#2026!
 - 全部 mock provider；内置 5 个客户（含 expired / missing KYC 状态演示）
 - **Treasury WTA 页面**、**Refund / Payout 模块**、Compliance Case **Request Documents** 动作
 - **HyperTransfer 认证模块**（`hypertransfer-main/`）：注册 / 短信 OTP / TOTP MFA / 两步登录，已接真实 FastAPI 后端 + 真实短信
-- **HyperTransfer 客户端入金流 + 赌场后台**（见 §4.4c）：客户端 KYC→KYT→Travel Rule→发址→确认→入金成功（全 mock）；赌场工作人员后台 `/casino-ops`（WTA settlement / HT Markets OTC / depeg / Hex Safe webhook / reconciliation / Macau access exclusion / custody evidence，全 mock）
+- **HyperTransfer 客户端入金流 + 赌场后台**（见 §4.4c）：客户端 KYC→KYT→Travel Rule→发址→确认→入金成功；赌场工作人员后台 `/casino-ops`（WTA settlement / HT Markets OTC / depeg / Hex Safe webhook / reconciliation / Macau access exclusion / custody evidence，全 mock）
+- **入金编排后端 + ②KYC 硬阻断 + 退款① wallet-picker**（见 §4.4d）：`deposit_requests` 表 + `/api/deposits*` 状态机（create→screen→issue-address→confirm-test(写 verified_wallets)→main + staff queue/marker/settle + forex probe）；KYC 硬阻断挂入金/退款关键动作；退款只退已验证原钱包（前后端双重落地）。**真实 vs demo**：配 Hex Safe 走真实发址/到账/提现，否则非 production demo 占位（前端 backend-first + mock 回退，演示不中断）
 
 **不包含**（**不要在当前版本加这些**）：
 
@@ -380,7 +396,7 @@ Password: Wynn#2026!
 4. **`pad-deposit-app.tsx`** / `kyc-pad-app.tsx` / `refund-pad-app.tsx` 均超过 200 行，后续按 step/view 拆分
 5. **Wynn Demo 路由缺统一导航**
 6. **mock 决策依赖钱包地址字符串关键字** —— 仅适合 demo
-7. **Refund / Payout** 目前只有 mock 提交，无真实 Hex Safe withdrawal 调用
+7. **Refund / Payout** 后端已落地（`/api/refunds*` + 真实 withdrawal 调用，配 Hex Safe 时；前端 wallet-picker），但 re-Wallet KYT 仍 staff 录入 mock、真实放行需 funded vault + Hex Safe quorum（见 §4.4d / §4.4c）
 8. **KYC + Deposit 两个 Pad App 流程仍隔离**
 9. **HyperTransfer 认证**:SQLite 非生产 DB；TOTP/OTP 密钥明文存储；会话用 localStorage token 而非 HttpOnly Cookie；缺 TOTP 恢复码 / 换机流程 / 图形验证码防短信轰炸 / step-up（生产化清单见 `hypertransfer-main/backend/server.py` 底部）
 
@@ -478,7 +494,8 @@ Password: Wynn#2026!
 
 ---
 
-*最后更新：2026-06-28（周日）（Hex Safe sandbox 实接：`§4.4c` 改"已实接"——客户端 `hexsafe_client.py`(发址/到账/提现/min_confirmations) + 后端 `/api/hexsafe/*`(RBAC+审计+提现幂等) + casino-ops `HexSafeLivePanel`，到账=轮询(无 webhook 注册 API)；`§4.4` provider 表 TR 行改 **TR=Sumsub**；新增 Sumsub Travel Rule 后端 `/api/sumsub/travel-rule/*`(账户未激活 TR→403，需 Cockpit 激活，见 memory `tr-provider-sumsub`)；退款后端落地 process v1 合规红线(`verified_wallets`+`refund_requests`+`/api/refunds*`，只退已验证原钱包)。详见 `AGENTS.md` 2026-06-28 release note + `HANDOFF.md` + `TODO.md`。按用户要求直接提交推送 main 并清理历史残枝。早前历史见下。）*
+*最后更新：2026-06-28（周日·入金编排批）（新增 §4.4d：**入金编排后端 + ②KYC 硬阻断 + ③真实发址/1USDT/verified_wallets + ①退款前端 wallet-picker + ④Forex 探测 + ⑤Marker/Receipt demo + ⑥SMTP/迁移**。后端 `deposit_requests` 表 + `/api/deposits*` 状态机；KYC 硬阻断挂 create/screen/issue-address/main；退款只退已验证原钱包(前后端双重落地)；真实 vs demo 约定=配 Hex Safe 走真实、否则非 production demo 占位。前端 `lib/api.ts` 加 `depositApi`/`refundApi`，4 入金页 backend-first + mock 回退，RefundProcess 自由地址→verified-wallet picker。§5 边界、§8.7 item 已同步；验证 TestClient 31/31 + 活动服务器 curl 全链路 + tsc/build 全绿。本批已直接 commit + 推送 main(按用户确认)。详见 `AGENTS.md` 同日 release note + `TODO.md`。早前历史见下。）*
+*历史：2026-06-28（周日）（Hex Safe sandbox 实接：`§4.4c` 改"已实接"——客户端 `hexsafe_client.py`(发址/到账/提现/min_confirmations) + 后端 `/api/hexsafe/*`(RBAC+审计+提现幂等) + casino-ops `HexSafeLivePanel`，到账=轮询(无 webhook 注册 API)；`§4.4` provider 表 TR 行改 **TR=Sumsub**；新增 Sumsub Travel Rule 后端 `/api/sumsub/travel-rule/*`(账户未激活 TR→403，需 Cockpit 激活，见 memory `tr-provider-sumsub`)；退款后端落地 process v1 合规红线(`verified_wallets`+`refund_requests`+`/api/refunds*`，只退已验证原钱包)。详见 `AGENTS.md` 2026-06-28 release note + `HANDOFF.md` + `TODO.md`。按用户要求直接提交推送 main 并清理历史残枝。早前历史见下。）*
 *历史：2026-06-22（周一）（新增 §3 `TODO.md` 与 §8.7「项目级待办清单（每日维护）」，并据今日客户会 + Hex Trust 会议纪要生成项目根 `TODO.md`；`ClientMeetings/` 新增两份 2026-06-22 纪要：客户会 `2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`、Hex Trust 会 `2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`。退款方向 / 存款地址固定性 / 法币结算等口径冲突已在纪要与 TODO 标出，待产品+合规决策，未改产品代码。早前同步 AGENTS.md：§4.4c 明确 Hex Trust / Hex Safe 真实 API 尚未接入，当前为 mock adapter；补 Hex Trust API 会议需确认的 auth、address、webhook、transfer/refund、reconciliation、HT Markets API 问题；§8.5/§8.6 补线上 demo 登录与线上测试入口，2026-06-22 curl 核验 `/`、`/login`、`/kyc`、`/dashboard`、`/new-deposit`、`/refund`、`/casino-ops` 均 200）*
 *历史：2026-06-19（§3 补 `.github/workflows/` 顶级目录(hypertransfer-check CI 门禁 + hypertransfer-deploy-hk 自动部署)；§3 + §4.4b 记后端**生产可配置化**(CORS `HT_ALLOWED_ORIGINS` / 短信 `SMS_API_URL` / `HT_DB_PATH` 走环境变量,默认仍 demo 值,production 部署对 `*`/QA 会拒绝)。对应已推送 commit `afb216c`。AGENTS.md 已自带这些,无需改）*
 *历史：2026-06-08（**按 `AGENTS.md`(Codex 2026-06-08 大改)同步至最新**：顶部新增 AGENTS.md 交叉引用；§1+§9 修正 Git 口径——实际已接 `origin → github.com/eason36/Hyper-Transfer`、走任务分支+PR+Squash（非"无 commit/无 remote"）；§3 补 HyperTransfer 新 lib(`compliance/travel-rule/hex-safe/treasury-ops/demo-auth.ts`)、`CasinoOpsPortal.tsx`(/casino-ops)、`docs/app-flow.*`、ProjectInfo 客户 Hex Trust 澄清 PDF；新增 §4.4c HyperTransfer 客户端 mock 模型+赌场后台（含**新 TR 状态枚举**、`canIssueAddress`三条件、Phase1 网络白名单、确认数 EVM5/Tron4、HT Markets OTC 0.50%/USD150、客户端 vs /casino-ops 边界）；§5 补客户端入金流+casino-ops；§8.5 补澄清 PDF+OTC 口径。注：Wynn Demo 的 `src/domain/types.ts` TR 枚举仍是旧版`pending/submitted`，未动）*

@@ -11,6 +11,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-rea
 import { getHKDEquivalent } from "@/lib/currency";
 import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 import { canPassTravelRuleGate } from "@/lib/travel-rule";
+import { depositApi } from "@/lib/api";
 
 // Generate a mock deposit address based on network
 function generateAddress(network: string): string {
@@ -50,13 +51,31 @@ export default function DepositAddress() {
       setLoading(false);
       return;
     }
-    // Simulate fetching deposit address from custodian
-    const timer = setTimeout(() => {
-      const addr = generateAddress(state.selectedNetwork);
-      updateState({ depositAddress: addr });
-      setLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
+    let alive = true;
+    (async () => {
+      // 真实: 有后端入金单 → Hex Safe 签发(地址按 vault×链固定); 否则回退本地占位地址。
+      let addr = "";
+      if (state.depositRequestId) {
+        try {
+          // 回填前端 TR gate 结果: ≥USD1k 的单后端需要 'travel_rule_accepted' 才放行发址。
+          const { data } = await depositApi.issueAddress(state.depositRequestId, state.travelRuleStatus);
+          addr = data.depositAddress;
+        } catch {
+          /* 后端不可用 / gate 未过 → 回退本地占位 */
+        }
+      }
+      if (!addr) {
+        await new Promise((resolve) => setTimeout(resolve, 1500)); // demo: 模拟托管发址延时
+        addr = generateAddress(state.selectedNetwork);
+      }
+      if (alive) {
+        updateState({ depositAddress: addr });
+        setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, [canIssueAddress, state.selectedNetwork]);
 
   return (

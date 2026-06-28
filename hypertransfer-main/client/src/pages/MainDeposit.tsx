@@ -20,6 +20,7 @@ import {
   createHexSafeStatus,
   createVaultBalance,
 } from "@/lib/hex-safe";
+import { depositApi } from "@/lib/api";
 
 type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming" | "main_confirmed";
 
@@ -73,10 +74,16 @@ export default function MainDeposit() {
     for (let i = 1; i <= requiredConfirmations; i += 1) {
       setTimeout(() => setConfirmations(i), 1200 + i * 650);
     }
+    const verifyTxHash =
+      "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
     setTimeout(() => {
       setConfirmations(requiredConfirmations);
       setPhase("verification_confirmed");
       updateState({ testPaymentConfirmed: true });
+      // 真实: 有后端入金单 → 确认 1 USDT 到账, 后端把来源钱包写入 verified_wallets(退款①只能退这些)。
+      if (state.depositRequestId) {
+        depositApi.confirmTest(state.depositRequestId, verifyTxHash).catch(() => {});
+      }
       addTransaction({
         id: "tx-test-" + Date.now(),
         type: "test",
@@ -85,7 +92,7 @@ export default function MainDeposit() {
         amount: "1.00",
         status: "confirmed",
         date: new Date().toISOString(),
-        txHash: "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join(""),
+        txHash: verifyTxHash,
         sessionId,
       });
     }, 1600 + requiredConfirmations * 650);
@@ -101,6 +108,10 @@ export default function MainDeposit() {
     }
 
     updateState({ mainDepositAmount: amount });
+    // 真实: 回填主入金金额 + Travel Rule 状态(≥USD1k 后端标记 TR required)。
+    if (state.depositRequestId) {
+      depositApi.main(state.depositRequestId, amount, state.travelRuleStatus).catch(() => {});
+    }
     setPhase("main_monitoring");
     setConfirmations(0);
 
