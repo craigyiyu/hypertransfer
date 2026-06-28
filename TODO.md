@@ -145,8 +145,20 @@
 
 ---
 
+## 内部管理界面（staff 后台对接真实后端 — 2026-06-28）
+
+> 后端 staff 端点均已就绪；本节是纯前端把 `/casino-ops` 从 mock 接到真实端点的对接工作。
+
+| 状态 | 事项 | 备注 |
+|---|---|---|
+| ✅ | **退款队列审批**（compliance KYT screen → management approve → custodian execute，角色分权） | `components/RefundQueuePanel.tsx` 接真实 `/api/refunds*`，嵌入 `/casino-ops`；按 `useAuth` 角色显隐按钮，后端 require_role 实测守卫；TestClient 10/10。2026-06-28 |
+| ⬜ | **入金队列 + Marker/结算** | 对接 `/api/deposits` queue + `marker` + `settle`（后端就绪，无 UI） |
+| ⬜ | **邀请审核界面**（Marketing 批准 + 签发 link） | 对接 `invitationApi`（后端就绪，无 UI；与 §最终流程 v1 改造表"邀请审核界面"同项） |
+| ⬜ | **员工账号管理**（admin 开户 + 分配角色） | 对接 `adminApi.createStaff`（后端就绪，无 UI） |
+
 ## ✅ 已完成（近期）
 
+- 2026-06-28 **内部管理界面·退款队列审批**：`RefundQueuePanel.tsx` 接真实 `/api/refunds*` 嵌入 casino-ops（screen/approve/reject/execute + 角色守卫 + 友好 403 提示）；execute 无 Hex Safe 配置时如实 toast；tsc+build+TestClient 10/10 全绿
 - 2026-06-22 整理客户会议纪要 `ClientMeetings/2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`
 - 2026-06-22 整理 Hex Trust 会议纪要 `ClientMeetings/2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`
 - 2026-06-23 最终流程 v1 归档 + 转 md + 多智能体系统调整方案 + 决策记录（`ProjectInfo/20260623_Hypertransfer_process_v1.*`、`20260623-System-Adjustment-Plan-vs-Process-v1.md`）
