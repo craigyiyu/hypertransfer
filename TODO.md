@@ -7,6 +7,15 @@
 >
 > **最后更新：2026-06-28（周日）**
 
+---
+
+> ## ▶ 下一步从这里继续（新会话入口）
+> ① 退款【后端】已完成并推送 main（commit `983ba99`）。**接着做 ② KYC 硬阻断** —— 闸门函数 `user_kyc_ok` / `require_kyc` 已写好（`backend/server.py`），只差挂到入金/发址端点。
+> 之后按序：**② KYC 硬阻断 → ③ 客户入金接真实发址（Wallet Screening + 1 USDT 用 Hex Safe）→ ① 退款【前端】RefundProcess 改 wallet-picker 接真实 → ④ Forex（先探端点）→ ⑤ Marker/Receipt（demo）→ ⑥ SMTP/DB 迁移**。
+> 完整清单 + real/demo 决策见下方「入金/退款流真实化 — 构建清单（2026-06-28）」；口径见 `AGENTS.md` 2026-06-28 release note + memory `tr-provider-sumsub`。每块对 sandbox / TestClient 验证后再继续。
+
+---
+
 ## 🎯 里程碑
 
 | 里程碑 | 目标日期 | 状态 |
