@@ -222,6 +222,16 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-06-28 内部管理界面（staff 后台 4 块接真实后端）
+
+- staff 后台 `/casino-ops` 新增 4 个真实管理面板（之前只有 demo + Hex Safe live 面板）。共用 `components/ops-ui.tsx`；均按 `useAuth().user.roles` 显隐按钮，**真正防越权靠后端 `require_role`**，无权访问的角色得到友好 403 提示。
+- `RefundQueuePanel`（`/api/refunds*`）：compliance KYT screen → management approve → custodian execute；execute 无 Hex Safe 凭据时如实 toast。
+- `DepositQueuePanel`（`/api/deposits`）：入金队列 + Marker 录回(marketing/ops) + settle(custodian/ops, Forex 兑法币 demo + receipt)。
+- `InvitationReviewPanel`（`invitationApi`）：RM 提交 → Marketing 批准/拒绝 → 签发 single-use+72h link（展示 inviteLink）。
+- `StaffAdminPanel`（`adminApi.createStaff`，admin 限定）：建员工 + 分配角色，返回 TOTP 绑定 QR（新员工 pending_totp，需 confirm-totp 激活）。
+- `lib/api.ts` 补 `depositApi.queue/marker/settle`（invitationApi/adminApi 已有）。验证：`tsc` + `vite build` 全绿 + TestClient（退款 staff 链 10/10、邀请+员工 13/13）。⚠️ 浏览器渲染未做（preview-MCP 沙箱受限）。本批按用户确认直接 commit + 推送 main。
+- 仍无 UI 的后端能力：reconciliation / depeg / OTC 自动化等仍为 demo（见 casino-ops 下方旧 demo 区）。
+
 ### 2026-06-28 入金编排后端 + ②KYC 硬阻断 + ③真实发址 + ①退款前端 wallet-picker
 
 - 测试方式：后端 **TestClient 31/31** + **活动服务器 curl 全链路** deposit→refund；前端 `corepack pnpm run check`(tsc) + `corepack pnpm run build`(vite) **全绿**。⚠️ 浏览器可视化验证被 preview-MCP 沙箱 cwd 故障阻断（环境问题，非代码）。

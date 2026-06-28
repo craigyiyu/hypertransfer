@@ -49,6 +49,9 @@ import {
 } from "@/lib/refund-process";
 import HexSafeLivePanel from "@/components/HexSafeLivePanel";
 import RefundQueuePanel from "@/components/RefundQueuePanel";
+import DepositQueuePanel from "@/components/DepositQueuePanel";
+import InvitationReviewPanel from "@/components/InvitationReviewPanel";
+import StaffAdminPanel from "@/components/StaffAdminPanel";
 
 function StatusPill({
   children,
@@ -243,7 +246,10 @@ export default function CasinoOpsPortal() {
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         <HexSafeLivePanel />
+        <DepositQueuePanel />
         <RefundQueuePanel />
+        <InvitationReviewPanel />
+        <StaffAdminPanel />
         <section className="rounded-lg border border-border/60 bg-card/80 p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>

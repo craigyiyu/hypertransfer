@@ -408,6 +408,16 @@ export const depositApi = {
     ),
   mine: () => api.get<{ ok: boolean; deposits: DepositRecord[] }>("/deposits/mine"),
   get: (id: string) => api.get<{ ok: boolean; deposit: DepositRecord }>(`/deposits/${id}`),
+  // staff: 入金队列(compliance/ops/custodian) + Marker 录回(marketing/ops) + 结算(custodian/ops, Forex demo)
+  queue: (status?: string) =>
+    api.get<{ ok: boolean; deposits: DepositRecord[] }>("/deposits", { params: status ? { status } : undefined }),
+  marker: (id: string, markerRef: string) =>
+    api.post<{ ok: boolean; requestId: string; markerRef: string }>(`/deposits/${id}/marker`, { markerRef }),
+  settle: (id: string, fiatCurrency = "") =>
+    api.post<{ ok: boolean; requestId: string; status: string; fiatCurrency: string; fiatAmount: string; receiptRef: string; forex: string }>(
+      `/deposits/${id}/settle`,
+      { fiatCurrency },
+    ),
 };
 
 // ---------- 退款 API(①: 强制原路退回已验证原钱包) ----------

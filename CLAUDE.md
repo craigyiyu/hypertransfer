@@ -281,7 +281,12 @@ draft
 - **⑤Marker / Receipt**：`marker`（marketing 录回外部编号，只读）、`settle`（生成 `receipt_ref` + 法币结算）均 **demo**。
 - **①退款前端**：`pages/RefundProcess.tsx` 自由地址 `<input>` → **verified-wallet picker**（`refundApi.wallets()`，demo 回退=入金来源钱包）；合规红线（只退已验证原钱包、禁止自由输入新地址）前后端双重落地，后端 `refund_create` 校验 walletId 必属本人 `verified_wallets`（否则 400）。
 - **前端客户端 API**：`client/src/lib/api.ts` 加 `depositApi` / `refundApi`；4 个入金页 **backend-first + try/catch mock 回退**（后端不可用/未登录/未过 KYC → 落回原 mock，演示不中断）。
-- **内部管理界面·退款队列**（2026-06-28 追加）：`components/RefundQueuePanel.tsx` 接真实 `/api/refunds*`，嵌入 `/casino-ops`（HexSafeLivePanel 下方）。staff 队列 → compliance KYT screen → management approve → custodian execute；按 `useAuth().user.roles` 显隐按钮（后端 `require_role` 才是真守卫），无权看队列(rm/marketing)友好 403 提示，execute 无 Hex Safe 凭据时如实 toast。**仍 ⬜ 无 UI**：入金队列(`/api/deposits` queue/marker/settle)、邀请审核(`invitationApi`)、员工管理(`adminApi.createStaff`)——后端均就绪，见 `TODO.md`「内部管理界面」。
+- **内部管理界面**（2026-06-28，全部 4 块完成，嵌入 `/casino-ops`，`components/ops-ui.tsx` 共用展示组件，均按 `useAuth().user.roles` 显隐 + 后端 `require_role` 真守卫 + 友好 403）：
+  - `RefundQueuePanel` 退款队列（`/api/refunds*`：compliance KYT screen → management approve → custodian execute；execute 无 Hex Safe 凭据如实 toast）
+  - `DepositQueuePanel` 入金队列（`/api/deposits` queue + `marker`(marketing/ops) + `settle`(custodian/ops, Forex demo)）
+  - `InvitationReviewPanel` 邀请审核（`invitationApi`：RM create → marketing approve/reject → issue single-use+72h link）
+  - `StaffAdminPanel` 员工管理（`adminApi.createStaff`，admin 限定，返回 TOTP 绑定 QR）
+  - `lib/api.ts` 补 `depositApi.queue/marker/settle`。验证 tsc + build + TestClient（退款 10/10、邀请/员工 13/13）。
 - **⑥SMTP / 迁移**：`send_email` 已 env-gated（`SMTP_HOST` 配则真发，否则 console）；旧 `hypertransfer_auth.db` 旧 schema 在 init_db 自动迁移（phone-PK→user_id + 全部新表 + `.bak`，已在副本验证）。
 - 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund；前端 `tsc` + `vite build` 全绿。
 

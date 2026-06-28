@@ -98,7 +98,7 @@
 | ⬜ | 保留到账后 Transaction KYT（funds-dirty 分支） | 技术 | P1 |
 | ⬜ | Marker 回录（外部编号只读）+ Forex 兑法币 + Receipt/Settlement 建模 | 技术 | P1 |
 | ⬜ | 数据隔离：澳门 operator 角色只见 Marker+法币视图（随 RBAC） | 技术 | P1 |
-| ⬜ | 邀请审核界面：Marketing 在本系统"批准申请 + 签发链接"（single-use+72h） | 技术 | P1 |
+| ✅ | 邀请审核界面：Marketing 在本系统"批准申请 + 签发链接"（single-use+72h）（`InvitationReviewPanel.tsx` 接 `invitationApi`，2026-06-28） | 技术 | P1 |
 | ⬜ | 同步口径文档 AGENTS/CLAUDE/design.md（退款/TR/资产/认证/2FA） | 文档 | P0 |
 | ❓ | 待客户确认：Forex 渠道 + 目标法币、Management 审批条件、TK Team/CFO 职责 | 客户 | P1 |
 
@@ -152,13 +152,18 @@
 | 状态 | 事项 | 备注 |
 |---|---|---|
 | ✅ | **退款队列审批**（compliance KYT screen → management approve → custodian execute，角色分权） | `components/RefundQueuePanel.tsx` 接真实 `/api/refunds*`，嵌入 `/casino-ops`；按 `useAuth` 角色显隐按钮，后端 require_role 实测守卫；TestClient 10/10。2026-06-28 |
-| ⬜ | **入金队列 + Marker/结算** | 对接 `/api/deposits` queue + `marker` + `settle`（后端就绪，无 UI） |
-| ⬜ | **邀请审核界面**（Marketing 批准 + 签发 link） | 对接 `invitationApi`（后端就绪，无 UI；与 §最终流程 v1 改造表"邀请审核界面"同项） |
-| ⬜ | **员工账号管理**（admin 开户 + 分配角色） | 对接 `adminApi.createStaff`（后端就绪，无 UI） |
+| ✅ | **入金队列 + Marker/结算** | `components/DepositQueuePanel.tsx` 接 `/api/deposits` queue + `marker`(marketing/ops) + `settle`(custodian/ops, Forex demo)。2026-06-28 |
+| ✅ | **邀请审核界面**（RM 提交 → Marketing 批准 → 签发 single-use+72h link） | `components/InvitationReviewPanel.tsx` 接 `invitationApi`(create/list/approve/reject/issue)，签发后展示 inviteLink；TestClient 邀请链验证。与 §最终流程 v1 改造表"邀请审核界面"同项(亦 ✅)。2026-06-28 |
+| ✅ | **员工账号管理**（admin 开户 + 分配角色 + 返回 TOTP 绑定 QR） | `components/StaffAdminPanel.tsx` 接 `adminApi.createStaff`(admin 限定)。2026-06-28 |
 
 ## ✅ 已完成（近期）
 
-- 2026-06-28 **内部管理界面·退款队列审批**：`RefundQueuePanel.tsx` 接真实 `/api/refunds*` 嵌入 casino-ops（screen/approve/reject/execute + 角色守卫 + 友好 403 提示）；execute 无 Hex Safe 配置时如实 toast；tsc+build+TestClient 10/10 全绿
+- 2026-06-28 **内部管理界面·全部 4 块完成**（嵌入 `/casino-ops`，`components/ops-ui.tsx` 共用展示组件）：
+  - 退款队列 `RefundQueuePanel`（`/api/refunds*`：screen/approve/reject/execute，角色守卫，execute 无凭据如实 toast；TestClient 10/10）
+  - 入金队列 `DepositQueuePanel`（`/api/deposits` queue + marker + settle）
+  - 邀请审核 `InvitationReviewPanel`（`invitationApi` create/list/approve/reject/issue + inviteLink 展示）
+  - 员工管理 `StaffAdminPanel`（`adminApi.createStaff`，admin 限定，返回 TOTP 绑定 QR）
+  - 全部按 `useAuth().user.roles` 显隐按钮 + 友好 403；tsc + vite build + TestClient（退款 10/10、邀请/员工 13/13）全绿；`lib/api.ts` 补 `depositApi.queue/marker/settle`
 - 2026-06-22 整理客户会议纪要 `ClientMeetings/2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`
 - 2026-06-22 整理 Hex Trust 会议纪要 `ClientMeetings/2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`
 - 2026-06-23 最终流程 v1 归档 + 转 md + 多智能体系统调整方案 + 决策记录（`ProjectInfo/20260623_Hypertransfer_process_v1.*`、`20260623-System-Adjustment-Plan-vs-Process-v1.md`）
