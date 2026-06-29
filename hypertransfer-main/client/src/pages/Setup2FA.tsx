@@ -123,6 +123,25 @@ export default function Setup2FA() {
     }
   };
 
+  // 跳过 2FA 直接激活(PR③: patron 2FA 可选; 也作为 demo 一键过)。复用 /register/activate-skip。
+  const handleSkip = async () => {
+    if (verifying) return;
+    setVerifying(true);
+    try {
+      const { data } = pending.viaEmail
+        ? await authApi.activateSkip({ email: pending.email })
+        : await authApi.activateSkip({ areaCode: pending.areaCode, phoneNumber: pending.phoneNumber });
+      setSession(data.token, data.user);
+      sessionStorage.removeItem(PENDING_REGISTER_KEY);
+      toast.success("2FA skipped — you can enable it later in Settings.");
+      navigate("/kyc");
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   return (
     <Shell showBack backTo="/register" title="Two-Factor Authentication" subtitle="Secure your account with an authenticator app">
       <div className="space-y-5">
@@ -209,8 +228,12 @@ export default function Setup2FA() {
             Verify &amp; Continue
           </button>
         )}
+        <button onClick={handleSkip} disabled={verifying}
+          className="w-full mt-3 rounded-xl py-3 text-xs font-semibold border border-border text-muted-foreground hover:border-gold/30 hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+          Skip for now — set up 2FA later
+        </button>
         <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
-          Two-factor authentication is required for account security.
+          Two-factor authentication is optional — you can enable it later in Settings.
         </p>
       </div>
     </Shell>
