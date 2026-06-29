@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, Eye, EyeOff, Phone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { authApi, apiError } from "@/lib/api";
+import { authApi, apiError, isStaffUser } from "@/lib/api";
 import { LOGIN_CHALLENGE_KEY } from "@/lib/authFlow";
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -83,6 +83,15 @@ export default function Login() {
           ? { method: "email", email: identifier, password }
           : { method: "mobile", areaCode, phoneNumber: identifier, password }
       );
+      // 2FA 关(patron)→ 后端直接带回 token+user, 无需第二步; 否则进 /verify-2fa。
+      if (data.next === "done" && data.token && data.user) {
+        setSession(data.token, data.user);
+        updateState({ patronName: data.user.name, patronEmail: data.user.email, patronPhone: data.user.phone });
+        sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
+        toast.success("Signed in successfully.");
+        navigate(isStaffUser(data.user) ? "/casino-ops" : "/dashboard");
+        return;
+      }
       sessionStorage.setItem(LOGIN_CHALLENGE_KEY, JSON.stringify({
         challenge: data.challenge,
         label: loginMethod === "email" ? identifier : `+${areaCode} ${identifier}`,

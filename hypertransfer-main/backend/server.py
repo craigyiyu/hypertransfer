@@ -600,11 +600,10 @@ def send_sms(area_code: str, number: str, text: str) -> str:
 # --------------------------------------------------------------------------- #
 # 邮件适配器 — Email OTP / 邀请链接发送（MOCK: 默认 console 打印）
 # --------------------------------------------------------------------------- #
-def send_email(to: str, subject: str, text: str) -> None:
-    """MOCK 邮件发送:默认把内容打印到 console（演示态）。
-    生产可在此接入真实 SMTP/SES/SendGrid——SMTP_* env 已预留但本演示故意不连，
-    决策为 console 占位（同 send_sms 的演示语义）。tests 可 monkeypatch 本函数抓码。"""
-    # 仅当显式配置了 SMTP_HOST 时才尝试真实发送;否则 console 占位。
+def send_email(to: str, subject: str, text: str, html: Optional[str] = None) -> None:
+    """邮件发送:配了 SMTP_HOST 走真实 SMTP(支持 text + 可选 html), 否则 console 占位。
+    端口 465 → SMTP_SSL; 其余(如 587) → STARTTLS。失败降级 console, 不阻断流程。
+    tests 可 monkeypatch 本函数抓码。"""
     if SMTP_HOST:
         try:
             import smtplib
@@ -615,13 +614,20 @@ def send_email(to: str, subject: str, text: str) -> None:
             msg["To"] = to
             msg["Subject"] = subject
             msg.set_content(text)
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
-                smtp.starttls()
+            if html:
+                msg.add_alternative(html, subtype="html")
+            if SMTP_PORT == 465:
+                smtp_ctx = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20)
+            else:
+                smtp_ctx = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20)
+            with smtp_ctx as smtp:
+                if SMTP_PORT != 465:
+                    smtp.starttls()
                 if SMTP_USER:
                     smtp.login(SMTP_USER, SMTP_PASSWORD)
                 smtp.send_message(msg)
             return
-        except Exception as e:  # 真实发送失败也不阻断演示流——降级到 console
+        except Exception as e:  # 真实发送失败也不阻断流程——降级到 console
             print(f"[email] SMTP send failed ({e}); falling back to console")
     print(f"[email] to={to} subject={subject!r}\n{text}")
 
@@ -1999,12 +2005,24 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
         if base
         else f"/invite?token={urllib.parse.quote(token, safe='')}"
     )
+    qr = qr_data_uri(invite_link)              # 二维码(data URI), 随响应返回 + 内联进邮件
+    name = row["patron_name"] or "there"
     send_email(
         row["patron_email"],
         "You're invited to HyperTransfer",
-        f"You have been invited to open a HyperTransfer account.\n"
-        f"Use this single-use link within 72 hours to register:\n{invite_link}\n"
-        f"This link is tied to {row['patron_email']}.",
+        f"Hi {name},\n\n"
+        f"You have been approved to open a HyperTransfer account.\n"
+        f"Use this single-use link within 72 hours to register (tied to {row['patron_email']}):\n\n"
+        f"{invite_link}\n\n"
+        f"Or scan the attached QR code.\n\nHyperTransfer",
+        html=(f"<p>Hi {name},</p>"
+              f"<p>You have been approved to open a HyperTransfer account. "
+              f"Use this single-use link within 72 hours to register "
+              f"(tied to <b>{row['patron_email']}</b>):</p>"
+              f"<p><a href=\"{invite_link}\">{invite_link}</a></p>"
+              f"<p>Or scan this QR code:</p>"
+              f"<p><img src=\"{qr}\" alt=\"invite QR\" width=\"180\" height=\"180\"/></p>"
+              f"<p>HyperTransfer</p>"),
     )
     write_audit(user["id"], "invitation.issue", "invitation", invitation_id,
                 {"expiresAt": expires_at})
@@ -2012,6 +2030,7 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
         "ok": True,
         "invitation": invitation_public(row, include_token=True),
         "inviteLink": invite_link,
+        "qrPngBase64": qr,
     }
 
 

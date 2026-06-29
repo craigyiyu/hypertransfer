@@ -29,3 +29,6 @@ __pycache__/
 ~$*.xlsx
 ~$*.docx
 ~$*.pptx
+
+# 含真实凭据的本地文档(不入库)
+Docs/SMTP-Config.md

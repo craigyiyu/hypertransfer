@@ -88,6 +88,11 @@ export interface AuthUser {
   totpEnabled?: boolean;  // PR③ 2FA 可选：是否已启用 TOTP（登录/step-up 是否验码）
 }
 
+/** 员工(staff)判定: 登录后路由到后台 /casino-ops 而非客户 /dashboard。 */
+export function isStaffUser(u: { userType?: string; roles?: string[] }): boolean {
+  return u.userType === "staff" || (u.roles?.length ?? 0) > 0;
+}
+
 // 启用/确认 2FA 后返回的 TOTP 绑定信息（已登录用户补启用）。
 export interface Enable2faResult {
   ok: boolean;
@@ -244,7 +249,7 @@ export const invitationApi = {
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/reject`, { note }),
 
   issue: (id: string) =>
-    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string }>(`/invitations/${id}/issue`, {}),
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string }>(`/invitations/${id}/issue`, {}),
 };
 
 export const emailApi = {

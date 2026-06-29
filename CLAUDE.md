@@ -91,7 +91,11 @@ VirtualAsset/
 │   ├── Wynn_Macau_VA_Hex_Trust_Clarification_Request_Completed_04_June.pdf  # ★客户提供的 Hex Trust 36 问澄清回复（Phase1 网络/确认数/Webhook/API/TR 平台边界/KYT/冷存储/资质，权威核对）
 │   └── 截屏*.png                  # 永利原型截图
 ├── ProjectReference/             # 外部参考资料（PDF）
+├── Docs/                         # 运维/配置文档
+│   └── SMTP-Config.md            # ★飞书 SMTP 配置（邀请/OTP 邮件）。⚠️含真实凭据→已 .gitignore 不入库，仅本地持有
 ├── ClientMeetings/               # 客户会议材料 + 报价单
+│   ├── HyperTransfer-Demo-Script.md          # ★客户演示脚本（3 大流程逐页逐步 + 话术）
+│   ├── HyperTransfer-Demo-Walkthrough.{md,pdf,docx}  # ★配图版演示走查（实拍截图）+ demo-shots/
 │   ├── Virtual-Asset-Management-Demo-and-Project-Progress.pdf  # Wynn 会议 PPT
 │   ├── HyperTransfer-Development-Quotation.xlsx  # HyperTransfer Phase 1 报价（USD 146,250）
 │   ├── Virtual-Asset-Development-Quotation.xlsx  # Wynn 员工端报价（USD 130,600，旧版）

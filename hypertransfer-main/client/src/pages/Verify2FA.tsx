@@ -8,7 +8,7 @@ import Shell from "@/components/Shell";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Smartphone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { authApi, apiError } from "@/lib/api";
+import { authApi, apiError, isStaffUser } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { readLoginChallenge, LOGIN_CHALLENGE_KEY } from "@/lib/authFlow";
@@ -37,7 +37,7 @@ export default function Verify2FA() {
       updateState({ patronName: data.user.name, patronEmail: data.user.email, patronPhone: data.user.phone });
       sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
       toast.success("Signed in successfully.");
-      navigate("/dashboard");
+      navigate(isStaffUser(data.user) ? "/casino-ops" : "/dashboard");
     } catch (e) {
       toast.error(apiError(e));
       setCode("");
