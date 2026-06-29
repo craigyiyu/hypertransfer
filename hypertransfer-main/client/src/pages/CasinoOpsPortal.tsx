@@ -10,6 +10,8 @@ import { motion } from "framer-motion";
 import {
   AlertTriangle,
   Banknote,
+  Boxes,
+  UserPlus2,
   CheckCircle2,
   Clock,
   DatabaseZap,
@@ -107,7 +109,18 @@ function OpsCard({
   );
 }
 
+// 左侧板块导航(tab 式: 一次只显示一个板块, 取代旧的一整页瀑布流)
+const SECTIONS = [
+  { key: "deposits", label: "Deposits", icon: Boxes },
+  { key: "refunds", label: "Refunds", icon: Undo2 },
+  { key: "access", label: "Access Requests", icon: UserPlus2 },
+  { key: "staff", label: "Staff Admin", icon: UserCog },
+  { key: "custody", label: "Custody (Hex Safe)", icon: RadioTower },
+  { key: "ops", label: "Treasury & Compliance", icon: SlidersHorizontal },
+] as const;
+
 export default function CasinoOpsPortal() {
+  const [activeSection, setActiveSection] = useState<string>("deposits");
   const [, navigate] = useLocation();
   const { logout } = useAuth();
   const { state, updateState } = useDemo();
@@ -244,12 +257,49 @@ export default function CasinoOpsPortal() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <HexSafeLivePanel />
-        <DepositQueuePanel />
-        <RefundQueuePanel />
-        <InvitationReviewPanel />
-        <StaffAdminPanel />
+      <div className="mx-auto flex max-w-[1480px] gap-0">
+        {/* 左侧板块导航(桌面) */}
+        <aside className="sticky top-[57px] hidden h-[calc(100svh-57px)] w-52 shrink-0 overflow-y-auto border-r border-border/50 p-3 lg:block">
+          <nav className="space-y-1">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setActiveSection(s.key)}
+                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  activeSection === s.key ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
+                }`}
+              >
+                <s.icon className="h-4 w-4 shrink-0" />
+                {s.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="min-w-0 flex-1 space-y-6 px-6 py-6">
+          {/* 移动端: 顶部横向板块切换 */}
+          <div className="-mx-6 mb-1 flex gap-2 overflow-x-auto border-b border-border/50 px-6 pb-3 lg:hidden">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setActiveSection(s.key)}
+                className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                  activeSection === s.key ? "bg-gold/10 text-gold" : "text-muted-foreground"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          {activeSection === "custody" && <HexSafeLivePanel />}
+          {activeSection === "deposits" && <DepositQueuePanel />}
+          {activeSection === "refunds" && <RefundQueuePanel />}
+          {activeSection === "access" && <InvitationReviewPanel />}
+          {activeSection === "staff" && <StaffAdminPanel />}
+
+          {activeSection === "deposits" && (
+            <>
         <section className="rounded-lg border border-border/60 bg-card/80 p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -403,7 +453,11 @@ export default function CasinoOpsPortal() {
             </div>
           </section>
         )}
+            </>
+          )}
 
+          {activeSection === "ops" && (
+            <>
         <div className="grid gap-5 lg:grid-cols-2">
           <OpsCard
             eyebrow="Refund / payout"
@@ -644,6 +698,8 @@ export default function CasinoOpsPortal() {
             </div>
           </OpsCard>
         </div>
+            </>
+          )}
 
         <section className="rounded-lg border border-border/60 bg-card/80 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -664,7 +720,8 @@ export default function CasinoOpsPortal() {
             </button>
           </div>
         </section>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
