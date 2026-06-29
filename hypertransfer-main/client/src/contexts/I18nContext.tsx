@@ -18,18 +18,13 @@ const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
-    // Load from localStorage or browser language
+    // English-first: honour an explicit saved preference, otherwise always default to English
+    // (do not auto-switch to Chinese for zh browsers — the switcher remains available).
     const saved = localStorage.getItem("hypertransfer-language");
     if (saved === "en" || saved === "yue" || saved === "zh") {
       return saved;
     }
-
-    // Detect browser language
-    const browserLang = navigator.language.toLowerCase();
-    if (browserLang.startsWith("zh")) {
-      return "zh"; // Default to Simplified Chinese for Chinese browsers
-    }
-    return "en"; // Default to English
+    return "en";
   });
 
   const setLanguage = (lang: Language) => {
@@ -58,8 +53,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const availableLanguages = [
     { code: "en" as Language, name: "English" },
-    { code: "yue" as Language, name: "粵語 (Cantonese)" },
-    { code: "zh" as Language, name: "中文 (Mandarin)" },
+    { code: "yue" as Language, name: "Cantonese" },
+    { code: "zh" as Language, name: "Chinese (Mandarin)" },
   ];
 
   return (

@@ -569,7 +569,7 @@ def normalize_phone(area_code: str, number: str) -> "tuple[str, str, str]":
     area = area.lstrip("0") or area
     num = "".join(ch for ch in (number or "") if ch.isdigit())
     if not area or not num:
-        raise HTTPException(status_code=400, detail="手机号或区号无效")
+        raise HTTPException(status_code=400, detail="Invalid phone number or area code")
     return area, num, area + num
 
 
@@ -588,14 +588,14 @@ def send_sms(area_code: str, number: str, text: str) -> str:
         with urllib.request.urlopen(req, timeout=20) as resp:
             body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"短信网关 HTTP {e.code}")
+        raise HTTPException(status_code=502, detail=f"SMS gateway HTTP {e.code}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"短信网关不可达: {e}")
+        raise HTTPException(status_code=502, detail=f"SMS gateway unreachable: {e}")
     code = str(body.get("code", "")).strip()
     msg = str(body.get("message", "")).strip()
     if code in ("0", "200") or msg.lower() == "success":
         return str(body.get("data", ""))
-    raise HTTPException(status_code=502, detail=f"短信发送失败: {msg or body}")
+    raise HTTPException(status_code=502, detail=f"Failed to send SMS: {msg or body}")
 
 
 # --------------------------------------------------------------------------- #
@@ -987,18 +987,18 @@ def issue_otp(phone: str, area_code: str, number: str) -> None:
         if row:
             if now - row["sent_at"] < OTP_RESEND_COOLDOWN:
                 wait = OTP_RESEND_COOLDOWN - (now - row["sent_at"])
-                raise HTTPException(status_code=429, detail=f"请 {wait} 秒后再获取验证码")
+                raise HTTPException(status_code=429, detail=f"Please wait {wait}s before requesting another code")
             day_start, day_count = row["day_start"], row["day_count"]
             if now - day_start >= 86400:
                 day_start, day_count = now, 0
             if day_count >= OTP_MAX_PER_DAY:
-                raise HTTPException(status_code=429, detail="今日验证码发送次数已达上限")
+                raise HTTPException(status_code=429, detail="Daily verification code limit reached")
             day_count += 1
         else:
             day_start, day_count = now, 1
 
     send_sms(area_code, number,
-             f"您的 HyperTransfer 验证码是 {code}，{OTP_TTL // 60} 分钟内有效，请勿向他人泄露。")
+             f"Your HyperTransfer verification code is {code}. It is valid for {OTP_TTL // 60} minutes. Do not share it with anyone.")
 
     with db() as conn:
         conn.execute(
@@ -1019,14 +1019,14 @@ def verify_otp(phone: str, code: str) -> None:
     with db() as conn:
         row = conn.execute("SELECT * FROM otps WHERE phone=?", (phone,)).fetchone()
         if not row:
-            raise HTTPException(status_code=400, detail="请先获取短信验证码")
+            raise HTTPException(status_code=400, detail="Please request an SMS verification code first")
         if now > row["expires_at"]:
-            raise HTTPException(status_code=400, detail="验证码已过期, 请重新获取")
+            raise HTTPException(status_code=400, detail="Verification code expired, please request a new one")
         if row["tries"] >= OTP_MAX_VERIFY:
-            raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新获取")
+            raise HTTPException(status_code=429, detail="Too many incorrect code attempts, please request a new code")
         if not hmac.compare_digest(row["code"], code):
             conn.execute("UPDATE otps SET tries=tries+1 WHERE phone=?", (phone,))
-            raise HTTPException(status_code=400, detail="短信验证码错误")
+            raise HTTPException(status_code=400, detail="Incorrect SMS verification code")
         conn.execute("DELETE FROM otps WHERE phone=?", (phone,))
 
 
@@ -1047,12 +1047,12 @@ def issue_email_otp(email: str) -> None:
         if row:
             if now - row["sent_at"] < OTP_RESEND_COOLDOWN:
                 wait = OTP_RESEND_COOLDOWN - (now - row["sent_at"])
-                raise HTTPException(status_code=429, detail=f"请 {wait} 秒后再获取验证码")
+                raise HTTPException(status_code=429, detail=f"Please wait {wait}s before requesting another code")
             day_start, day_count = row["day_start"], row["day_count"]
             if now - day_start >= 86400:
                 day_start, day_count = now, 0
             if day_count >= OTP_MAX_PER_DAY:
-                raise HTTPException(status_code=429, detail="今日验证码发送次数已达上限")
+                raise HTTPException(status_code=429, detail="Daily verification code limit reached")
             day_count += 1
         else:
             day_start, day_count = now, 1
@@ -1091,14 +1091,14 @@ def verify_email_otp(email: str, code: str) -> None:
     with db() as conn:
         row = conn.execute("SELECT * FROM email_otps WHERE identifier=?", (email,)).fetchone()
         if not row:
-            raise HTTPException(status_code=400, detail="请先获取邮箱验证码")
+            raise HTTPException(status_code=400, detail="Please request an email verification code first")
         if now > row["expires_at"]:
-            raise HTTPException(status_code=400, detail="验证码已过期, 请重新获取")
+            raise HTTPException(status_code=400, detail="Verification code expired, please request a new one")
         if row["tries"] >= OTP_MAX_VERIFY:
-            raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新获取")
+            raise HTTPException(status_code=429, detail="Too many incorrect code attempts, please request a new code")
         if not hmac.compare_digest(row["code"], code):
             conn.execute("UPDATE email_otps SET tries=tries+1 WHERE identifier=?", (email,))
-            raise HTTPException(status_code=400, detail="邮箱验证码错误")
+            raise HTTPException(status_code=400, detail="Incorrect email verification code")
         conn.execute("DELETE FROM email_otps WHERE identifier=?", (email,))
 
 
@@ -1229,7 +1229,7 @@ def user_public(user) -> dict:
 
 def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="未登录")
+        raise HTTPException(status_code=401, detail="Not signed in")
     token = authorization[len("Bearer "):]
     if token == DEMO_LOCAL_SESSION_TOKEN and SUMSUB_ENVIRONMENT != "production":
         return {
@@ -1246,10 +1246,10 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
     with db() as conn:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not sess or sess["expires_at"] < int(time.time()):
-            raise HTTPException(status_code=401, detail="会话已过期, 请重新登录")
+            raise HTTPException(status_code=401, detail="Session expired, please sign in again")
         user = conn.execute("SELECT * FROM users WHERE id=?", (sess["user_id"],)).fetchone()
     if not user:
-        raise HTTPException(status_code=401, detail="用户不存在")
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
 
@@ -1270,7 +1270,7 @@ def require_role(*allowed: str):
         roles = set(get_user_roles(user["id"]))
         if "admin" in roles or (set(allowed) & roles):
             return user
-        raise HTTPException(status_code=403, detail="无权访问该资源")
+        raise HTTPException(status_code=403, detail="You don't have permission to access this resource")
     return dep
 
 
@@ -1339,13 +1339,13 @@ def get_invitation_by_token(token: str) -> Optional[sqlite3.Row]:
 def invitation_is_redeemable(row: sqlite3.Row, email: str) -> None:
     """校验邀请可用于注册:status=issued、未过期、未消费、email 匹配。失败抛 4xx。"""
     if row["status"] == "consumed":
-        raise HTTPException(status_code=409, detail="该邀请链接已被使用")
+        raise HTTPException(status_code=409, detail="This invitation link has already been used")
     if row["status"] != "issued":
-        raise HTTPException(status_code=400, detail="邀请链接无效或尚未签发")
+        raise HTTPException(status_code=400, detail="Invitation link is invalid or not yet issued")
     if row["expires_at"] is not None and int(time.time()) > row["expires_at"]:
-        raise HTTPException(status_code=410, detail="邀请链接已过期")
+        raise HTTPException(status_code=410, detail="This invitation link has expired")
     if normalize_email(row["patron_email"]) != normalize_email(email):
-        raise HTTPException(status_code=400, detail="邮箱与邀请不匹配")
+        raise HTTPException(status_code=400, detail="Email does not match the invitation")
 
 
 # --------------------------------------------------------------------------- #
@@ -1509,7 +1509,7 @@ def send_otp(body: SendOtpIn):
     with db() as conn:
         u = conn.execute("SELECT status FROM users WHERE phone=?", (phone,)).fetchone()
     if u and u["status"] == "active":
-        raise HTTPException(status_code=409, detail="该手机号已注册, 请直接登录")
+        raise HTTPException(status_code=409, detail="This phone number is already registered, please sign in")
     issue_otp(phone, area, num)
     return {"ok": True, "phone": phone, "cooldown": OTP_RESEND_COOLDOWN}
 
@@ -1518,7 +1518,7 @@ def send_otp(body: SendOtpIn):
 def register(body: RegisterIn):
     # ⚠️ 账号为邀请制: production 关闭手机号开放注册(仅 /invite 邀请落地可注册)。
     if SUMSUB_ENVIRONMENT == "production":
-        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
+        raise HTTPException(status_code=403, detail="Accounts are invitation-only; open registration is disabled. Please use your invitation link")
     area, num, phone = normalize_phone(body.areaCode, body.phoneNumber)
     email = body.email.strip().lower()
 
@@ -1526,14 +1526,14 @@ def register(body: RegisterIn):
     with db() as conn:
         existing = conn.execute("SELECT status FROM users WHERE phone=?", (phone,)).fetchone()
         if existing and existing["status"] == "active":
-            raise HTTPException(status_code=409, detail="该手机号已注册, 请直接登录")
+            raise HTTPException(status_code=409, detail="This phone number is already registered, please sign in")
         if email:
             # 邮箱被【其他手机号】占用即拒绝(含 active 与 pending_totp),避免一邮箱多账户
             dup = conn.execute(
                 "SELECT status FROM users WHERE email=? AND phone<>?", (email, phone)
             ).fetchone()
             if dup:
-                raise HTTPException(status_code=409, detail="该邮箱已被注册, 请更换或直接登录")
+                raise HTTPException(status_code=409, detail="This email is already registered; use another or sign in")
 
     verify_otp(phone, body.otp)  # 第一因子: 手机号已验真(校验通过即消费验证码)
 
@@ -1545,7 +1545,7 @@ def register(body: RegisterIn):
         # 二次确认(并发安全):走到这里若已变 active 仍拦
         existing = conn.execute("SELECT status FROM users WHERE phone=?", (phone,)).fetchone()
         if existing and existing["status"] == "active":
-            raise HTTPException(status_code=409, detail="该手机号已注册, 请直接登录")
+            raise HTTPException(status_code=409, detail="This phone number is already registered, please sign in")
         # phone 现为唯一属性而非主键:ON CONFLICT(phone) 复用旧行(保留其 id),
         # 新行才生成 uuid。email 空串归一为 NULL,贴合 UNIQUE 约束。
         new_id = str(uuid.uuid4())
@@ -1588,16 +1588,16 @@ def confirm_totp(body: ConfirmIn):
         elif email:
             user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         else:
-            raise HTTPException(status_code=400, detail="缺少手机号或邮箱")
+            raise HTTPException(status_code=400, detail="Phone number or email is required")
         if not user:
-            raise HTTPException(status_code=404, detail="请先注册")
+            raise HTTPException(status_code=404, detail="Please register first")
         if user["status"] == "pending_totp":
             exp = user["totp_expires_at"]
             if exp is not None and int(time.time()) > exp:
-                raise HTTPException(status_code=410, detail="绑定已超时，请返回重新获取二维码")
+                raise HTTPException(status_code=410, detail="Enrollment timed out, please go back and get a new QR code")
         counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
         if counter is None:
-            raise HTTPException(status_code=400, detail="验证码错误或已过期")
+            raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
         conn.execute(
             "UPDATE users SET status='active', totp_enabled=1, last_counter=?, totp_expires_at=NULL WHERE id=?",
             (counter, user["id"]),
@@ -1620,9 +1620,9 @@ def regenerate_totp(body: RegenerateIn):
     with db() as conn:
         user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
         if not user:
-            raise HTTPException(status_code=404, detail="请先注册")
+            raise HTTPException(status_code=404, detail="Please register first")
         if user["status"] == "active":
-            raise HTTPException(status_code=409, detail="该账户已激活, 请直接登录")
+            raise HTTPException(status_code=409, detail="This account is already active, please sign in")
         conn.execute(
             "UPDATE users SET totp_secret=?, totp_expires_at=?, last_counter=NULL WHERE phone=?",
             (secret, expires_at, phone),
@@ -1652,16 +1652,16 @@ def register_activate_skip(body: RegisterActivateSkipIn):
         elif email:
             user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         else:
-            raise HTTPException(status_code=400, detail="缺少手机号或邮箱")
+            raise HTTPException(status_code=400, detail="Phone number or email is required")
         if not user:
-            raise HTTPException(status_code=404, detail="请先注册")
+            raise HTTPException(status_code=404, detail="Please register first")
         if user["status"] == "active":
-            raise HTTPException(status_code=409, detail="该账户已激活, 请直接登录")
+            raise HTTPException(status_code=409, detail="This account is already active, please sign in")
         if user["user_type"] == "staff":
-            raise HTTPException(status_code=403, detail="员工账户必须启用双重验证")
+            raise HTTPException(status_code=403, detail="Staff accounts must enable two-factor authentication (2FA)")
         exp = user["totp_expires_at"]
         if exp is not None and int(time.time()) > exp:
-            raise HTTPException(status_code=410, detail="绑定已超时，请返回重新获取二维码")
+            raise HTTPException(status_code=410, detail="Enrollment timed out, please go back and get a new QR code")
         conn.execute(
             "UPDATE users SET status='active', totp_enabled=0, last_counter=NULL, "
             "totp_expires_at=NULL WHERE id=?",
@@ -1692,7 +1692,7 @@ def password_reset(body: PwdResetIn):
     with db() as conn:
         user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
         if not user or user["status"] != "active":
-            raise HTTPException(status_code=404, detail="该手机号未注册")
+            raise HTTPException(status_code=404, detail="This phone number is not registered")
     user_id = user["id"]
     verify_otp(phone, body.otp)  # 短信验证码校验(失败/过期会抛错)
     pw_hash, pw_salt = hash_password(body.newPassword)
@@ -1716,7 +1716,7 @@ def login_start(body: LoginStartIn):
             user = conn.execute(
                 "SELECT * FROM users WHERE phone=? AND status='active'", (phone,)
             ).fetchone()
-    generic = HTTPException(status_code=401, detail="账号或密码有误")
+    generic = HTTPException(status_code=401, detail="Incorrect account or password")
     if not user or not verify_password(body.password, user["pw_hash"], user["pw_salt"]):
         raise generic
     # PR③: 2FA 可选。totp_enabled=0 的 patron 直接发会话; staff 永远强制 2FA。
@@ -1734,21 +1734,21 @@ def login_verify(body: LoginVerifyIn):
     with db() as conn:
         ch = conn.execute("SELECT * FROM challenges WHERE challenge=?", (body.challenge,)).fetchone()
         if not ch or ch["expires_at"] < now:
-            raise HTTPException(status_code=401, detail="登录会话已过期, 请重新登录")
+            raise HTTPException(status_code=401, detail="Your login session has expired, please sign in again")
         if ch["tries"] >= OTP_MAX_VERIFY:
             conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
-            raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新登录")
+            raise HTTPException(status_code=429, detail="Too many incorrect code attempts, please sign in again")
         user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
         if not user:
             conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
-            raise HTTPException(status_code=400, detail="验证码错误或已过期")
+            raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
         if DEMO_BYPASS_2FA:
             counter = user["last_counter"]   # 演示旁路: 接受任意码, last_counter 不变
         else:
             counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
             if counter is None:
                 conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
-                raise HTTPException(status_code=400, detail="验证码错误或已过期")
+                raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
         conn.execute("UPDATE users SET last_counter=? WHERE id=?", (counter, ch["user_id"]))
         conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
         user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
@@ -1763,15 +1763,15 @@ def login_recovery(body: LoginRecoveryIn):
     with db() as conn:
         ch = conn.execute("SELECT * FROM challenges WHERE challenge=?", (body.challenge,)).fetchone()
         if not ch or ch["expires_at"] < now:
-            raise HTTPException(status_code=401, detail="登录会话已过期, 请重新登录")
+            raise HTTPException(status_code=401, detail="Your login session has expired, please sign in again")
         if ch["tries"] >= OTP_MAX_VERIFY:
             conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
-            raise HTTPException(status_code=429, detail="尝试次数过多, 请重新登录")
+            raise HTTPException(status_code=429, detail="Too many attempts, please sign in again")
         user_id = ch["user_id"]
     if not consume_recovery_code(user_id, body.recoveryCode):
         with db() as conn:
             conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
-        raise HTTPException(status_code=400, detail="恢复码无效或已被使用")
+        raise HTTPException(status_code=400, detail="Recovery code is invalid or already used")
     with db() as conn:
         conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
         user = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
@@ -1826,7 +1826,7 @@ def confirm_2fa(body: Confirm2faIn, authorization: Optional[str] = Header(defaul
     user = user_from_token(authorization)
     counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
     if counter is None:
-        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
     with db() as conn:
         conn.execute("UPDATE users SET totp_enabled=1, last_counter=? WHERE id=?",
                      (counter, user["id"]))
@@ -1843,10 +1843,10 @@ def disable_2fa(body: Disable2faIn, authorization: Optional[str] = Header(defaul
     """PR③: 关闭 2FA(需验当前 TOTP);员工账户不允许关闭。"""
     user = user_from_token(authorization)
     if user["user_type"] == "staff":
-        raise HTTPException(status_code=403, detail="员工账户必须启用双重验证")
+        raise HTTPException(status_code=403, detail="Staff accounts must enable two-factor authentication (2FA)")
     counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
     if counter is None:
-        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
     with db() as conn:
         conn.execute("UPDATE users SET totp_enabled=0, last_counter=? WHERE id=?",
                      (counter, user["id"]))
@@ -1861,10 +1861,10 @@ def stepup_verify(body: StepupVerifyIn, authorization: Optional[str] = Header(de
     user = user_from_token(authorization)
     enabled = bool(user["totp_enabled"]) if "totp_enabled" in user.keys() else True
     if not enabled:
-        raise HTTPException(status_code=409, detail="请先启用双重验证")
+        raise HTTPException(status_code=409, detail="Please enable two-factor authentication (2FA) first")
     counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
     if counter is None:
-        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
     with db() as conn:
         conn.execute("UPDATE users SET last_counter=? WHERE id=?", (counter, user["id"]))
     return {"ok": True, "verifiedAt": int(time.time()), "ttl": STEPUP_TTL}
@@ -1879,13 +1879,13 @@ def admin_create_staff(body: CreateStaffIn, admin: Any = Depends(require_role("a
     返回 TOTP 设置(otpauth/secret/qr);员工需用 confirm-totp(email) 激活后方可登录。"""
     email = normalize_email(body.email)
     if "@" not in email:
-        raise HTTPException(status_code=400, detail="邮箱格式无效")
+        raise HTTPException(status_code=400, detail="Invalid email format")
     roles = sorted({r.strip().lower() for r in body.roles if r and r.strip()})
     invalid = [r for r in roles if r not in STAFF_ROLES]
     if invalid:
-        raise HTTPException(status_code=400, detail=f"无效角色: {', '.join(invalid)}")
+        raise HTTPException(status_code=400, detail=f"Invalid role(s): {', '.join(invalid)}")
     if not roles:
-        raise HTTPException(status_code=400, detail="至少指定一个角色")
+        raise HTTPException(status_code=400, detail="Specify at least one role")
 
     now = int(time.time())
     secret = pyotp.random_base32()
@@ -1893,7 +1893,7 @@ def admin_create_staff(body: CreateStaffIn, admin: Any = Depends(require_role("a
     uid = str(uuid.uuid4())
     with db() as conn:
         if conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone():
-            raise HTTPException(status_code=409, detail="该邮箱已被注册")
+            raise HTTPException(status_code=409, detail="This email is already registered")
         conn.execute(
             """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
                                  totp_secret, status, user_type, last_counter, totp_expires_at, created_at)
@@ -1927,7 +1927,7 @@ def create_invitation(body: CreateInvitationIn, rm: Any = Depends(require_role("
     """RM 提交邀请申请 → status=submitted。准入尽调在外部系统做(决策 3)。"""
     email = normalize_email(body.patronEmail)
     if "@" not in email:
-        raise HTTPException(status_code=400, detail="邮箱格式无效")
+        raise HTTPException(status_code=400, detail="Invalid email format")
     now = int(time.time())
     inv_id = str(uuid.uuid4())
     with db() as conn:
@@ -1979,9 +1979,9 @@ def approve_invitation(invitation_id: str, body: InvitationReviewIn,
                        user: Any = Depends(require_role("marketing"))):
     row = get_invitation(invitation_id)
     if not row:
-        raise HTTPException(status_code=404, detail="邀请不存在")
+        raise HTTPException(status_code=404, detail="Invitation not found")
     if row["status"] != "submitted":
-        raise HTTPException(status_code=409, detail="仅 submitted 状态可审批")
+        raise HTTPException(status_code=409, detail="Only submitted requests can be approved")
     now = int(time.time())
     with db() as conn:
         conn.execute(
@@ -1999,9 +1999,9 @@ def reject_invitation(invitation_id: str, body: InvitationReviewIn,
                       user: Any = Depends(require_role("marketing"))):
     row = get_invitation(invitation_id)
     if not row:
-        raise HTTPException(status_code=404, detail="邀请不存在")
+        raise HTTPException(status_code=404, detail="Invitation not found")
     if row["status"] not in ("submitted", "approved"):
-        raise HTTPException(status_code=409, detail="该邀请无法被拒绝")
+        raise HTTPException(status_code=409, detail="This invitation cannot be rejected")
     now = int(time.time())
     with db() as conn:
         conn.execute(
@@ -2030,7 +2030,7 @@ def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: st
             (token, expires_at, now, invitation_id, expected_status),
         )
         if cur.rowcount == 0:        # 期间状态被并发改动 → 拒绝(连接 __exit__ 自动 rollback)
-            raise HTTPException(status_code=409, detail="邀请状态已变更, 请刷新后重试")
+            raise HTTPException(status_code=409, detail="Invitation status changed, please refresh and try again")
         row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
 
     base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
@@ -2075,9 +2075,9 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
     """仅 approved 可签发:生成 single-use token + 72h 过期 → status=issued, 发送邀请邮件。"""
     row = get_invitation(invitation_id)
     if not row:
-        raise HTTPException(status_code=404, detail="邀请不存在")
+        raise HTTPException(status_code=404, detail="Invitation not found")
     if row["status"] != "approved":
-        raise HTTPException(status_code=409, detail="仅 approved 状态可签发邀请链接")
+        raise HTTPException(status_code=409, detail="Only approved invitations can issue a link")
     return _issue_invite_link_and_email(invitation_id, user, "invitation.issue", "approved")
 
 
@@ -2088,12 +2088,12 @@ def resend_invitation(invitation_id: str, user: Any = Depends(require_role("mark
     带 INVITE_RESEND_COOLDOWN 节流(防邮件轰炸/SMTP 滥用; 也避免网络重试导致重复发信)。"""
     row = get_invitation(invitation_id)
     if not row:
-        raise HTTPException(status_code=404, detail="邀请不存在")
+        raise HTTPException(status_code=404, detail="Invitation not found")
     if row["status"] != "issued":
-        raise HTTPException(status_code=409, detail="仅 issued 状态可重发邀请邮件(未签发请先 Issue,已注册不可重发)")
+        raise HTTPException(status_code=409, detail="Only issued invitations can have the email resent (issue it first if not issued; consumed ones cannot be resent)")
     wait = INVITE_RESEND_COOLDOWN - (int(time.time()) - (row["updated_at"] or 0))
     if wait > 0:
-        raise HTTPException(status_code=429, detail=f"重发过于频繁, 请 {wait} 秒后再试")
+        raise HTTPException(status_code=429, detail=f"Resending too frequently, please try again in {wait}s")
     return _issue_invite_link_and_email(invitation_id, user, "invitation.resend", "issued")
 
 
@@ -2102,7 +2102,7 @@ def verify_invitation(body: InvitationVerifyIn):
     """公开:客户用 token+email 校验邀请是否可注册。返回 patron 信息供预填。"""
     row = get_invitation_by_token(body.token)
     if not row:
-        raise HTTPException(status_code=404, detail="邀请链接无效")
+        raise HTTPException(status_code=404, detail="Invalid invitation link")
     invitation_is_redeemable(row, body.email)
     return {
         "ok": True,
@@ -2137,14 +2137,14 @@ def register_invite(body: RegisterInviteIn):
     email = normalize_email(body.email)
     inv = get_invitation_by_token(body.token)
     if not inv:
-        raise HTTPException(status_code=404, detail="邀请链接无效")
+        raise HTTPException(status_code=404, detail="Invalid invitation link")
     invitation_is_redeemable(inv, email)
 
     # 邮箱不可被其他账户占用(并发/重复注册防护)。
     with db() as conn:
         dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
         if dup and dup["status"] == "active":
-            raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+            raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
 
     verify_email_otp(email, body.emailOtp)  # 第一因子:邮箱已验真(校验通过即消费)
 
@@ -2157,7 +2157,7 @@ def register_invite(body: RegisterInviteIn):
         # 二次确认邀请仍 issued(并发安全)
         inv2 = conn.execute("SELECT * FROM invitations WHERE id=?", (inv["id"],)).fetchone()
         if not inv2 or inv2["status"] != "issued":
-            raise HTTPException(status_code=409, detail="邀请链接已失效")
+            raise HTTPException(status_code=409, detail="This invitation link is no longer valid")
         # email 可能已有 pending_totp 占位行 → 复用其 id;否则新建。
         existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         if existing:
@@ -2204,14 +2204,14 @@ def register_email_send_otp(body: EmailOtpIn):
     已 active 的邮箱 → 409 引导登录; 其余正常发码(限频在 issue_email_otp 内)。
     ⚠️ 账号为邀请制: production 关闭开放注册(仅 /invite 邀请落地可注册)。"""
     if SUMSUB_ENVIRONMENT == "production":
-        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
+        raise HTTPException(status_code=403, detail="Accounts are invitation-only; open registration is disabled. Please use your invitation link")
     email = normalize_email(body.email)
     if "@" not in email:
-        raise HTTPException(status_code=400, detail="邮箱格式无效")
+        raise HTTPException(status_code=400, detail="Invalid email format")
     with db() as conn:
         dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
     if dup and dup["status"] == "active":
-        raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+        raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
     issue_email_otp(email)
     return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN}
 
@@ -2222,14 +2222,14 @@ def register_email(body: RegisterEmailIn):
     无手机号; 激活复用 confirm-totp(email)。结构同 register_invite 但不需邀请 token。
     ⚠️ 账号为邀请制: production 关闭开放注册(仅 /invite 邀请落地可注册)。"""
     if SUMSUB_ENVIRONMENT == "production":
-        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
+        raise HTTPException(status_code=403, detail="Accounts are invitation-only; open registration is disabled. Please use your invitation link")
     email = normalize_email(body.email)
     if "@" not in email:
-        raise HTTPException(status_code=400, detail="邮箱格式无效")
+        raise HTTPException(status_code=400, detail="Invalid email format")
     with db() as conn:
         dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
         if dup and dup["status"] == "active":
-            raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+            raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
     verify_email_otp(email, body.emailOtp)        # 第一因子: 邮箱已验真(校验通过即消费)
     secret = pyotp.random_base32()
     pw_hash, pw_salt = hash_password(body.password)
@@ -2442,7 +2442,7 @@ def sumsub_travel_rule_submit(body: SumsubTravelRuleIn, authorization: Optional[
     user = user_from_token(authorization)
     row = sumsub_get_local_kyc(user["id"])
     if not row or not row["applicant_id"]:
-        raise HTTPException(status_code=409, detail="请先完成 KYC(创建 Sumsub applicant)再提交 Travel Rule")
+        raise HTTPException(status_code=409, detail="Complete KYC (create the Sumsub applicant) before submitting Travel Rule")
     applicant_id = row["applicant_id"]
     txn = sumsub_build_travel_rule_txn(body)
     # 403(模块未启用)作为数据返回而非抛错, 让前端拿到明确状态而非崩流程。
@@ -2684,12 +2684,12 @@ def get_hexsafe_client() -> HexSafeClient:
     """惰性单例。未配置 key/私钥 → 503(认证 API 仍可独立启动)。"""
     global _hexsafe_client
     if not hexsafe_configured():
-        raise HTTPException(status_code=503, detail="Hex Safe 未配置(缺 HEXSAFE_API_KEY / 私钥)")
+        raise HTTPException(status_code=503, detail="Hex Safe is not configured (missing HEXSAFE_API_KEY / private key)")
     if _hexsafe_client is None:
         try:
             _hexsafe_client = HexSafeClient()
         except HexSafeError as e:
-            raise HTTPException(status_code=503, detail=f"Hex Safe 初始化失败: {e}")
+            raise HTTPException(status_code=503, detail=f"Hex Safe initialization failed: {e}")
     return _hexsafe_client
 
 
@@ -2819,7 +2819,7 @@ def hexsafe_deposit_address(body: HexSafeAddressIn,
     """
     vault_id = (body.vaultId or HEXSAFE_VAULT_ID).strip()
     if not vault_id:
-        raise HTTPException(status_code=400, detail="缺少 vaultId(也未配置 HEXSAFE_VAULT_ID)")
+        raise HTTPException(status_code=400, detail="Missing vaultId (and HEXSAFE_VAULT_ID is not configured)")
     result = _hexsafe_call(get_hexsafe_client().create_deposit_address, vault_id, body.chainId)
     write_audit(user["id"], "hexsafe.deposit_address.create", "vault", vault_id,
                 {"chainId": body.chainId, "address": (result or {}).get("address")})
@@ -2857,7 +2857,7 @@ def hexsafe_withdrawal(body: HexSafeWithdrawalIn,
     """
     enterprise_id = (body.enterpriseId or HEXSAFE_ENTERPRISE_ID).strip()
     if not enterprise_id:
-        raise HTTPException(status_code=400, detail="缺少 enterpriseId(也未配置 HEXSAFE_ENTERPRISE_ID)")
+        raise HTTPException(status_code=400, detail="Missing enterpriseId (and HEXSAFE_ENTERPRISE_ID is not configured)")
     # 幂等: 客户端带相同 idempotencyKey 重发 → 直接返回缓存的成功响应, 不重复发起转账。
     if body.idempotencyKey:
         cached = _hexsafe_idem_get(body.idempotencyKey)
@@ -2890,12 +2890,12 @@ def user_kyc_ok(user_id: str) -> "tuple[bool, str]":
     """KYC 是否有效(approved 且未过期)。返回 (ok, reason)。供 KYC 闸门(②)与退款 re-KYC 复用。"""
     row = sumsub_persist_validity(user_id) or sumsub_get_local_kyc(user_id)
     if not row:
-        return False, "KYC 未开始"
+        return False, "KYC not started"
     if row["status"] != "approved":
-        return False, f"KYC 未通过(status={row['status']})"
+        return False, f"KYC not approved (status={row['status']})"
     valid_until = _row_get(row, "valid_until")
     if valid_until and int(time.time()) > valid_until:
-        return False, "KYC 已过期(超过 6 个月), 需重新认证"
+        return False, "KYC has expired (older than 6 months); re-verification required"
     return True, ""
 
 
@@ -2903,7 +2903,7 @@ def require_kyc(user_id: str) -> None:
     """KYC 硬阻断闸门(②): 不通过抛 403。用于发址/入金/退款等关键动作前。"""
     ok, reason = user_kyc_ok(user_id)
     if not ok:
-        raise HTTPException(status_code=403, detail=f"KYC 闸门未通过: {reason}")
+        raise HTTPException(status_code=403, detail=f"KYC gate not passed: {reason}")
 
 
 def record_verified_wallet(user_id: str, address: str, chain_id: str,
@@ -2948,7 +2948,7 @@ def _refund_get_or_404(rid: str) -> sqlite3.Row:
     with db() as conn:
         r = conn.execute("SELECT * FROM refund_requests WHERE id=?", (rid,)).fetchone()
     if not r:
-        raise HTTPException(status_code=404, detail="退款单不存在")
+        raise HTTPException(status_code=404, detail="Refund request not found")
     return r
 
 
@@ -2957,7 +2957,7 @@ def _hexsafe_vault_has_balance(vault_id: str, ticker: str, amount_decimal: str) 
     try:
         v = get_hexsafe_client().get_vault(vault_id)
     except HexSafeError as e:
-        return False, f"无法查询 vault: {e}"
+        return False, f"Unable to query vault: {e}"
     assets = (v.get("assetList") or []) if isinstance(v, dict) else []
     for a in assets:
         if isinstance(a, dict) and (a.get("ticker") or "").upper() == ticker.upper():
@@ -2965,9 +2965,9 @@ def _hexsafe_vault_has_balance(vault_id: str, ticker: str, amount_decimal: str) 
                 bal = float(a.get("balance") or a.get("available") or 0)
                 need = float(amount_decimal)
             except Exception:
-                return False, "余额/金额解析失败"
+                return False, "Failed to parse balance/amount"
             return (bal >= need), f"balance={bal} need={need}"
-    return False, f"vault 无 {ticker} 余额"
+    return False, f"vault has no {ticker} balance"
 
 
 class RefundCreateIn(BaseModel):
@@ -2998,7 +2998,7 @@ def refund_create(body: RefundCreateIn, authorization: Optional[str] = Header(de
         w = conn.execute("SELECT * FROM verified_wallets WHERE id=? AND user_id=?",
                          (body.walletId, user["id"])).fetchone()
     if not w:
-        raise HTTPException(status_code=400, detail="退款目标必须是您已验证过的原钱包之一(不接受新地址)")
+        raise HTTPException(status_code=400, detail="The refund destination must be one of your previously verified wallets (new addresses are not accepted)")
     kyc_ok, kyc_reason = user_kyc_ok(user["id"])
     rid = "RF-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
     now = int(time.time())
@@ -3060,9 +3060,9 @@ def refund_approve(rid: str, user: Any = Depends(require_role("compliance", "adm
     """管理层/合规审批(process v1: Approved? by Management)。要求 KYC ok + 原钱包 KYT pass。"""
     r = _refund_get_or_404(rid)
     if not r["kyc_ok"]:
-        raise HTTPException(status_code=409, detail="KYC 未通过, 不能审批")
+        raise HTTPException(status_code=409, detail="KYC not approved; cannot approve")
     if r["kyt_status"] != "pass":
-        raise HTTPException(status_code=409, detail="原钱包 KYT 未通过, 不能审批")
+        raise HTTPException(status_code=409, detail="Verified wallet KYT did not pass; cannot approve")
     with db() as conn:
         conn.execute("UPDATE refund_requests SET status='approved', approved_by=?, updated_at=? WHERE id=?",
                      (user["id"], int(time.time()), rid))
@@ -3087,11 +3087,11 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
     """custodian 执行退款: vault 余额校验 → 真实 Hex Safe withdrawal 退回原钱包 → transfer_id 留痕。"""
     r = _refund_get_or_404(rid)
     if r["status"] != "approved":
-        raise HTTPException(status_code=409, detail="退款单未审批通过, 不能执行")
+        raise HTTPException(status_code=409, detail="Refund request is not approved; cannot execute")
     enterprise_id = HEXSAFE_ENTERPRISE_ID
     vault_id = HEXSAFE_VAULT_ID
     if not enterprise_id or not vault_id:
-        raise HTTPException(status_code=400, detail="未配置 HEXSAFE_ENTERPRISE_ID / HEXSAFE_VAULT_ID")
+        raise HTTPException(status_code=400, detail="HEXSAFE_ENTERPRISE_ID / HEXSAFE_VAULT_ID are not configured")
     # vault 余额校验(process v1: Sufficient Fund in Vault?)
     bal_ok, bal_note = _hexsafe_vault_has_balance(vault_id, r["asset"], r["amount_decimal"])
     if not bal_ok:
@@ -3100,7 +3100,7 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
                          (int(time.time()), rid))
             conn.commit()
         write_audit(user["id"], "refund.insufficient_funds", "refund", rid, {"note": bal_note})
-        raise HTTPException(status_code=409, detail=f"Vault 余额不足: {bal_note}")
+        raise HTTPException(status_code=409, detail=f"Insufficient vault balance: {bal_note}")
     idem = r["idempotency_key"] or str(uuid.uuid4())
     client = get_hexsafe_client()
     from_addr = (client.create_deposit_address(vault_id, r["chain_id"]) or {}).get("address", "")
@@ -3146,7 +3146,7 @@ def resolve_chain_id(network: str) -> str:
         return overrides[n]
     if n.isdigit() or ":" in n:
         return network.strip()
-    raise HTTPException(status_code=400, detail=f"不支持的网络: {network}(Phase 1 仅 ethereum / tron)")
+    raise HTTPException(status_code=400, detail=f"Unsupported network: {network} (Phase 1 supports ethereum / tron only)")
 
 
 def screen_source_wallet(address: str, chain_id: str) -> dict[str, Any]:
@@ -3161,12 +3161,12 @@ def screen_source_wallet(address: str, chain_id: str) -> dict[str, Any]:
     ref = "KYT-DEP-" + uuid.uuid4().hex[:8].upper()
     if any(k in a for k in ("bad", "sanction", "blocked", "ofac")):
         return {"decision": "fail", "provider": "mock", "riskScore": 92, "reference": ref,
-                "note": "来源钱包命中高风险/受制裁示例规则"}
+                "note": "Source wallet matched a high-risk/sanctioned sample rule"}
     if any(k in a for k in ("edd", "review", "mixer", "tornado")):
         return {"decision": "edd", "provider": "mock", "riskScore": 61, "reference": ref,
-                "note": "来源钱包触发增强尽调(EDD)示例规则"}
+                "note": "Source wallet triggered an enhanced due diligence (EDD) sample rule"}
     return {"decision": "pass", "provider": "mock", "riskScore": 9, "reference": ref,
-            "note": "来源钱包未命中风险规则"}
+            "note": "Source wallet did not match any risk rule"}
 
 
 def _deposit_vault_id() -> str:
@@ -3200,14 +3200,14 @@ def _deposit_get_or_404(did: str) -> sqlite3.Row:
     with db() as conn:
         r = conn.execute("SELECT * FROM deposit_requests WHERE id=?", (did,)).fetchone()
     if not r:
-        raise HTTPException(status_code=404, detail="入金单不存在")
+        raise HTTPException(status_code=404, detail="Deposit request not found")
     return r
 
 
 def _deposit_owned_or_404(did: str, user_id: str) -> sqlite3.Row:
     r = _deposit_get_or_404(did)
     if r["user_id"] != user_id:
-        raise HTTPException(status_code=404, detail="入金单不存在")  # 不泄露他人单据存在性
+        raise HTTPException(status_code=404, detail="Deposit request not found")  # 不泄露他人单据存在性
     return r
 
 
@@ -3276,7 +3276,7 @@ def deposit_create(body: DepositCreateIn, authorization: Optional[str] = Header(
     require_kyc(user["id"])                                   # ② 硬阻断
     asset = (body.asset or "USDT").strip().upper()
     if asset != "USDT":
-        raise HTTPException(status_code=400, detail="Phase 1 仅支持 USDT")
+        raise HTTPException(status_code=400, detail="Phase 1 supports USDT only")
     chain_id = resolve_chain_id(body.network)
     tr_required = _tr_required(body.amountDecimal)
     did = "DR-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
@@ -3324,7 +3324,7 @@ def deposit_get(did: str, authorization: Optional[str] = Header(default=None)):
     user = user_from_token(authorization)
     r = _deposit_get_or_404(did)
     if r["user_id"] != user["id"] and not (set(get_user_roles(user["id"])) & ({"admin"} | STAFF_ROLES)):
-        raise HTTPException(status_code=404, detail="入金单不存在")
+        raise HTTPException(status_code=404, detail="Deposit request not found")
     return {"ok": True, "deposit": _deposit_public(r)}
 
 
@@ -3336,7 +3336,7 @@ def deposit_screen(did: str, body: DepositScreenIn, authorization: Optional[str]
     r = _deposit_owned_or_404(did, user["id"])
     # 来源钱包在发址后不可变(地址已固定、可能已进入 1 USDT 验证)→ 只允许发址前筛查/改钱包。
     if r["status"] not in ("created", "screening_passed", "screening_failed"):
-        raise HTTPException(status_code=409, detail="入金地址已签发, 不能再更换来源钱包/重新筛查")
+        raise HTTPException(status_code=409, detail="Deposit address already issued; the source wallet cannot be changed or re-screened")
     result = screen_source_wallet(body.sourceWallet, r["chain_id"])
     decision = result["decision"]
     new_status = "screening_passed" if decision == "pass" else "screening_failed"
@@ -3358,14 +3358,14 @@ def deposit_issue_address(did: str, body: DepositIssueAddressIn = DepositIssueAd
     require_kyc(user["id"])                                   # ② 硬阻断(再次校验, 防 KYC 中途过期)
     r = _deposit_owned_or_404(did, user["id"])
     if r["screening_status"] != "pass":
-        raise HTTPException(status_code=409, detail="来源钱包 KYT 未通过, 不能发址")
+        raise HTTPException(status_code=409, detail="Source wallet KYT did not pass; cannot issue the deposit address")
     # Travel Rule gate: 需要 TR 时, 用前端回填的 TR 结果(TR 步骤先于发址完成)对齐到入金单后再判闸门。
     # 否则 ≥USD1k 的单 travel_rule_status 永远停在 'travel_rule_required' → 永久 409。
     tr_status = r["travel_rule_status"]
     if r["travel_rule_required"] and body.travelRuleStatus.strip():
         tr_status = body.travelRuleStatus.strip()
     if r["travel_rule_required"] and tr_status not in ("travel_rule_accepted", "not_required"):
-        raise HTTPException(status_code=409, detail="Travel Rule 未通过, 不能发址")
+        raise HTTPException(status_code=409, detail="Travel Rule not passed; cannot issue the deposit address")
     vault_id = _deposit_vault_id()
     if hexsafe_configured():
         result = _hexsafe_call(get_hexsafe_client().create_deposit_address, vault_id, r["chain_id"])
@@ -3375,9 +3375,9 @@ def deposit_issue_address(did: str, body: DepositIssueAddressIn = DepositIssueAd
         address = _demo_deposit_address(vault_id, r["chain_id"])
         provider = "mock"
     else:
-        raise HTTPException(status_code=503, detail="Hex Safe 未配置, 无法签发入金地址")
+        raise HTTPException(status_code=503, detail="Hex Safe is not configured; cannot issue a deposit address")
     if not address:
-        raise HTTPException(status_code=502, detail="Hex Safe 未返回地址")
+        raise HTTPException(status_code=502, detail="Hex Safe did not return an address")
     _deposit_update(did, deposit_address=address, vault_id=vault_id,
                     travel_rule_status=tr_status, status="address_issued")
     write_audit(user["id"], "deposit.issue_address", "deposit", did,
@@ -3395,25 +3395,25 @@ def deposit_confirm_test(did: str, body: DepositConfirmTestIn,
     require_kyc(user["id"])                                   # ② 硬阻断: verified_wallets 是退款信任锚, 写入前 KYC 必须 ok
     r = _deposit_owned_or_404(did, user["id"])
     if r["status"] not in ("address_issued", "verified", "main_submitted"):
-        raise HTTPException(status_code=409, detail="尚未签发入金地址, 不能确认 1 USDT 验证")
+        raise HTTPException(status_code=409, detail="Deposit address not yet issued; cannot confirm the 1 USDT verification")
     if not r["source_wallet"]:
-        raise HTTPException(status_code=409, detail="缺少来源钱包, 无法记录已验证钱包")
+        raise HTTPException(status_code=409, detail="Source wallet missing; cannot record a verified wallet")
     tx_hash = body.txHash.strip()
     # 真实优先且不可绕过: 配置 Hex Safe 时, 必须有真实 txHash 且查得到到账(不接受空/伪造 hash, 任何
     # 环境都如此, 防 verified_wallets 被无证据污染); 仅在**未配置** Hex Safe 且非 prod 时才 demo 占位。
     if hexsafe_configured():
         provider = "hexsafe"
         if not tx_hash:
-            raise HTTPException(status_code=400, detail="缺少 txHash, 无法核验 1 USDT 到账")
+            raise HTTPException(status_code=400, detail="Missing txHash; cannot verify the 1 USDT deposit")
         dep = _hexsafe_call(get_hexsafe_client().get_deposit_by_tx_hash, tx_hash)
         if not dep:
-            raise HTTPException(status_code=409, detail="未在 Hex Safe 查到该 txHash 的到账, 请稍后重试")
+            raise HTTPException(status_code=409, detail="No deposit found on Hex Safe for this txHash; please try again later")
     elif SUMSUB_ENVIRONMENT != "production":
         provider = "mock"                                    # demo 确认(无 Hex Safe 凭据)
         if not tx_hash:
             tx_hash = "0xdemo" + uuid.uuid4().hex
     else:
-        raise HTTPException(status_code=503, detail="Hex Safe 未配置, 无法验证 1 USDT 到账")
+        raise HTTPException(status_code=503, detail="Hex Safe is not configured; cannot verify the 1 USDT deposit")
     wid = record_verified_wallet(user["id"], r["source_wallet"], r["chain_id"],
                                  asset=r["asset"], method="1usdt_verification")
     # 幂等再确认不回退状态: 已进入 main_submitted/settled 的单不降回 verified。
@@ -3434,9 +3434,9 @@ def deposit_main(did: str, body: DepositMainIn, authorization: Optional[str] = H
     require_kyc(user["id"])                                   # ② 硬阻断
     r = _deposit_owned_or_404(did, user["id"])
     if r["status"] in ("settled", "cancelled"):
-        raise HTTPException(status_code=409, detail="该入金单已结束, 不能再提交主入金")
+        raise HTTPException(status_code=409, detail="This deposit request is closed; the main deposit can no longer be submitted")
     if r["verify_status"] != "confirmed":
-        raise HTTPException(status_code=409, detail="请先完成 1 USDT 验证")
+        raise HTTPException(status_code=409, detail="Please complete the 1 USDT verification first")
     tr_required = _tr_required(body.amountDecimal)
     tr_status = body.travelRuleStatus.strip() or r["travel_rule_status"]
     if tr_required and tr_status == "not_required":
@@ -3469,7 +3469,7 @@ def deposit_settle(did: str, body: DepositSettleIn,
        真实兑换为高触人工; 接通真实端点见 /api/hexsafe/forex/probe 的探测结论。"""
     r = _deposit_get_or_404(did)
     if r["verify_status"] != "confirmed":
-        raise HTTPException(status_code=409, detail="入金未完成 1 USDT 验证, 不能结算")
+        raise HTTPException(status_code=409, detail="The 1 USDT verification is not complete; cannot settle")
     fiat_ccy = (body.fiatCurrency or DEPOSIT_FIAT_CURRENCY).strip().upper()
     try:
         fiat_amount = f"{float(r['amount_decimal'] or 0) * DEPOSIT_FIAT_RATE:.2f}"
@@ -3495,7 +3495,7 @@ def hexsafe_forex_probe(user: Any = Depends(require_role("custodian", "ops", "ad
     """
     if not hexsafe_configured():
         return {"ok": True, "configured": False, "forexApiAvailable": False,
-                "note": "无 Hex Safe 凭据, 无法探测; 结算 Forex 当前为 demo(汇率参考值)。",
+                "note": "No Hex Safe credentials, cannot probe; settlement Forex is currently demo (indicative rate).",
                 "guidance": "接通真实凭据后再核; 据 Hex Trust 口径 HT Markets OTC 无 quote/order API。"}
     findings: dict[str, Any] = {"ok": True, "configured": True, "forexApiAvailable": False}
     try:
