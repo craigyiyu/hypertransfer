@@ -378,7 +378,17 @@ export interface DepositRecord {
   updatedAt: number;
 }
 
+export interface HexSafeNetwork {
+  rail: string;            // ethereum / tron → 展示 ERC-20 / TRC-20
+  chainId: string;         // Hex Safe 真实 chainId
+  name: string;
+  minConfirmations: number | null;
+}
+
 export const depositApi = {
+  // 入金可选网络: 真实来自 Hex Safe supported_chains; 未配置→ configured:false + 空(不显示硬编码)
+  networks: () =>
+    api.get<{ configured: boolean; source: string; networks: HexSafeNetwork[] }>("/hexsafe/networks"),
   // 入金资格: KYC ok → active, 否则 hold(②)
   eligibility: () =>
     api.get<{ ok: boolean; kycOk: boolean; accountState: string; reason: string; travelRuleThresholdUsd: number }>(

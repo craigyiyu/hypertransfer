@@ -2765,6 +2765,44 @@ def hexsafe_health(user: Any = Depends(require_role(*STAFF_ROLES))):
     return info
 
 
+@app.get("/api/hexsafe/networks")
+def hexsafe_networks(authorization: Optional[str] = Header(default=None)):
+    """入金可选网络 —— 真实取自 Hex Safe `GET /supported_chains`(链 ID + minBlockConfirmation),
+    按 Phase 1(USDT 稳定币 rail = EVM + Tron)筛选, 确认数用 Hex Safe 实际值(非硬编码)。
+    未配置 Hex Safe → 空列表(不回退硬编码; 口径: 不确定就不显示)。任意登录用户可读(patron 选网络用)。"""
+    user_from_token(authorization)
+    if not hexsafe_configured():
+        return {"configured": False, "source": "unavailable", "networks": []}
+    raw = _hexsafe_call(get_hexsafe_client().supported_chains)
+    clist = raw.get("supportedChainList", []) if isinstance(raw, dict) else []
+    networks: list[dict[str, Any]] = []
+    for ch in clist:
+        if not isinstance(ch, dict):       # 外部响应可能含非 dict 项 → 跳过, 不崩
+            continue
+        cid = ch.get("chainID") or ch.get("chainId")
+        if not cid:
+            continue
+        cid = str(cid)
+        low = cid.lower()
+        if low.startswith("tron"):
+            rail = "tron"
+        elif cid.isdigit() or low.startswith("0x"):
+            rail = "ethereum"
+        else:
+            continue  # Phase 1 仅 USDT EVM/Tron 稳定币 rail, 其余链不展示
+        try:                                # minBlockConfirmation 可能是 "5.0"/空/非数字
+            conf = int(ch.get("minBlockConfirmation"))
+        except (TypeError, ValueError):
+            conf = None
+        networks.append({
+            "rail": rail,                 # 下游展示: ERC-20 / TRC-20
+            "chainId": cid,               # Hex Safe 真实 chainId
+            "name": ch.get("name") or ch.get("displayName") or ch.get("chainName") or cid,
+            "minConfirmations": conf,
+        })
+    return {"configured": True, "source": "hexsafe", "networks": networks}
+
+
 @app.get("/api/hexsafe/vaults")
 def hexsafe_vaults(user: Any = Depends(require_role(*STAFF_ROLES))):
     return _hexsafe_call(get_hexsafe_client().list_vaults)

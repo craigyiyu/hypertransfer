@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
-import { getNetworkFee, getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
+import { getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
 import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule, TRAVEL_RULE_THRESHOLD_USD } from "@/lib/compliance";
 import {
   createCustodyLogs,
@@ -35,10 +35,11 @@ export default function MainDeposit() {
   const [confirmations, setConfirmations] = useState(0);
   const sessionId = useState(() => "sess-" + Date.now())[0];
 
-  const networkFee = getNetworkFee(state.selectedNetwork);
-  const requiredConfirmations = getRequiredConfirmations(state.selectedNetwork);
+  // 确认数用 Hex Safe 真实 minBlockConfirmation(选网络时存); 无则回退(仅 demo bypass 路径)。
+  const requiredConfirmations = state.selectedMinConfirmations ?? getRequiredConfirmations(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
-  const netReceive = Math.max(0, mainAmount - networkFee);
+  // 链上 gas 由发送方在源头支付, 收款方按发出额全额入账 —— 不再展示编造的"网络费"扣减。
+  const netReceive = mainAmount;
   const formatAssetAmount = (value: number, decimals = 2) =>
     value.toLocaleString("en-US", {
       minimumFractionDigits: decimals,
@@ -393,16 +394,15 @@ export default function MainDeposit() {
                 animate={{ opacity: 1, y: 0 }}
                 className="card-gold rounded-xl p-4 space-y-3"
               >
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Fee Summary</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposit Summary</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Deposit Amount</span>
                     <span className="text-foreground font-medium">{state.selectedAsset} {formatAssetAmount(mainAmount)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Network Fee</span>
-                    <span className="text-foreground font-medium">−{state.selectedAsset} {formatAssetAmount(networkFee)}</span>
-                  </div>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    On-chain gas is paid by the sender; the full amount is credited.
+                  </p>
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
                     <span className="text-foreground font-semibold">You'll Receive</span>
                     <div className="text-right">

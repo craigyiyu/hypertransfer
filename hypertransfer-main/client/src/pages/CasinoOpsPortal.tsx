@@ -32,7 +32,7 @@ import { toast } from "sonner";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiError } from "@/lib/api";
-import { calculateOtcFee, formatNetworkRail, formatUsd, getRequiredConfirmations } from "@/lib/compliance";
+import { calculateOtcFee, formatNetworkRail, formatUsd } from "@/lib/compliance";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
 import { sumsubApi, type SumsubHealth } from "@/lib/sumsub";
 import {
@@ -141,7 +141,8 @@ export default function CasinoOpsPortal() {
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
   const otcFee = depositAmount > 0 ? calculateOtcFee(depositAmount) : 0;
   const netUsd = Math.max(0, depositAmount - otcFee);
-  const requiredConfirmations = getRequiredConfirmations(state.selectedNetwork);
+  // 确认数用 Hex Safe 真实值(选网络时存); 无则显示 — 而非编造数字。
+  const requiredConfirmations = state.selectedMinConfirmations;
   const depegWorkflow = createDepegWorkflow();
   const latestMainTx = useMemo(
     () => state.transactions.find((tx) => tx.type === "main"),
@@ -250,15 +251,9 @@ export default function CasinoOpsPortal() {
           <div className="flex items-center gap-2">
             <StatusPill tone="success">Staff only</StatusPill>
             <button
-              onClick={() => navigate("/dashboard")}
-              className="rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold"
-            >
-              Customer App
-            </button>
-            <button
               onClick={async () => {
                 await logout();
-                navigate("/login");
+                navigate("/ops");   // 退出回工作人员登录, 与客户端分离(不落 patron /login)
               }}
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-destructive/30 hover:text-destructive"
             >
@@ -357,7 +352,9 @@ export default function CasinoOpsPortal() {
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Confirmation gate</span>
-                <span className="font-semibold text-foreground">{requiredConfirmations} confirmations</span>
+                <span className="font-semibold text-foreground">
+                  {requiredConfirmations != null ? `${requiredConfirmations} confirmations` : "— (from Hex Safe)"}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Latest txHash</span>

@@ -31,6 +31,7 @@ interface DemoState {
   };
   selectedAsset: string;
   selectedNetwork: string;
+  selectedMinConfirmations: number | null;   // Hex Safe 真实确认数(选网络时存); null=未知/未走真实
   sourceWallet: string;
   screeningPassed: boolean;
   depositRequestId: string;   // ③ 后端入金编排单 id(DR-...); 空=未走真实后端(纯 demo)
@@ -95,6 +96,7 @@ const defaultState: DemoState = {
   },
   selectedAsset: "USDT",
   selectedNetwork: "",
+  selectedMinConfirmations: null,
   sourceWallet: "",
   screeningPassed: false,
   depositRequestId: "",
@@ -187,6 +189,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       selectedNetwork: "",
+      selectedMinConfirmations: null,
       sourceWallet: "",
       screeningPassed: false,
       depositRequestId: "",

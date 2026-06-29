@@ -7,7 +7,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, Banknote, Undo2 } from "lucide-react";
-import { getHKDEquivalent, getNetworkFee, formatHKD, convertToHKD } from "@/lib/currency";
+import { getHKDEquivalent, formatHKD, convertToHKD } from "@/lib/currency";
 import { formatNetworkRail } from "@/lib/compliance";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
@@ -23,8 +23,8 @@ export default function DepositSuccess() {
   const { state } = useDemo();
 
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
-  const networkFee = getNetworkFee(state.selectedNetwork);
-  const netReceive = Math.max(0, depositAmount - networkFee);
+  // 链上 gas 由发送方支付, 收款方全额入账 —— 不展示编造的网络费。
+  const netReceive = depositAmount;
   const displayDepositAmount = depositAmount > 0
     ? formatAssetAmount(depositAmount, 0)
     : state.mainDepositAmount;
@@ -72,12 +72,7 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Network Fee</span>
-            <span className="text-foreground">−{formatAssetAmount(networkFee)} {state.selectedAsset}</span>
-          </div>
-          <div className="h-px bg-border" />
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">You'll Receive</span>
+            <span className="text-muted-foreground">Credited</span>
             <div className="text-right">
               <span className="text-gold font-semibold">{formatAssetAmount(netReceive)} {state.selectedAsset}</span>
               <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>

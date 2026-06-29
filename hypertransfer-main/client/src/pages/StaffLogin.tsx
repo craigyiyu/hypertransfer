@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ShieldCheck, Loader2, LogIn, ArrowLeft, KeyRound } from "lucide-react";
+import { ShieldCheck, Loader2, LogIn, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi, apiError, isStaffUser, type AuthUser } from "@/lib/api";
@@ -145,12 +145,7 @@ export default function StaffLogin() {
         </div>
 
         {/* 页脚 */}
-        <div className="mt-5 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-          <button onClick={() => navigate("/")} className="inline-flex items-center gap-1 hover:text-gold transition-colors">
-            <ArrowLeft className="h-3 w-3" /> Back to customer app
-          </button>
-        </div>
-        <p className="mt-3 text-center text-[10px] text-muted-foreground/50">
+        <p className="mt-6 text-center text-[10px] text-muted-foreground/50">
           Role-based access · all actions are audited
         </p>
       </div>
