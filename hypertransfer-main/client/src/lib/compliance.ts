@@ -65,6 +65,7 @@ export function getRequiredConfirmations(network: string) {
 export function formatNetworkRail(network: string) {
   if (network === "tron") return "TRC-20";
   if (network === "ethereum") return "ERC-20";
+  if (network === "demo") return "Demo";   // DEV demo-pass 占位, 明确标 Demo, 不伪装成真链
   return network || "pending";
 }
 

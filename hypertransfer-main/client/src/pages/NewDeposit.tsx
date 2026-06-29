@@ -80,22 +80,18 @@ export default function NewDeposit() {
     navigate("/wallet-screening");
   };
 
-  // DEMO ONLY: 没有 Hex Safe 实链时也能演示 —— 占位网络 + 默认金额, 直接进下一步。仅 DEV。
-  const demoContinue = async () => {
+  // DEMO ONLY: 没有 Hex Safe 实链时也能演示 —— 占位网络(下游显示 "Demo", 不伪装真链) +
+  // 默认金额, 纯前端 mock 进下一步(不建后端单, 避免 "unsupported network" 报错)。仅 DEV。
+  const demoContinue = () => {
     resetSession();
     const cleanAmount = amount.replace(/,/g, "") || "1000";
     updateState({
       selectedAsset,
-      selectedNetwork: "tron",
+      selectedNetwork: "demo",
       selectedMinConfirmations: null,
       mainDepositAmount: cleanAmount,
+      depositRequestId: "",
     });
-    try {
-      const { data } = await depositApi.create({ network: "tron", asset: selectedAsset, amountDecimal: cleanAmount });
-      updateState({ depositRequestId: data.requestId });
-    } catch {
-      updateState({ depositRequestId: "" });
-    }
     navigate("/wallet-screening");
   };
 
@@ -265,7 +261,7 @@ export default function NewDeposit() {
         {/* DEMO ONLY: 无 Hex Safe 实链时也能往下走。仅 DEV 显示。 */}
         {import.meta.env.DEV && (
           <button
-            onClick={() => void demoContinue()}
+            onClick={demoContinue}
             className="w-full mt-3 rounded-xl py-3 text-xs font-semibold border border-dashed border-gold/40 bg-gold/5 text-gold hover:bg-gold/10 transition-all"
           >
             Demo: skip &amp; continue (no Hex Safe network needed)
