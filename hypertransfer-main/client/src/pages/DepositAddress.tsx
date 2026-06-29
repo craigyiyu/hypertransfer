@@ -197,13 +197,30 @@ export default function DepositAddress() {
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
-          <button
-            onClick={() => navigate(nextGateRoute)}
-            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
-          >
-            Complete Required Gate
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate(nextGateRoute)}
+              className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
+            >
+              Complete Required Gate
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            {/* DEMO ONLY: 跳过 KYC/KYT/Travel Rule 闸门, 直接放行发址继续流程。仅 DEV 显示。 */}
+            {import.meta.env.DEV && (
+              <button
+                onClick={() =>
+                  updateState({
+                    kyc: { ...state.kyc, status: "approved" },
+                    screeningPassed: true,
+                    travelRuleStatus: "travel_rule_accepted",
+                  })
+                }
+                className="w-full rounded-xl py-3 text-xs font-semibold border border-dashed border-gold/40 bg-gold/5 text-gold hover:bg-gold/10 transition-all"
+              >
+                Demo: skip gates &amp; issue address
+              </button>
+            )}
+          </div>
         )}
       </div>
     </Shell>
