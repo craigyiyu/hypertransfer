@@ -39,14 +39,15 @@ export default function InvitationReviewPanel() {
   const canList = isAdmin || roles.has("marketing") || roles.has("compliance");
 
   const load = useCallback(async () => {
-    if (!canList) {
+    if (!canList && !canCreate) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const { data } = await invitationApi.list();
+      // marketing/compliance/admin → 全审批队列; RM(仅 canCreate) → 只看自己提交的(看审批进度)
+      const { data } = canList ? await invitationApi.list() : await invitationApi.mine();
       setInvitations(data.invitations ?? []);
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status;
@@ -55,7 +56,7 @@ export default function InvitationReviewPanel() {
     } finally {
       setLoading(false);
     }
-  }, [canList]);
+  }, [canList, canCreate]);
 
   useEffect(() => {
     void load();
@@ -121,7 +122,7 @@ export default function InvitationReviewPanel() {
         icon={UserPlus2}
         eyebrow="Access Requests — Live /api/invitations"
         title="RM submit patron → Int'l Marketing approve → issue QR + link (email to patron)"
-        onRefresh={canList ? () => void load() : undefined}
+        onRefresh={canList || canCreate ? () => void load() : undefined}
         refreshing={loading}
       />
       <p className="mb-3 text-[11px] text-muted-foreground">Your roles: {(user?.roles ?? []).join(", ") || "—"}</p>
@@ -147,15 +148,16 @@ export default function InvitationReviewPanel() {
         </div>
       )}
 
-      {!canList && (
-        <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          Your role can submit access requests but not view the review queue (needs marketing / compliance).
+      {/* RM(仅提交者) 看到的是自己提交的申请 + 审批进度; marketing/compliance 看全队列 */}
+      {!canList && canCreate && (
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Your submitted access requests — approval status
         </p>
       )}
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
-      {canList && !error && invitations.length === 0 && (
+      {(canList || canCreate) && !error && invitations.length === 0 && (
         <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          {loading ? "Loading access requests…" : "No access requests yet."}
+          {loading ? "Loading…" : canList ? "No access requests yet." : "You haven't submitted any access requests yet."}
         </p>
       )}
 

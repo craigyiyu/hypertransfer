@@ -248,6 +248,9 @@ export const invitationApi = {
       params: status ? { status } : undefined,
     }),
 
+  // RM 查自己提交的申请(看审批进度)
+  mine: () => api.get<{ ok: boolean; invitations: Invitation[] }>("/invitations/mine"),
+
   approve: (id: string, note = "") =>
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/approve`, { note }),
 

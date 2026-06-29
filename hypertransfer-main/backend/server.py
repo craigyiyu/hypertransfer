@@ -1930,6 +1930,17 @@ def create_invitation(body: CreateInvitationIn, rm: Any = Depends(require_role("
     return {"ok": True, "invitation": invitation_public(row)}
 
 
+@app.get("/api/invitations/mine")
+def list_my_invitations(authorization: Optional[str] = Header(default=None)):
+    """RM 查【自己提交】的准入申请, 看审批进度。任何登录 staff 仅能看本人 created_by 的, 看不到他人。"""
+    user = user_from_token(authorization)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM invitations WHERE created_by=? ORDER BY created_at DESC", (user["id"],)
+        ).fetchall()
+    return {"ok": True, "invitations": [invitation_public(r) for r in rows]}
+
+
 @app.get("/api/invitations")
 def list_invitations(
     status: Optional[str] = None,

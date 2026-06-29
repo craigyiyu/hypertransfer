@@ -109,20 +109,32 @@ function OpsCard({
   );
 }
 
-// 左侧板块导航(tab 式: 一次只显示一个板块, 取代旧的一整页瀑布流)
+// 左侧板块导航(tab 式)。roles=可见该板块的角色; admin 全可见。
+// 两层 RBAC: RM 只看 Access Requests(且板块内只能提交+看自己进度); marketing 看 Access Requests 审批队列。
 const SECTIONS = [
-  { key: "deposits", label: "Deposits", icon: Boxes },
-  { key: "refunds", label: "Refunds", icon: Undo2 },
-  { key: "access", label: "Access Requests", icon: UserPlus2 },
-  { key: "staff", label: "Staff Admin", icon: UserCog },
-  { key: "custody", label: "Custody (Hex Safe)", icon: RadioTower },
-  { key: "ops", label: "Treasury & Compliance", icon: SlidersHorizontal },
+  { key: "deposits", label: "Deposits", icon: Boxes, roles: ["compliance", "ops", "custodian"] },
+  { key: "refunds", label: "Refunds", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
+  { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["rm", "marketing", "compliance"] },
+  { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
+  { key: "custody", label: "Custody (Hex Safe)", icon: RadioTower, roles: ["compliance", "ops", "custodian"] },
+  { key: "ops", label: "Treasury & Compliance", icon: SlidersHorizontal, roles: ["compliance", "ops", "custodian"] },
 ] as const;
 
 export default function CasinoOpsPortal() {
   const [activeSection, setActiveSection] = useState<string>("deposits");
   const [, navigate] = useLocation();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  // 两层 RBAC: 侧栏只显示当前角色可见的板块(admin 全可见)。RM → 只见 Access Requests。
+  const visibleSections = useMemo(() => {
+    const roles = new Set(user?.roles ?? []);
+    if (roles.has("admin")) return SECTIONS;
+    return SECTIONS.filter((s) => s.roles.some((r) => roles.has(r)));
+  }, [user]);
+  useEffect(() => {
+    if (visibleSections.length && !visibleSections.some((s) => s.key === activeSection)) {
+      setActiveSection(visibleSections[0].key);
+    }
+  }, [visibleSections, activeSection]);
   const { state, updateState } = useDemo();
   const [sumsubHealth, setSumsubHealth] = useState<SumsubHealth | null>(null);
   const [sumsubStatus, setSumsubStatus] = useState("Checking Sumsub provider...");
@@ -261,7 +273,7 @@ export default function CasinoOpsPortal() {
         {/* 左侧板块导航(桌面) */}
         <aside className="sticky top-[57px] hidden h-[calc(100svh-57px)] w-52 shrink-0 overflow-y-auto border-r border-border/50 p-3 lg:block">
           <nav className="space-y-1">
-            {SECTIONS.map((s) => (
+            {visibleSections.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActiveSection(s.key)}
@@ -279,7 +291,7 @@ export default function CasinoOpsPortal() {
         <main className="min-w-0 flex-1 space-y-6 px-6 py-6">
           {/* 移动端: 顶部横向板块切换 */}
           <div className="-mx-6 mb-1 flex gap-2 overflow-x-auto border-b border-border/50 px-6 pb-3 lg:hidden">
-            {SECTIONS.map((s) => (
+            {visibleSections.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActiveSection(s.key)}
