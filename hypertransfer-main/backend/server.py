@@ -100,7 +100,7 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 
 # 邀请制（PR②-2）
 INVITE_TTL = 72 * 60 * 60         # 邀请链接 single-use + 72 小时有效（决策 4）
-INVITE_BASE_URL = os.environ.get("HT_INVITE_BASE_URL", "").strip()  # 生成邀请落地 URL 的站点前缀
+INVITE_BASE_URL = (os.environ.get("HT_INVITE_BASE_URL") or os.environ.get("INVITE_BASE_URL", "")).strip()  # 邀请落地 URL 前缀(两种 env 名都认)
 
 # Sumsub provider integration. Secrets must come from env / GitHub Secrets only.
 SUMSUB_BASE_URL = os.environ.get("SUMSUB_BASE_URL", "https://api.sumsub.com").rstrip("/")
