@@ -293,7 +293,10 @@ export default function MainDeposit() {
               </motion.div>
               <p className="text-sm font-semibold text-success">Address Verified</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Your 1 {state.selectedAsset} verification transfer was confirmed. You can now proceed with your full deposit.
+                Step 1 done — your 1 {state.selectedAsset} verification transfer was confirmed.
+                {displayAmount
+                  ? <> Now send your <span className="text-gold font-semibold">full deposit of {displayAmount} {state.selectedAsset}</span> in Step 2.</>
+                  : " Now continue to your main deposit in Step 2."}
               </p>
             </motion.div>
 
@@ -301,7 +304,7 @@ export default function MainDeposit() {
               onClick={proceedToMainDeposit}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              Continue to Main Deposit
+              {displayAmount ? `Continue — send ${displayAmount} ${state.selectedAsset}` : "Continue to Main Deposit"}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
