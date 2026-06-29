@@ -258,7 +258,11 @@ export const invitationApi = {
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/reject`, { note }),
 
   issue: (id: string) =>
-    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string }>(`/invitations/${id}/issue`, {}),
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/issue`, {}),
+
+  // 对已 issued 的邀请重发邮件(后端重新签发 token + 72h, 旧链接失效)
+  resend: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/resend`, {}),
 };
 
 export const emailApi = {

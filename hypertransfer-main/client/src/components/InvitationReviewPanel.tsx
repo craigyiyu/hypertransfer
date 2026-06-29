@@ -7,7 +7,7 @@
  * 按 useAuth 角色显隐, 后端 require_role 才是真守卫。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserPlus2, Check, X, LinkIcon, Send } from "lucide-react";
+import { UserPlus2, Check, X, LinkIcon, Send, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiError, invitationApi, type Invitation } from "@/lib/api";
@@ -100,19 +100,34 @@ export default function InvitationReviewPanel() {
     }
   };
 
-  const issue = async (id: string) => {
+  // 邮件投递渠道如实反馈(后端 send_email 返回 smtp/smtp_failed/console)
+  const channelDesc = (d: { emailChannel?: string; emailTo?: string }) => {
+    if (d.emailChannel === "smtp") return `Email sent to ${d.emailTo}`;
+    if (d.emailChannel === "smtp_failed") return "SMTP send failed — invite printed to server console. Check SMTP config.";
+    return "SMTP not configured — invite printed to server console.";
+  };
+
+  // issue 与 resend 共用: 调用 → 展示新 QR/链接 → 按投递渠道 toast。
+  const runIssue = async (
+    id: string,
+    fn: () => Promise<{ data: { inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string } }>,
+    okTitle: string,
+  ) => {
     setBusyId(id);
     try {
-      const { data } = await invitationApi.issue(id);
-      setIssued({ ...issued, [id]: { link: data.inviteLink, qr: data.qrPngBase64 } });
-      toast.success("QR + link issued (single-use, 72h) and emailed to patron");
+      const { data } = await fn();
+      setIssued((prev) => ({ ...prev, [id]: { link: data.inviteLink, qr: data.qrPngBase64 } }));
+      toast.success(okTitle, { description: channelDesc(data) });
       await load();
     } catch (err) {
-      toast.error("Issue failed", { description: apiError(err) });
+      toast.error(`${okTitle} failed`, { description: apiError(err) });
     } finally {
       setBusyId("");
     }
   };
+
+  const issue = (id: string) => runIssue(id, () => invitationApi.issue(id), "QR + link issued (single-use, 72h)");
+  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 72h link)");
 
   const inputCls = "rounded-lg border border-border/60 bg-background px-3 py-2 text-sm";
 
@@ -206,6 +221,11 @@ export default function InvitationReviewPanel() {
                   {inv.status === "approved" && (
                     <ActionBtn icon={LinkIcon} tone="warning" disabled={busy} onClick={() => void issue(inv.id)}>
                       Issue QR + link (email)
+                    </ActionBtn>
+                  )}
+                  {inv.status === "issued" && (
+                    <ActionBtn icon={MailCheck} tone="neutral" disabled={busy} onClick={() => void resend(inv.id)}>
+                      Resend invite email
                     </ActionBtn>
                   )}
                   {(inv.status === "submitted" || inv.status === "approved") && (

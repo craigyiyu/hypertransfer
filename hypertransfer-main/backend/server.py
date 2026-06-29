@@ -100,6 +100,7 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 
 # 邀请制（PR②-2）
 INVITE_TTL = 72 * 60 * 60         # 邀请链接 single-use + 72 小时有效（决策 4）
+INVITE_RESEND_COOLDOWN = 30       # 邀请邮件重发最小间隔(秒)——防邮件轰炸/SMTP 滥用
 INVITE_BASE_URL = (os.environ.get("HT_INVITE_BASE_URL") or os.environ.get("INVITE_BASE_URL", "")).strip()  # 邀请落地 URL 前缀(两种 env 名都认)
 
 # Sumsub provider integration. Secrets must come from env / GitHub Secrets only.
@@ -600,10 +601,11 @@ def send_sms(area_code: str, number: str, text: str) -> str:
 # --------------------------------------------------------------------------- #
 # 邮件适配器 — Email OTP / 邀请链接发送（MOCK: 默认 console 打印）
 # --------------------------------------------------------------------------- #
-def send_email(to: str, subject: str, text: str, html: Optional[str] = None) -> None:
+def send_email(to: str, subject: str, text: str, html: Optional[str] = None) -> str:
     """邮件发送:配了 SMTP_HOST 走真实 SMTP(支持 text + 可选 html), 否则 console 占位。
     端口 465 → SMTP_SSL; 其余(如 587) → STARTTLS。失败降级 console, 不阻断流程。
-    tests 可 monkeypatch 本函数抓码。"""
+    返回投递渠道: "smtp"(真发成功) / "smtp_failed"(尝试真发但异常, 已降级 console) /
+    "console"(未配 SMTP)。调用方可据此如实反馈"是否真投递"。tests 可 monkeypatch 本函数抓码。"""
     if SMTP_HOST:
         try:
             import smtplib
@@ -626,10 +628,13 @@ def send_email(to: str, subject: str, text: str, html: Optional[str] = None) -> 
                 if SMTP_USER:
                     smtp.login(SMTP_USER, SMTP_PASSWORD)
                 smtp.send_message(msg)
-            return
+            return "smtp"
         except Exception as e:  # 真实发送失败也不阻断流程——降级到 console
             print(f"[email] SMTP send failed ({e}); falling back to console")
+            print(f"[email] to={to} subject={subject!r}\n{text}")
+            return "smtp_failed"
     print(f"[email] to={to} subject={subject!r}\n{text}")
+    return "console"
 
 
 # --------------------------------------------------------------------------- #
@@ -1999,23 +2004,23 @@ def reject_invitation(invitation_id: str, body: InvitationReviewIn,
     return {"ok": True, "invitation": invitation_public(row)}
 
 
-@app.post("/api/invitations/{invitation_id}/issue")
-def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
-    """仅 approved 可签发:生成 single-use token + 72h 过期 → status=issued,
-    通过 mock 邮件适配器发送邀请链接(console 打印)。"""
-    row = get_invitation(invitation_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="邀请不存在")
-    if row["status"] != "approved":
-        raise HTTPException(status_code=409, detail="仅 approved 状态可签发邀请链接")
+def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: str,
+                                 expected_status: str) -> dict[str, Any]:
+    """生成全新 single-use token + 72h 过期 → status=issued, 构造邀请链接 + 二维码,
+    通过邮件适配器发送(真发或 console 降级), 写审计。issue 与 resend 共用本逻辑;
+    resend 等同重新签发(旧 token 失效, 永远给一条可用的新链接, 避免重发过期/丢失链接)。
+    UPDATE 带 `AND status=expected_status` 条件 + rowcount 校验, 关闭 check→act 之间被
+    并发改状态的窗口(如把 consumed 改回 issued)。"""
     now = int(time.time())
     token = secrets.token_urlsafe(32)
     expires_at = now + INVITE_TTL
     with db() as conn:
-        conn.execute(
-            "UPDATE invitations SET status='issued', token=?, expires_at=?, updated_at=? WHERE id=?",
-            (token, expires_at, now, invitation_id),
+        cur = conn.execute(
+            "UPDATE invitations SET status='issued', token=?, expires_at=?, updated_at=? WHERE id=? AND status=?",
+            (token, expires_at, now, invitation_id, expected_status),
         )
+        if cur.rowcount == 0:        # 期间状态被并发改动 → 拒绝(连接 __exit__ 自动 rollback)
+            raise HTTPException(status_code=409, detail="邀请状态已变更, 请刷新后重试")
         row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
 
     base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
@@ -2026,7 +2031,7 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
     )
     qr = qr_data_uri(invite_link)              # 二维码(data URI), 随响应返回 + 内联进邮件
     name = row["patron_name"] or "there"
-    send_email(
+    channel = send_email(
         row["patron_email"],
         "You're invited to HyperTransfer",
         f"Hi {name},\n\n"
@@ -2043,14 +2048,43 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
               f"<p><img src=\"{qr}\" alt=\"invite QR\" width=\"180\" height=\"180\"/></p>"
               f"<p>HyperTransfer</p>"),
     )
-    write_audit(user["id"], "invitation.issue", "invitation", invitation_id,
-                {"expiresAt": expires_at})
+    write_audit(user["id"], audit_action, "invitation", invitation_id,
+                {"expiresAt": expires_at, "emailChannel": channel})
     return {
         "ok": True,
         "invitation": invitation_public(row, include_token=True),
         "inviteLink": invite_link,
         "qrPngBase64": qr,
+        "emailChannel": channel,           # "smtp"/"smtp_failed"/"console" — 供前端如实反馈
+        "emailTo": row["patron_email"],
     }
+
+
+@app.post("/api/invitations/{invitation_id}/issue")
+def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
+    """仅 approved 可签发:生成 single-use token + 72h 过期 → status=issued, 发送邀请邮件。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if row["status"] != "approved":
+        raise HTTPException(status_code=409, detail="仅 approved 状态可签发邀请链接")
+    return _issue_invite_link_and_email(invitation_id, user, "invitation.issue", "approved")
+
+
+@app.post("/api/invitations/{invitation_id}/resend")
+def resend_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
+    """对已 issued 的邀请重发邮件:重新签发 single-use token + 72h(旧链接失效),
+    再次投递。用于首封邮件丢失/进垃圾箱/链接过期的补发。consumed/未签发的不可重发。
+    带 INVITE_RESEND_COOLDOWN 节流(防邮件轰炸/SMTP 滥用; 也避免网络重试导致重复发信)。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if row["status"] != "issued":
+        raise HTTPException(status_code=409, detail="仅 issued 状态可重发邀请邮件(未签发请先 Issue,已注册不可重发)")
+    wait = INVITE_RESEND_COOLDOWN - (int(time.time()) - (row["updated_at"] or 0))
+    if wait > 0:
+        raise HTTPException(status_code=429, detail=f"重发过于频繁, 请 {wait} 秒后再试")
+    return _issue_invite_link_and_email(invitation_id, user, "invitation.resend", "issued")
 
 
 @app.post("/api/invitations/verify")

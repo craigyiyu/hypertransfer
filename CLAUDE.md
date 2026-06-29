@@ -92,7 +92,8 @@ VirtualAsset/
 │   └── 截屏*.png                  # 运营方原型截图
 ├── ProjectReference/             # 外部参考资料（PDF）
 ├── Docs/                         # 运维/配置文档
-│   └── SMTP-Config.md            # ★飞书 SMTP 配置（邀请/OTP 邮件）。⚠️含真实凭据→已 .gitignore 不入库，仅本地持有
+│   ├── SMTP-Config.md            # ★飞书 SMTP 配置（邀请/OTP 邮件）。⚠️含真实凭据→已 .gitignore 不入库，仅本地持有
+│   └── Demo-Accounts.md          # ★本地演示账号清单（/ops 工作人员端 RM+Marketing 等 5 角色 + patron + 2FA 旁路 + 入口 URL）。来源 seed_demo.py，全 demo 凭据可入库
 ├── ClientMeetings/               # 客户会议材料 + 报价单
 │   ├── HyperTransfer-Demo-Script.md          # ★客户演示脚本（3 大流程逐页逐步 + 话术）
 │   ├── HyperTransfer-Demo-Walkthrough.{md,pdf,docx}  # ★配图版演示走查（实拍截图）+ demo-shots/
