@@ -45,8 +45,11 @@ export default function KYC() {
   const [sumsubSubmitting, setSumsubSubmitting] = useState(false);
   const [sumsubMessage, setSumsubMessage] = useState("Checking verification provider configuration...");
   const [applicantId, setApplicantId] = useState("");
+  const [demoApproving, setDemoApproving] = useState(false);
 
   const canSubmit = Boolean(nationality && dob.length === 10 && idType && idNumber.trim());
+  // 演示环境(非 production)才暴露「一键通过」快捷键
+  const demoApproveAllowed = sumsubConfig ? sumsubConfig.environment !== "production" : false;
 
   const handleDobChange = (value: string) => {
     const digits = value.replace(/\D/g, "").slice(0, 8);
@@ -130,6 +133,19 @@ export default function KYC() {
     }
   };
 
+  // 演示快捷键: 跳过真实 Sumsub 回调, 直接标 approved 并进入下一步。仅非 production。
+  const handleDemoApprove = async () => {
+    setDemoApproving(true);
+    try {
+      const res = await sumsubApi.kycDemoApprove();
+      syncKycState(res.data.status, res.data.rejectionReason, res.data.updatedAt);
+    } catch (err) {
+      setSumsubMessage(apiError(err));
+    } finally {
+      setDemoApproving(false);
+    }
+  };
+
   const syncKycState = (
     status: SumsubKycStatusValue,
     rejectionReason?: string,
@@ -185,14 +201,14 @@ export default function KYC() {
               </p>
             </div>
 
-            {/* 24-hour notice */}
+            {/* Review timeframe — Sumsub 自动核验通常 ~20-30 秒, 极少升级人工才更久 */}
             <div className="card-wine rounded-xl px-5 py-4 w-full space-y-2">
               <div className="flex items-center gap-2 justify-center">
                 <AlertCircle className="w-4 h-4 text-gold" />
                 <p className="text-sm font-semibold text-foreground">Review Timeframe</p>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                KYC review may take <span className="text-gold font-semibold">up to 24 hours</span>. You will be notified once your identity has been verified.
+                Automated checks usually complete in <span className="text-gold font-semibold">under a minute</span>. If a case is escalated to manual review it may take a few minutes longer. You will be notified once your identity has been verified.
               </p>
               <p className="text-[10px] text-muted-foreground/60 mt-1">
                 Deposits are locked until verification is complete.
@@ -212,6 +228,24 @@ export default function KYC() {
                 </p>
               </div>
             </div>
+
+            {/* DEMO ONLY: 跳过等待真实 Sumsub 回调, 直接通过进入下一步。仅非 production 显示。 */}
+            {demoApproveAllowed && (
+              <div className="w-full space-y-1.5">
+                <button
+                  onClick={handleDemoApprove}
+                  disabled={demoApproving}
+                  className="w-full rounded-xl border border-dashed border-gold/40 bg-gold/5 py-3 text-xs font-semibold text-gold disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  {demoApproving
+                    ? <><RotateCw className="h-3.5 w-3.5 animate-spin" /> Approving…</>
+                    : <><CheckCircle2 className="h-3.5 w-3.5" /> Demo: approve & continue</>}
+                </button>
+                <p className="text-[10px] text-muted-foreground/60 text-center">
+                  Demo shortcut — skips waiting for the live Sumsub result.
+                </p>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </Shell>

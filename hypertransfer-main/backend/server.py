@@ -2452,6 +2452,11 @@ def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
     if not row:
         return sumsub_kyc_response_from_row(None)
     applicant_id = row["applicant_id"]
+    # 演示旁路标记的行不再回查真实 Sumsub(沙箱 applicant 实际仍 pending, 否则会把
+    # demo-approve 翻回 pending)。真实流程的 review_status 不会是 "demo-approved"。
+    if row["review_status"] == "demo-approved":
+        row = sumsub_persist_validity(user["id"]) or row
+        return sumsub_kyc_response_from_row(row)
     if sumsub_configured() and applicant_id:
         review_payload = sumsub_get_review_status(applicant_id)
         review = sumsub_review_from_payload(review_payload)
@@ -2468,6 +2473,31 @@ def sumsub_kyc_status(authorization: Optional[str] = Header(default=None)):
         )
         row = sumsub_get_local_kyc(user["id"])
     row = sumsub_persist_validity(user["id"]) or row
+    return sumsub_kyc_response_from_row(row)
+
+
+@app.post("/api/sumsub/kyc/demo-approve")
+def sumsub_kyc_demo_approve(authorization: Optional[str] = Header(default=None)):
+    """演示快捷键: 把当前用户 KYC 直接标 approved + 落 6 个月有效期, 解锁入金。
+    真实 Sumsub 自动核验本就只需 ~20-30 秒(非 24 小时), 此按钮只是免去现场等待沙箱回调。
+    仅非 production 可用(与 HT_DEMO_BYPASS_2FA 等旁路一致); production 返回 403。"""
+    if SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(status_code=403, detail="Demo KYC approval is disabled in production")
+    user = user_from_token(authorization)
+    row = sumsub_get_local_kyc(user["id"])
+    external_user_id = row["external_user_id"] if row else sumsub_user_id(user)
+    level_name = (row["level_name"] if row else None) or SUMSUB_KYC_LEVEL_NAME
+    applicant_id = (row["applicant_id"] if row else None) or ("demo-" + uuid.uuid4().hex[:16])
+    sumsub_upsert_kyc(
+        user_id=user["id"],
+        external_user_id=external_user_id,
+        applicant_id=applicant_id,
+        level_name=level_name,
+        status="approved",
+        review_status="demo-approved",  # 标记: sumsub_kyc_status 不再回查覆盖
+        review_answer="GREEN",
+    )
+    row = sumsub_persist_validity(user["id"]) or sumsub_get_local_kyc(user["id"])
     return sumsub_kyc_response_from_row(row)
 
 

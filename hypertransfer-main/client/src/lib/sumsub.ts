@@ -139,6 +139,8 @@ export const sumsubApi = {
   kycStart: (payload: SumsubKycStartPayload) =>
     api.post<SumsubKycStart>("/sumsub/kyc/start", payload),
   kycStatus: () => api.get<SumsubKycStatus>("/sumsub/kyc/status"),
+  // 演示快捷键: 直接把当前用户 KYC 标 approved(仅非 production 后端放行)
+  kycDemoApprove: () => api.post<SumsubKycStatus>("/sumsub/kyc/demo-approve", {}),
   accessToken: (payload: { levelName?: string; ttlInSecs?: number } = {}) =>
     api.post<SumsubAccessToken>("/sumsub/access-token", payload),
   connectionTest: (payload: { levelName?: string; ttlInSecs?: number } = {}) =>
