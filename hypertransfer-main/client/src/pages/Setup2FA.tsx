@@ -49,9 +49,9 @@ export default function Setup2FA() {
   const [remaining, setRemaining] = useState(0); // 绑定会话剩余秒数
   const tickRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  // 没有待绑定的注册态 -> 回注册页
+  // 没有待绑定的注册态 -> 回登录页(注册仅走邀请落地 /invite)
   useEffect(() => {
-    if (!pending) navigate("/register");
+    if (!pending) navigate("/login");
   }, [pending, navigate]);
 
   // 倒计时:每秒根据 expiresAt 重算(切后台再回来也准)
@@ -143,7 +143,7 @@ export default function Setup2FA() {
   };
 
   return (
-    <Shell showBack backTo="/register" title="Two-Factor Authentication" subtitle="Secure your account with an authenticator app">
+    <Shell showBack backTo="/invite" title="Two-Factor Authentication" subtitle="Secure your account with an authenticator app">
       <div className="space-y-5">
         {/* 绑定会话倒计时 */}
         <div className={`flex items-center justify-center gap-2 text-xs rounded-lg py-2 px-3

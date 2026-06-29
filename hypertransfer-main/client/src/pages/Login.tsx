@@ -141,10 +141,9 @@ export default function Login() {
         >
           Use Demo Account
         </button>
-        <button onClick={() => navigate("/register")}
-          className="w-full text-xs text-muted-foreground hover:text-gold transition-colors py-2">
-          Don't have an account? Register
-        </button>
+        <p className="w-full text-center text-[11px] text-muted-foreground/70 py-2">
+          Invitation-only — open the link from your invitation email to register.
+        </p>
         <button onClick={() => navigate("/ops")}
           className="w-full text-[11px] text-muted-foreground/70 hover:text-gold transition-colors py-1">
           Staff member? Operations portal sign-in →

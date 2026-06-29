@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { DemoProvider } from "./contexts/DemoContext";
@@ -12,7 +12,6 @@ import DemoModeToggle from "./components/DemoModeToggle";
 import { I18nProvider } from "./contexts/I18nContext";
 import type { ComponentType } from "react";
 import Landing from "./pages/Landing";
-import Register from "./pages/Register";
 import Invite from "./pages/Invite";
 import Setup2FA from "./pages/Setup2FA";
 import Login from "./pages/Login";
@@ -58,7 +57,8 @@ function Router() {
     <Switch>
       {/* 公共 / 认证流程页 */}
       <Route path="/" component={Landing} />
-      <Route path="/register" component={Register} />
+      {/* 邀请制: 旧自助注册路由重定向到登录(注册仅走 /invite 邀请落地) */}
+      <Route path="/register"><Redirect to="/login" /></Route>
       <Route path="/invite" component={Invite} />
       <Route path="/setup-2fa" component={Setup2FA} />
       <Route path="/login" component={Login} />

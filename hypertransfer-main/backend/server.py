@@ -1081,6 +1081,13 @@ def verify_email_otp(email: str, code: str) -> None:
     email = normalize_email(email)
     code = (code or "").strip()
     now = int(time.time())
+    # 演示旁路(非生产): 任意 6 位码通过, 免依赖邮件投递(与 HT_DEMO_BYPASS_2FA 一致)。
+    if DEMO_BYPASS_2FA and len(code) == 6 and code.isdigit():
+        # 留痕: 万一生产误开(SUMSUB_ENVIRONMENT 配错)可从日志发现
+        print(f"[demo-bypass] email OTP accepted without verification for {email}")
+        with db() as conn:
+            conn.execute("DELETE FROM email_otps WHERE identifier=?", (email,))
+        return
     with db() as conn:
         row = conn.execute("SELECT * FROM email_otps WHERE identifier=?", (email,)).fetchone()
         if not row:
@@ -1509,6 +1516,9 @@ def send_otp(body: SendOtpIn):
 
 @app.post("/api/register")
 def register(body: RegisterIn):
+    # ⚠️ 账号为邀请制: production 关闭手机号开放注册(仅 /invite 邀请落地可注册)。
+    if SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
     area, num, phone = normalize_phone(body.areaCode, body.phoneNumber)
     email = body.email.strip().lower()
 
@@ -2191,7 +2201,10 @@ def register_invite(body: RegisterInviteIn):
 @app.post("/api/register/email/send-otp")
 def register_email_send_otp(body: EmailOtpIn):
     """开放注册第一因子: 给 email 发 Email OTP(process v1: 邮箱 OTP, 替代手机短信)。
-    已 active 的邮箱 → 409 引导登录; 其余正常发码(限频在 issue_email_otp 内)。"""
+    已 active 的邮箱 → 409 引导登录; 其余正常发码(限频在 issue_email_otp 内)。
+    ⚠️ 账号为邀请制: production 关闭开放注册(仅 /invite 邀请落地可注册)。"""
+    if SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
     email = normalize_email(body.email)
     if "@" not in email:
         raise HTTPException(status_code=400, detail="邮箱格式无效")
@@ -2206,7 +2219,10 @@ def register_email_send_otp(body: EmailOtpIn):
 @app.post("/api/register/email")
 def register_email(body: RegisterEmailIn):
     """开放注册: Email OTP(第一因子) → 建 patron(pending_totp) + TOTP secret。
-    无手机号; 激活复用 confirm-totp(email)。结构同 register_invite 但不需邀请 token。"""
+    无手机号; 激活复用 confirm-totp(email)。结构同 register_invite 但不需邀请 token。
+    ⚠️ 账号为邀请制: production 关闭开放注册(仅 /invite 邀请落地可注册)。"""
+    if SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(status_code=403, detail="账号为邀请制, 已关闭开放注册;请使用邀请链接")
     email = normalize_email(body.email)
     if "@" not in email:
         raise HTTPException(status_code=400, detail="邮箱格式无效")

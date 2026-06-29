@@ -134,20 +134,7 @@ export const authApi = {
       phoneNumber,
     }),
 
-  register: (p: {
-    areaCode: string;
-    phoneNumber: string;
-    otp: string;
-    name: string;
-    email: string;
-    password: string;
-  }) => api.post<RegisterResult>("/register", p),
-
-  // 开放注册(Email OTP, 无手机号) —— process v1 口径: 邮箱 OTP 替代手机短信
-  registerEmailSendOtp: (email: string) =>
-    api.post<{ ok: boolean; cooldown: number }>("/register/email/send-otp", { email }),
-  registerEmail: (p: { email: string; emailOtp: string; name: string; password: string }) =>
-    api.post<RegisterInviteResult>("/register/email", p),
+  // 邀请制: 开放自助注册(手机/邮箱)已移除; 注册仅走 inviteAuthApi.registerInvite(/invite 落地)。
 
   confirmTotp: (areaCode: string, phoneNumber: string, code: string) =>
     api.post<{ ok: boolean; token: string; user: AuthUser; recovery_codes?: string[] }>("/confirm-totp", {

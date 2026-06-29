@@ -63,7 +63,10 @@ export default function Invite() {
   const emailValidation = touched.email ? validateEmail(email) : { valid: true };
   const nameValidation = touched.name ? validateFullName(name) : { valid: true };
   const passwordValidation = touched.password ? validatePassword(password) : { valid: true };
-  const otpEntered = codeSent && /^\d{6}$/.test(verificationCode);
+  const isDev = import.meta.env.DEV;
+  // 演示(DEV): OTP 输入框直接可见, 任意 6 位码即可(后端 DEMO_BYPASS_2FA 放行), 免依赖邮件投递。
+  const otpVisible = codeSent || isDev;
+  const otpEntered = otpVisible && /^\d{6}$/.test(verificationCode);
 
   const handleFieldBlur = (field: "email" | "name" | "password") => {
     setTouched({ ...touched, [field]: true });
@@ -211,7 +214,7 @@ export default function Invite() {
               {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? "Resend Email Code" : "Send Email Verification Code"}
             </button>
 
-            {codeSent && (
+            {otpVisible && (
               <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                 <label className="text-sm font-medium text-foreground flex items-center gap-1">
                   Verification Code <span className="text-destructive">*</span>
@@ -230,7 +233,11 @@ export default function Invite() {
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-success">Ready</span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground/60">Verification code sent to {email}</p>
+                {codeSent ? (
+                  <p className="text-xs text-muted-foreground/60">Verification code sent to {email}</p>
+                ) : isDev ? (
+                  <p className="text-xs text-gold/70">Demo: enter any 6 digits (e.g. 000000) — no email needed.</p>
+                ) : null}
               </motion.div>
             )}
           </div>

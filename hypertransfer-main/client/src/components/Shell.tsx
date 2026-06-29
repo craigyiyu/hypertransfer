@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 
 const STEPS = [
   "/",
-  "/register",
+  "/invite",
   "/setup-2fa",
   "/login",
   "/verify-2fa",
