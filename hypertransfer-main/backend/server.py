@@ -114,6 +114,13 @@ SUMSUB_WEBHOOK_SECRET_KEY = os.environ.get("SUMSUB_WEBHOOK_SECRET_KEY", "").stri
 SUMSUB_WEBSDK_SCRIPT_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js"
 DEMO_LOCAL_SESSION_TOKEN = "demo-local-session"
 
+# 演示旁路: HT_DEMO_BYPASS_2FA=true 时, /login/verify 接受任意 6 位码(免去演示现场取 TOTP)。
+# ⚠️ 仅非生产生效——production 下即便置 true 也被忽略, 强制真实校验, 杜绝沦为认证旁路。
+DEMO_BYPASS_2FA = (
+    os.environ.get("HT_DEMO_BYPASS_2FA", "").strip().lower() in ("1", "true", "yes")
+    and SUMSUB_ENVIRONMENT != "production"
+)
+
 # RBAC（PR①：先在现有 phone 体系上加角色，user_id 主键重建留 PR② 与邀请制一起做）
 STAFF_ROLES = {"rm", "marketing", "compliance", "ops", "custodian", "admin"}
 HT_ADMIN_EMAIL = os.environ.get("HT_ADMIN_EMAIL", "").strip().lower()
@@ -1703,10 +1710,16 @@ def login_verify(body: LoginVerifyIn):
             conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
             raise HTTPException(status_code=429, detail="验证码错误次数过多, 请重新登录")
         user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
-        counter = verify_totp(user["totp_secret"], body.code, user["last_counter"]) if user else None
-        if counter is None:
+        if not user:
             conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
             raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        if DEMO_BYPASS_2FA:
+            counter = user["last_counter"]   # 演示旁路: 接受任意码, last_counter 不变
+        else:
+            counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
+            if counter is None:
+                conn.execute("UPDATE challenges SET tries=tries+1 WHERE challenge=?", (body.challenge,))
+                raise HTTPException(status_code=400, detail="验证码错误或已过期")
         conn.execute("UPDATE users SET last_counter=? WHERE id=?", (counter, ch["user_id"]))
         conn.execute("DELETE FROM challenges WHERE challenge=?", (body.challenge,))
         user = conn.execute("SELECT * FROM users WHERE id=?", (ch["user_id"],)).fetchone()
