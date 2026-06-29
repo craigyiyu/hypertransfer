@@ -18,8 +18,6 @@ import {
   DEMO_AUTH_PASSWORD,
   DEMO_AUTH_TOKEN,
   DEMO_AUTH_USER,
-  DEMO_STAFF_TOKEN,
-  DEMO_STAFF_USER,
   isDemoCredential,
 } from "@/lib/demo-auth";
 
@@ -187,21 +185,13 @@ export default function Login() {
         >
           Use Demo Account
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setSession(DEMO_STAFF_TOKEN, DEMO_STAFF_USER);
-            sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
-            toast.success("Signed in as demo ops staff.");
-            navigate("/casino-ops");
-          }}
-          className="w-full rounded-xl py-3 text-xs font-semibold border border-border bg-secondary/30 text-muted-foreground hover:text-gold transition-all"
-        >
-          Use Demo Staff (Ops Portal)
-        </button>
         <button onClick={() => navigate("/register")}
           className="w-full text-xs text-muted-foreground hover:text-gold transition-colors py-2">
           Don't have an account? Register
+        </button>
+        <button onClick={() => navigate("/ops")}
+          className="w-full text-[11px] text-muted-foreground/70 hover:text-gold transition-colors py-1">
+          Staff member? Operations portal sign-in →
         </button>
       </div>
     </Shell>

@@ -25,7 +25,8 @@ export default function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    return <Redirect to="/login" />;
+    // 后台路由未登录 → 工作人员专用入口 /ops; 客户端路由 → patron /login。
+    return <Redirect to={requireStaff ? "/ops" : "/login"} />;
   }
 
   // 后台仅 staff 可访问；客户(patron)重定向回 dashboard。
