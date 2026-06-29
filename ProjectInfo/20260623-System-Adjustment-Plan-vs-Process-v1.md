@@ -50,7 +50,7 @@
 - Travel Rule 阈值：**8000 → 1000**（收紧 8 倍）
 - 新增概念：**Marker 签发/录回、Forex 兑法币结算、5 类角色泳道、RBAC、后台越权隔离**
 
-改造重心集中在 **hypertransfer-main 产品端**（React + FastAPI + SQLite）；**Wynn Demo 建议保持独立旧口径，仅加注释**。绝大多数 blocker 集中在**认证账户体系、退款方向、角色隔离**三条线，且互相依赖（邀请制依赖角色模型；退款 gate 依赖 KYC 有效期；后台隔离依赖角色字段）——需先打地基再铺业务。当前全处 mock/demo 阶段（Hex Trust 真实 API 未接），纯逻辑风险可控。
+改造重心集中在 **hypertransfer-main 产品端**（React + FastAPI + SQLite）；**Operator Demo 建议保持独立旧口径，仅加注释**。绝大多数 blocker 集中在**认证账户体系、退款方向、角色隔离**三条线，且互相依赖（邀请制依赖角色模型；退款 gate 依赖 KYC 有效期；后台隔离依赖角色字段）——需先打地基再铺业务。当前全处 mock/demo 阶段（Hex Trust 真实 API 未接），纯逻辑风险可控。
 
 ---
 
@@ -76,7 +76,7 @@
 ### 决策 4 — Travel Rule 阈值 8000 → 1000
 - **冲突**：最终流程 PPT 要 1000；现有 8000（来源 Hex Trust 36 问澄清 PDF）。两个权威来源冲突。
 - **选项**：① **改 1000（以最终流程为最新口径）** ② 保持 8000（以澄清 PDF 为准）③ 暂缓
-- **推荐：选项 ①** —— 最终流程是三方最新一致口径,时间晚于澄清 PDF;改动集中(`compliance.ts` 一个常量 + `MainDeposit` 一处文案)。文档注明旧口径来源;Wynn Demo 保持 8000 加注释。
+- **推荐：选项 ①** —— 最终流程是三方最新一致口径,时间晚于澄清 PDF;改动集中(`compliance.ts` 一个常量 + `MainDeposit` 一处文案)。文档注明旧口径来源;Operator Demo 保持 8000 加注释。
 
 ### 决策 5 — 2FA 强制 → 可选
 - **冲突**：最终流程列 2FA optional；现有注册即强制 TOTP。放宽会降低资金场景安全等级。
@@ -94,7 +94,7 @@
 | 入金与结算（仅 USDT + TR 1000 + Marker/Forex/Receipt） | P0 | L | 资产/阈值快改 + Marker 签发录回 + Forex 兑法币 + Settlement 状态机 | Marker/Forex 跨客户端与后台两层；Forex 目标币种(HKD?)待确认 |
 | 退款（原路退回 + 三闸门 + Management 审批） | P0 | L | 方向反转 + re-KYC + 原钱包 KYT 复筛 + vault 余额 gate | 依赖 KYC 6 个月有效期；Hex Trust 人工无 API |
 | KYC（Sumsub 6 个月有效期 + 复核 + on_hold） | P1 | L | 增有效期/到期复核，KYC approved 作激活与入金/退款双闸门 | 入金/退款双闸门依赖；基准时间/时区需统一 |
-| 文档口径同步（AGENTS/CLAUDE/TODO + Wynn 注释） | P0 | M | 修正退款方向/TR 阈值/仅 USDT/认证方式矛盾，补"v1 新增需求 vs 现状" | 决策拍板后回写；文档不应领先于代码 |
+| 文档口径同步（AGENTS/CLAUDE/TODO + Operator 注释） | P0 | M | 修正退款方向/TR 阈值/仅 USDT/认证方式矛盾，补"v1 新增需求 vs 现状" | 决策拍板后回写；文档不应领先于代码 |
 
 ### 各工作流关键改动点（文件级）
 
@@ -161,8 +161,8 @@
 ## 六、需同步更新的文档（决策拍板后）
 
 - `AGENTS.md` —— 退款方向、TR 阈值、支持资产、认证方式标注，补"最终流程 v1 新增需求 vs 现状"，Release Notes 标产品代码待改造。
-- `CLAUDE.md` —— §4.2/§4.4c TR 阈值与资产、§4.4b 认证口径、§4.4c 退款方向、§5 边界补 v1 并声明 Wynn Demo 不跟随、§4.3 术语表 single-use vs 地址固定待核。
+- `CLAUDE.md` —— §4.2/§4.4c TR 阈值与资产、§4.4b 认证口径、§4.4c 退款方向、§5 边界补 v1 并声明 Operator Demo 不跟随、§4.3 术语表 single-use vs 地址固定待核。
 - `TODO.md` —— P0 退款方向拍板(2026-06-26)、P1 认证改造与 TK Team 前置审批、P2 Marker/Forex/地址固定及代码改造项。
 - `ProjectInfo/design.md` —— TR 阈值/仅 USDT/退款方向/邀请制等监管口径变更须先核对再回写。
-- `src/domain/{state-machine,types}.ts`、`components/refund-pad-app.tsx` —— 加注释声明 Wynn Demo 保持独立旧口径。
+- `src/domain/{state-machine,types}.ts`、`components/refund-pad-app.tsx` —— 加注释声明 Operator Demo 保持独立旧口径。
 - `hypertransfer-main/AUTH_INTEGRATION.md` —— 认证架构口径同步。

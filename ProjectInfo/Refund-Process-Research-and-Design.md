@@ -1,8 +1,8 @@
 # HyperTransfer Refund Process Research and Design
 
 > Date: 2026-06-21
-> Scope: Phase 1 stablecoin refunds for HyperTransfer / Wynn Macau prototype
-> Product boundary: customer refund request + address verification in HyperTransfer H5; treasury approval, custody transfer, and audit evidence in Wynn VA Operations Portal.
+> Scope: Phase 1 stablecoin refunds for HyperTransfer / Macau operator prototype
+> Product boundary: customer refund request + address verification in HyperTransfer H5; treasury approval, custody transfer, and audit evidence in Operator VA Operations Portal.
 
 ## 1. Source Basis
 
@@ -44,7 +44,7 @@
 
 2. **Do not blindly refund to the original source address.**
    - Some payment providers support auto-refund to source address for eligible flows, but CEX pooled wallets create recovery risk.
-   - HyperTransfer should require an authenticated customer destination confirmation unless Wynn compliance approves a specific auto-refund policy later.
+   - HyperTransfer should require an authenticated customer destination confirmation unless Operator compliance approves a specific auto-refund policy later.
 
 3. **Refund is a payout / withdrawal workflow.**
    - Treat refund as money leaving WTA / custody vault.

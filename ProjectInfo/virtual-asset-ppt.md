@@ -8,7 +8,7 @@ paginate: true
 
 ## 模块化产品设计与 Hex Trust API 接入说明
 
-面向永利员工、合规团队、财务团队的虚拟资产入金、退款、兑换与资金路由平台。
+面向运营方员工、合规团队、财务团队的虚拟资产入金、退款、兑换与资金路由平台。
 
 ---
 
@@ -80,7 +80,7 @@ Separate flows:
 
 模块目标：
 
-- 管理永利员工身份认证。
+- 管理运营方员工身份认证。
 - 控制谁可以进入 Virtual Asset Management App。
 - 根据 Okta group / claim 映射业务角色。
 - 对高风险动作触发 MFA 或 step-up authentication。
@@ -237,7 +237,7 @@ Host inputs source wallet
 ```text
 KYT Pass
   -> Host reviews originator information
-  -> System pre-fills Wynn beneficiary information
+  -> System pre-fills Operator beneficiary information
   -> Host submits Travel Rule form
   -> System validates required fields
   -> Travel Rule status becomes ready
@@ -438,7 +438,7 @@ Hex Trust 在本项目中主要承担 custody / wallet infrastructure 角色。
 用途：
 
 - 连接 Hex Trust custody 环境。
-- 查询永利可用 vault、asset、network 和余额。
+- 查询运营方可用 vault、asset、network 和余额。
 - 为 deposit、refund、conversion 做账户映射。
 
 概念接口：

@@ -63,7 +63,7 @@ export function createTravelRuleDraft(deposit: DepositRequest): TravelRuleSubmis
     status: "pending",
     originatorName: "",
     beneficiaryName: "",
-    beneficiaryVasp: "Wynn Virtual Asset Desk",
+    beneficiaryVasp: "Operator Virtual Asset Desk",
     required: requiresTravelRule(deposit),
   };
 }

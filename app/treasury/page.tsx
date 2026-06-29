@@ -14,7 +14,7 @@ export default function TreasuryPage() {
           <p className="eyebrow">Treasury / Finance</p>
           <h1>WTA Vault Overview</h1>
           <p className="muted">
-            Wynn Treasury Account balances and pending settlement. Real-time data via{" "}
+            Treasury Account balances and pending settlement. Real-time data via{" "}
             <code>GET /vaults/&#123;vaultId&#125;</code> — Hex Safe API.
           </p>
         </div>

@@ -45,8 +45,8 @@ const defaultForm: DepositForm = {
 };
 
 const demoAccount = {
-  username: "va.host.demo@wynn.example",
-  password: "Wynn#2026!",
+  username: "va.host.demo@operator.example",
+  password: "Operator#2026!",
 };
 
 const stepLabels: Record<AppStep, string> = {
@@ -165,7 +165,7 @@ export function PadDepositApp() {
     const submission: TravelRuleSubmission = {
       ...travelRuleDraft,
       originatorName: customer.name,
-      beneficiaryName: "Wynn Macau Treasury Account",
+      beneficiaryName: "Macau operator Treasury Account",
     };
     const submitted = mockTravelRuleProvider.submitTravelRule(deposit, submission);
     const address = mockAddressProvider.issueAddress(deposit);
@@ -425,7 +425,7 @@ export function PadDepositApp() {
           <p className="eyebrow">Phase 1 · Patron Lookup</p>
           <h1>Patron & KYC Status</h1>
           <p className="muted">
-            Search the Wynn patron profile by name, ID, or jurisdiction. Confirm KYC status before proceeding.
+            Search the Operator patron profile by name, ID, or jurisdiction. Confirm KYC status before proceeding.
           </p>
           <div className="form">
             <div className="field">
@@ -538,13 +538,13 @@ export function PadDepositApp() {
                 }}
               />
               <p className="field-hint">
-                This is the patron wallet that will send funds to Wynn, not the Hex Trust receiving address.
+                This is the patron wallet that will send funds to Operator, not the Hex Trust receiving address.
               </p>
             </div>
             <div className="screening-preview">
               <span>KYT pre-screening status</span>
               <strong>Not screened yet</strong>
-              <p>After the patron source wallet is entered, Wynn backend calls the KYT screening provider and returns Pass, EDD, or Fail.</p>
+              <p>After the patron source wallet is entered, Operator backend calls the KYT screening provider and returns Pass, EDD, or Fail.</p>
             </div>
             <div className="address-examples">
               {sourceWalletExamples.map((example) => (
@@ -635,11 +635,11 @@ export function PadDepositApp() {
             </div>
             <div className="field">
               <label>Beneficiary Name</label>
-              <input defaultValue="Wynn Macau Treasury Account" />
+              <input defaultValue="Macau operator Treasury Account" />
             </div>
             <div className="system-config-note">
               <strong>Beneficiary VASP / custody route is system-configured</strong>
-              <span>Hex Trust Custody Provider and Wynn WTA routing details are submitted from backend configuration.</span>
+              <span>Hex Trust Custody Provider and Operator WTA routing details are submitted from backend configuration.</span>
             </div>
             <button className="button primary" type="button" onClick={submitTravelRule}>
               Submit & Request Hex Trust Address
@@ -677,7 +677,7 @@ export function PadDepositApp() {
             Start New Screening
           </button>
           <p className="fine-print">
-            This data is collected under FATF AML/CFT recommendations and Wynn compliance policies.
+            This data is collected under FATF AML/CFT recommendations and Operator compliance policies.
           </p>
         </div>
       );
@@ -692,7 +692,7 @@ export function PadDepositApp() {
             <span className="pulse-dot" />
             <strong>Waiting for incoming on-chain deposit...</strong>
             <p>
-              Wynn backend subscribes to Hex Trust custody events or polls the custody transaction API. The employee
+              Operator backend subscribes to Hex Trust custody events or polls the custody transaction API. The employee
               does not manually inspect the blockchain.
             </p>
           </div>
@@ -831,7 +831,7 @@ export function PadDepositApp() {
           <span className="result-icon success">✓</span>
           <strong>WTA settlement recorded</strong>
           <p>
-            Funds have completed the deposit journey and are recorded in Wynn Treasury Account. The deposit flow is
+            Funds have completed the deposit journey and are recorded in Treasury Account. The deposit flow is
             complete; downstream operations handle receipts, host notification, treasury reconciliation, and future payout.
           </p>
         </div>

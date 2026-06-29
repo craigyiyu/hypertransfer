@@ -1,6 +1,6 @@
 /**
  * StaffLogin — 工作人员(staff)专用登录入口, 路由 /ops。
- * 与客户端 Landing/Login 分开: 无 "Referred by"/邀请等 patron 元素; 面向 Wynn VA 运营/合规/托管员工。
+ * 与客户端 Landing/Login 分开: 无 "Referred by"/邀请等 patron 元素; 面向 VA 运营/合规/托管员工。
  * 响应式: 默认桌面(居中卡片), 手机也可用(全宽 + 内边距)。两步登录: 邮箱+密码 → (强制 2FA)TOTP。
  * 登录成功 → /casino-ops。后端 require_role 才是真守卫, 本页只是入口 UX。
  */
@@ -76,7 +76,7 @@ export default function StaffLogin() {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gold/15 text-gold mb-3">
             <ShieldCheck className="h-7 w-7" />
           </div>
-          <h1 className="text-xl font-bold text-foreground">Wynn VA Operations Portal</h1>
+          <h1 className="text-xl font-bold text-foreground">VA Operations Portal</h1>
           <p className="mt-1 text-xs text-muted-foreground">Staff sign-in · authorized personnel only</p>
         </div>
 

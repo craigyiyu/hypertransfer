@@ -95,7 +95,7 @@ const lowRiskScreening = mockScreeningProvider.screenWallet(lowRiskDraft);
 const lowRiskTravelRule = mockTravelRuleProvider.submitTravelRule(lowRiskDraft, {
   ...createTravelRuleDraft(lowRiskDraft),
   originatorName: "Avery Chen",
-  beneficiaryName: "Wynn Macau Treasury",
+  beneficiaryName: "Macau operator Treasury",
 });
 
 const eddDraft = buildDeposit({
@@ -141,7 +141,7 @@ const monitoringDraft = buildDeposit({
 const monitoringTravelRule: TravelRuleSubmission = {
   ...createTravelRuleDraft(monitoringDraft),
   originatorName: "Avery Chen",
-  beneficiaryName: "Wynn Macau Treasury",
+  beneficiaryName: "Macau operator Treasury",
   status: "submitted",
   submittedAt: minutesAgo(170),
 };

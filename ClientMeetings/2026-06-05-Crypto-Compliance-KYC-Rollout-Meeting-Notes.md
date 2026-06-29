@@ -28,7 +28,7 @@ Hex Trust 合约已进入最终签署阶段，项目推进的主要阻塞点集�
 - 当前识别出两支外部供应商团队：
   - Benny 团队：只负责 KYC。
   - Subnian 团队：只负责 Travel Rule。
-- 两支团队都需要与客户侧直接签约。Granola 摘要中写作 `Wings`，需确认是否指 Wynn / Wynn Macau / Wings 相关主体。
+- 两支团队都需要与客户侧直接签约。Granola 摘要中写作 `Wings`，需确认是否指 Operator / Macau operator / Wings 相关主体。
 - 法务对第三方 KYC provider 存在顾虑：
   - 如果不完全信任 Hex Trust，为什么还要信任其他第三方 KYC 供应商，需要给出合规逻辑。
   - 会议中提出可考虑使用现有 gaming compliance team。
@@ -81,7 +81,7 @@ Hex Trust 合约已进入最终签署阶段，项目推进的主要阻塞点集�
 
 ## 需确认的口径差异
 
-- `Wings`：Granola 摘要多处使用该名称，需确认是否为 Wynn / Wynn Macau / Wynn 内部会员体系的转写或误写。
+- `Wings`：Granola 摘要多处使用该名称，需确认是否为 Operator / Macau operator / Operator 内部会员体系的转写或误写。
 - `Hypervelocity`：Granola 摘要写作 Hypervelocity entity setup；项目记忆中商业化主体为 `Heypervelocity`，需确认是否为同一主体、拼写差异，或不同实体。
 - `Hex Trust KYC integration`：需确认是使用 Hex Trust 自带 KYC/KYT 能力、第三方 KYC vendor，还是客户现有 gaming compliance team 的结果接入。
 

@@ -7,7 +7,7 @@
 
 - 仓库：`VirtualAsset`
 - 路径：`/Users/yiweichen/Documents/Code/VirtualAsset`
-- 性质：虚拟资产合规入金编排系统，包含 Wynn 员工端 Demo、HyperTransfer 客户端产品、香港商业化规划与客户材料。
+- 性质：虚拟资产合规入金编排系统，包含 Operator 员工端 Demo、HyperTransfer 客户端产品、香港商业化规划与客户材料。
 - 核心定位：不是钱包工具，不是交易所；重点是合规编排、KYC/KYT、Travel Rule、托管地址签发、入金监听、WTA 入账与异常处理。
 - 商业化主体：`Heypervelocity`（香港公司，计划注册）
 - 对外产品名：`HyperTransfer`，站点 `h5.hypercypto.com`
@@ -15,10 +15,10 @@
 
 ## 代码地图
 
-- `app/` + `src/`：Wynn 员工端虚拟资产入金编排 Demo，Next.js App Router + React + TypeScript。
-- `src/domain/`：Wynn Demo 领域核心，包含 `types.ts`、`state-machine.ts`、`providers.ts`。改业务规则先看这里。
-- `src/data/seed.ts`：Wynn Demo mock 数据来源；不要在组件里重复造 seed。
-- `app/globals.css`：Wynn Demo 唯一样式入口，深色 Wynn 金色风；不要引入 Tailwind。
+- `app/` + `src/`：Operator 员工端虚拟资产入金编排 Demo，Next.js App Router + React + TypeScript。
+- `src/domain/`：Operator Demo 领域核心，包含 `types.ts`、`state-machine.ts`、`providers.ts`。改业务规则先看这里。
+- `src/data/seed.ts`：Operator Demo mock 数据来源；不要在组件里重复造 seed。
+- `app/globals.css`：Operator Demo 唯一样式入口，深色 Operator 金色风；不要引入 Tailwind。
 - `.github/workflows/hypertransfer-check.yml`：HyperTransfer PR/main CI，运行 typecheck 与 production build。
 - `.github/workflows/hypertransfer-deploy-hk.yml`：HyperTransfer 香港服务器自动发布 workflow；main 自动发 staging，workflow_dispatch 可选 production。
 - `hypertransfer-main/`：真正的 HyperTransfer 产品前端，React 19 + Vite + Tailwind 4 + shadcn/ui + Wouter。
@@ -35,7 +35,7 @@
 - `hypertransfer-main/backend/server.py`：HyperTransfer 认证后端原型，FastAPI + SQLite，含短信 OTP、TOTP、恢复码、会话。
 - `hypertransfer-auth-demo/`：早期独立认证 H5 原型。
 - `ProjectInfo/design.md`：业务设计权威来源；涉及监管、术语、状态流、Travel Rule、Hex Trust 边界时必须核对。
-- `ProjectInfo/Wynn_Macau_VA_Hex_Trust_Clarification_Request_Completed_04_June.pdf`：客户提供的 Hex Trust 36 问澄清回复；涉及 Phase 1 网络、确认数、Webhook/API、Travel Rule 平台边界、KYT、冷存储、监管资质时必须核对。
+- `ProjectInfo/Operator_Macau_VA_Hex_Trust_Clarification_Request_Completed_04_June.pdf`：客户提供的 Hex Trust 36 问澄清回复；涉及 Phase 1 网络、确认数、Webhook/API、Travel Rule 平台边界、KYT、冷存储、监管资质时必须核对。
 - `ProjectInfo/HyperTransfer_One Page Process Map_v1.pptx`：HyperTransfer one-page process map 的可编辑 PPT 源文件。
 - `ProjectInfo/HyperTransfer_One Page Process Map_v1.pdf`：HyperTransfer one-page process map 的 PDF 交付/转发版本。
 - `ProjectInfo/Sumsub-Trial-Integration-Assessment.md`：Sumsub trial 能力、HyperTransfer 接入架构、难度评估与 sales 会议问题；评估 KYC、AML、Device Intelligence、Questionnaire、Transaction Monitoring、Travel Rule、Crypto Monitoring、Case Management 等模块时先看这里。
@@ -48,7 +48,7 @@
 
 ## 常用命令
 
-根目录 Wynn Demo：
+根目录 Operator Demo：
 
 ```bash
 npm run dev
@@ -66,7 +66,7 @@ corepack pnpm run build
 ./dev.sh
 ```
 
-新增依赖：Wynn Demo 用 `npm install`；HyperTransfer 用 `corepack pnpm add`。不要手写版本号。
+新增依赖：Operator Demo 用 `npm install`；HyperTransfer 用 `corepack pnpm add`。不要手写版本号。
 
 ## 业务规则
 
@@ -77,7 +77,7 @@ corepack pnpm run build
 > - **注册 / 2FA**：邀请制 + Email OTP（短信留 step-up）、2FA 可选 + 入金/退款 step-up 强制（已决策，代码待改造）。
 > - 其余新增（KYC 6 个月有效期、Marker 回录、Forex 法币结算、RBAC 5 角色、数据隔离、保留到账后 KYT）见决策记录。
 
-Wynn Demo 核心流程：
+Operator Demo 核心流程：
 
 1. Patron source wallet screened
 2. Travel Rule data captured
@@ -102,14 +102,14 @@ Deposit 状态机要点：
 - Travel Rule gate 必须在 Hex Safe 地址签发前由 HyperTransfer / WML 执行；Hex Trust/Sumsub 可以作为 provider 选项，但不要假设当前香港 Hex Trust Limited 合同下平台层会自动 hard-freeze 等待 TR。
 - Sumsub trial 当前仅作为候选合规 provider 评估；可覆盖 KYC、AML screening、questionnaire、Device Intelligence、Transaction Monitoring、Travel Rule、Crypto Monitoring、Case Management 等能力，但不得替代 Hex Trust / Hex Safe 的托管、vault、地址签发和链上 webhook 边界。
 - Sumsub KYC applicant 是 Sumsub 侧的被验证人档案；HyperTransfer 用户通过后端映射到一个 deterministic `externalUserId` 和一个 Sumsub `applicantId`。当前客户页走 API-only demo：后端创建/复用 applicant 并拉取 status，前端不嵌入 Sumsub WebSDK 面板；access-token API 仅保留给连接测试或未来可选 WebSDK 模式。
-- Hex Trust 链上确认门槛按链定义，不能承诺 Wynn 自定义确认数；当前客户回复口径为 EVM 5 confirmations、Tron 4 confirmations。
+- Hex Trust 链上确认门槛按链定义，不能承诺 Operator 自定义确认数；当前客户回复口径为 EVM 5 confirmations、Tron 4 confirmations。
 - Hex Trust / Hex Safe 真实 API 当前尚未接入产品；`hex-safe.ts`、`treasury-ops.ts`、`refund-process.ts` 中的 Hex Safe、HT Markets、reconciliation、refund payout 仍是 mock。不要对用户或客户声称已经完成 Hex Trust API live integration。
 - `ProjectInfo/virtual-asset-ppt.md` 中的 Hex Trust endpoint 名称是概念清单；真实开发必须以 Hex Trust 合同、正式 API 文档、sandbox、webhook payload sample、OpenAPI/Postman collection 为准。
 - HT Markets OTC 可做 USDT/USDC 与 USD 双向兑换；客户回复口径为 0.50% all-in fee、USD 150 minimum fee。
 
 Provider adapter 约定：
 
-- Wynn Demo 外部能力必须走 `src/domain/providers.ts` 的 adapter 接口。
+- Operator Demo 外部能力必须走 `src/domain/providers.ts` 的 adapter 接口。
 - HyperTransfer 客户端 mock 外部能力先放在 `hypertransfer-main/client/src/lib/travel-rule.ts`、`hex-safe.ts`、`treasury-ops.ts`，未来接真实 provider 时保持同一 adapter/模型边界。
 - 如接 Sumsub，优先在后端新增 provider adapter：前端只拿短期 WebSDK access token；`SUMSUB_APP_TOKEN`、`SUMSUB_SECRET_KEY`、webhook secret 等只放服务器环境变量或 GitHub secrets，绝不写入仓库。
 - 组件或路由里不要直接调用真实 provider SDK / API。
@@ -118,17 +118,17 @@ Provider adapter 约定：
 术语口径：
 
 - `KYC` 是客户身份识别；`KYT` 是钱包/交易级风险分析，二者不要混用。
-- `WTA` 是 Wynn Treasury Account，分层 vault 结构，不是单一地址。
+- `WTA` 是 Treasury Account，分层 vault 结构，不是单一地址。
 - `Hex Trust` 是托管方 / custodian；`Hex Safe` 是 Hex Trust 的托管平台 / API，不要把二者混写成两个托管方。
-- `Source Wallet Address` 是客户来源钱包，不等于 Hex Trust 签发给 Wynn 的 receiving address。
+- `Source Wallet Address` 是客户来源钱包，不等于 Hex Trust 签发给 Operator 的 receiving address。
 - 不要写“Frax 是私钥托管方”“WTA 是单一地址”“Pad 端填 vault ID”等错误说法。
 
 ## 编码约定
 
 - TypeScript strict；注意 `noUncheckedIndexedAccess`，索引访问要处理 `undefined`。
 - Next.js App Router 默认 RSC，需要交互的组件加 `"use client"`。
-- Wynn Demo 用 `@/*` 指向仓库根；HyperTransfer 前端用 `@/` 指向 `client/src`。
-- Wynn Demo 样式集中在 `app/globals.css`；HyperTransfer 使用 Tailwind 4 + shadcn/ui，两套不要混。
+- Operator Demo 用 `@/*` 指向仓库根；HyperTransfer 前端用 `@/` 指向 `client/src`。
+- Operator Demo 样式集中在 `app/globals.css`；HyperTransfer 使用 Tailwind 4 + shadcn/ui，两套不要混。
 - HyperTransfer 移动端全高容器用 `100svh`，不要用 `100dvh`，避免软键盘导致页面抖动。
 - 业务状态、枚举或字段变化时，同步更新 label、badge、mock seed 与相关 UI。
 - 注释只解释非显然的原因；demo / mock 桩位置用 `// MOCK:` 前缀。
@@ -137,8 +137,8 @@ Provider adapter 约定：
 ## 合规与数据
 
 - 不要在代码、注释、文档或 commit message 中写真实客户姓名、证件号、护照号、wallet 实控人信息。
-- Demo 账号 `va.host.demo@wynn.example` / `Wynn#2026!` 是本地 mock，占位用途，不视为真实凭据。
-- `wynn.example` 是保留域名，不是真实邮箱。
+- Demo 账号 `va.host.demo@operator.example` / `Operator#2026!` 是本地 mock，占位用途，不视为真实凭据。
+- `operator.example` 是保留域名，不是真实邮箱。
 - 不要提交 `.env*`、`*.key`、`*.pem`、`*.db`、`.venv`、`node_modules`。
 - `ClientMeetings/` 可能有 Excel 临时文件 `~$*.xlsx`，不要 commit。
 - 涉及 HK / Macau 监管、KYT 决策树、Travel Rule 字段、Hex Trust 接口边界时，先核对 `ProjectInfo/design.md`。
@@ -183,7 +183,7 @@ Provider adapter 约定：
 
 澳门赌场工作人员后台入口：
 
-- `http://127.0.0.1:3003/casino-ops`：Wynn VA Operations Portal，面向 casino treasury / compliance / finance / audit staff。
+- `http://127.0.0.1:3003/casino-ops`：Operator VA Operations Portal，面向 casino treasury / compliance / finance / audit staff。
 - `http://127.0.0.1:3003/treasury-controls`：后台别名，暂时保留兼容旧链接；不要从客户端导航过去。
 
 ## 线上测试入口
@@ -207,7 +207,7 @@ Demo 登录：
 
 澳门赌场工作人员后台入口：
 
-- `https://h5.hypercypto.com/casino-ops`：Wynn VA Operations Portal。
+- `https://h5.hypercypto.com/casino-ops`：Operator VA Operations Portal。
 
 ## Release Notes
 
@@ -826,7 +826,7 @@ Hex Trust API 会议口径：
 工作人员后台新增 / 调整：
 
 - 新增 `CasinoOpsPortal.tsx`，路由 `/casino-ops`。
-- 后台标题为 `Wynn VA Operations Portal`，定位为 casino treasury / compliance / finance / audit staff portal。
+- 后台标题为 `Operator VA Operations Portal`，定位为 casino treasury / compliance / finance / audit staff portal。
 - 后台展示 active deposit case 摘要：asset、network、KYT 状态、金额、HKD 估算。
 - 后台 WTA settlement：confirmation gate、latest txHash、Hex Trust chain-defined threshold。
 - 后台 HT Markets OTC：quote、0.50% fee、USD 150 minimum、net USD、Prepare Quote、Approve & Settle。

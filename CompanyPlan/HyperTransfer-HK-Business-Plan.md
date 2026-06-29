@@ -64,11 +64,11 @@ HyperTransfer 不是交易所，也不是钱包。它是：
 
 ## 四、获客策略（按优先级）
 
-### 策略 1：用 Wynn 做案例，横扫博彩/酒店（T1 + T4）
+### 策略 1：用 Operator 做案例，横扫博彩/酒店（T1 + T4）
 
 | 步骤 | 动作 |
 |---|---|
-| 包装案例 | 制作 1-pager：「永利虚拟资产入金合规系统 — 内部演示已验证，end-to-end 6 步流程」（脱敏，用"Top-6 IR Operator in Macau"） |
+| 包装案例 | 制作 1-pager：「运营方虚拟资产入金合规系统 — 内部演示已验证，end-to-end 6 步流程」（脱敏，用"Top-6 IR Operator in Macau"） |
 | 触达名单 | Galaxy（刚开 Capella Macau）、SJM Holdings（Grand Lisboa）、Melco（Studio City）、Sands China — 共 5 家特许经营商 |
 | 入口人 | 每家 IR 的 Treasury / CFO / CIO 或 VIP Host 负责人 |
 | 定价 | $150K 起 + 二期运营后台 $100K–$200K |
@@ -251,7 +251,7 @@ KYC 身份验证  →  KYT 钱包筛查（双层）  →  FATF Travel Rule
 | 优先级 | 行动 | 时间 | 负责 |
 |---|---|---|---|
 | **P0** | 注册香港公司 | 1–2 周 | 创始人 |
-| **P0** | 完成 Wynn 项目交付，获取可引用的案例 | 持续中 | 开发团队 |
+| **P0** | 完成 Operator 项目交付，获取可引用的案例 | 持续中 | 开发团队 |
 | **P1** | 制作脱敏 1-pager 案例材料 | 1 周 | BD |
 | **P1** | 联系 Galaxy / SJM 的 Treasury / CIO | 2–4 周 | BD |
 | **P1** | 触达 5–10 家香港 OTC desk（WhatsApp/Telegram/实体） | 2–4 周 | BD |

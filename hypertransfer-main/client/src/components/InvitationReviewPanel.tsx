@@ -1,7 +1,7 @@
 /**
  * InvitationReviewPanel — 准入审批(Access Request, staff/casino-ops 用)。process v1 §A 第一步。
  *
- * RM 登录后台, 提交已获取的 patron 资料(Wynn ID/姓名/年龄/电话/护照/邮箱) → Submit access request;
+ * RM 登录后台, 提交已获取的 patron 资料(Member ID/姓名/年龄/电话/护照/邮箱) → Submit access request;
  * Int'l Marketing 用外部系统核查后, 在本系统 Approve → 签发 single-use+72h 二维码+链接, 邮件发给客户。
  * 调后端 /api/invitations*; list 限 marketing/compliance/admin, create 限 rm, 审批/签发限 marketing。
  * 按 useAuth 角色显隐, 后端 require_role 才是真守卫。
@@ -20,7 +20,7 @@ function statusTone(s: string): Tone {
   return "neutral";
 }
 
-const EMPTY_FORM = { patronEmail: "", patronName: "", wynnId: "", age: "", phone: "", passport: "" };
+const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "", age: "", phone: "", passport: "" };
 
 export default function InvitationReviewPanel() {
   const { user } = useAuth();
@@ -83,7 +83,7 @@ export default function InvitationReviewPanel() {
         patronEmail: form.patronEmail.trim(),
         patronName: form.patronName.trim() || undefined,
         details: {
-          wynnId: form.wynnId.trim(),
+          memberId: form.memberId.trim(),
           age: form.age.trim(),
           phone: form.phone.trim(),
           passport: form.passport.trim(),
@@ -132,7 +132,7 @@ export default function InvitationReviewPanel() {
             Relationship Manager — submit patron details (already collected)
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <input value={form.wynnId} onChange={(e) => setForm({ ...form, wynnId: e.target.value })} placeholder="Wynn ID" className={inputCls} />
+            <input value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="Member ID" className={inputCls} />
             <input value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="Full name" className={inputCls} />
             <input value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="Age" className={inputCls} />
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" className={inputCls} />
@@ -171,7 +171,7 @@ export default function InvitationReviewPanel() {
                 <Pill tone={statusTone(inv.status)}>{inv.status}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                <Field label="Wynn ID">{String(d.wynnId || "—")}</Field>
+                <Field label="Member ID">{String(d.memberId || "—")}</Field>
                 <Field label="Email">{inv.patronEmail}</Field>
                 <Field label="Phone">{String(d.phone || "—")}</Field>
                 <Field label="Passport">{String(d.passport || "—")}</Field>

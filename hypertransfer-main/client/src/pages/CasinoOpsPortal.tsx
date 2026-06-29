@@ -195,7 +195,7 @@ export default function CasinoOpsPortal() {
 
   const approveRefund = () => {
     if (!refundRequest) return;
-    const next = approveRefundRequest(refundRequest, "Wynn Treasury Approver");
+    const next = approveRefundRequest(refundRequest, "Treasury Approver");
     updateState({ refundRequest: next });
     toast.success("Refund approved", { description: next.approval.requiredRole });
   };
@@ -219,7 +219,7 @@ export default function CasinoOpsPortal() {
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Casino Staff Operations
               </p>
-              <h1 className="text-lg font-semibold text-foreground">Wynn VA Operations Portal</h1>
+              <h1 className="text-lg font-semibold text-foreground">VA Operations Portal</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">

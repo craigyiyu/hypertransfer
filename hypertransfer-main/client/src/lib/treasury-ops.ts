@@ -65,7 +65,7 @@ export interface ReconciliationItem {
 
 export interface MacauAccessControl {
   control: string;
-  owner: "Wynn" | "HyperTransfer" | "Hex Trust";
+  owner: "Operator" | "HyperTransfer" | "Hex Trust";
   status: "active" | "required" | "not_supported_by_hex_trust";
   evidence: string;
 }
@@ -206,7 +206,7 @@ export const macauAccessControls: MacauAccessControl[] = [
   },
   {
     control: "Non-Macau operator provisioning",
-    owner: "Wynn",
+    owner: "Operator",
     status: "active",
     evidence: "Only non-Macau staff receive Hex Safe / HyperTransfer operator roles.",
   },

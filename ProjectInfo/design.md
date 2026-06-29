@@ -2,7 +2,7 @@
 
 ## 1. 产品定位
 
-本项目第一版 demo 的目标不是传统管理后台，而是一个给永利员工在 Pad 上使用的 **Virtual Asset Management** 办理 App。
+本项目第一版 demo 的目标不是传统管理后台，而是一个给运营方员工在 Pad 上使用的 **Virtual Asset Management** 办理 App。
 
 主要使用者：
 
@@ -56,7 +56,7 @@ Secure Login
 
 Okta 用于员工身份认证，不用于客户登录。
 
-它负责确认当前操作人是否是授权的永利员工，并把员工身份、角色、权限和登录上下文传给 Virtual Asset Management App。
+它负责确认当前操作人是否是授权的运营方员工，并把员工身份、角色、权限和登录上下文传给 Virtual Asset Management App。
 
 在正式系统中，Pad App 不应保存员工密码。员工登录时应跳转到 Okta，完成企业账号登录和 MFA 后，再回到 App。
 
@@ -102,8 +102,8 @@ Pad App
 当前 demo 用本地测试账号模拟 Okta + Okta Verify Push：
 
 ```text
-Username: va.host.demo@wynn.example
-Password: Wynn#2026!
+Username: va.host.demo@operator.example
+Password: Operator#2026!
 ```
 
 演示逻辑：
@@ -170,7 +170,7 @@ Password: Wynn#2026!
 
 含义：
 
-在给客户生成永利收款地址前，先筛查客户提供的来源钱包。
+在给客户生成运营方收款地址前，先筛查客户提供的来源钱包。
 
 这里的筛查通常属于 KYT，即 Know Your Transaction。KYT 不是判断“资产运行在哪里”，而是分析钱包地址和链上交易风险：这个地址过去和哪些地址交互、是否接近 mixer / scam / darknet / sanctions 地址、资金污染比例是多少、真实到账交易是否和客户声明一致。
 
@@ -184,7 +184,7 @@ USDC on ERC-20    -> Ethereum network stablecoin rail
 
 Phase 1 不处理 BTC 或 ETH 资产。这里的 ERC-20 指 USDT / USDC 的稳定币网络 rail，不代表支持 ETH 资产。
 
-Source Wallet Address 是客户准备用来打款的钱包地址，和 Hex Trust 后续签发给永利的 receiving address 不同。
+Source Wallet Address 是客户准备用来打款的钱包地址，和 Hex Trust 后续签发给运营方的 receiving address 不同。
 
 检查内容包括：
 
@@ -229,7 +229,7 @@ Hop count 是链上交易图里的距离概念，用来描述当前客户钱包�
 
 为什么要做：
 
-- 防止把永利收款地址发给高风险来源。
+- 防止把运营方收款地址发给高风险来源。
 - 把合规控制前置到地址签发之前。
 - 让系统可以在客户打款前阻断风险。
 
@@ -266,9 +266,9 @@ Demo 表现：
 
 这一步不是完整 KYC 本身，而是员工在 Pad App 中先查找客户，并确认客户是否已有可用 KYC 状态。
 
-名单来源不应是 Hex Trust。推荐来源是永利自己的客户系统：
+名单来源不应是 Hex Trust。推荐来源是运营方自己的客户系统：
 
-- Wynn CRM / Patron database。
+- Operator CRM / Patron database。
 - Gaming profile / membership profile。
 - 外部 KYC provider 返回的 verification status。
 - 如果已有 Frax / custody profile，可在本地记录中保存外部关联 ID。
@@ -277,7 +277,7 @@ Demo 表现：
 
 ```text
 Employee searches patron
-  -> App queries Wynn CRM / gaming profile
+  -> App queries Operator CRM / gaming profile
   -> Backend returns patron profile and KYC status
   -> If KYC verified, continue deposit flow
   -> If KYC missing or expired, trigger KYC collection / verification
@@ -288,7 +288,7 @@ Employee searches patron
 
 - 先确认“这个客户是谁”。
 - 避免给未完成 KYC 或 blocked 客户发起虚拟资产入金。
-- 把永利内部客户 ID、KYC 状态、后续 deposit request 和 custody address 绑定起来。
+- 把运营方内部客户 ID、KYC 状态、后续 deposit request 和 custody address 绑定起来。
 
 新客户处理：
 
@@ -296,21 +296,21 @@ Employee searches patron
 New patron
   -> collect minimum identity information
   -> submit KYC provider verification
-  -> create Wynn patron / external profile link
+  -> create Operator patron / external profile link
   -> only after KYC verified can continue to wallet screening
 ```
 
 ### 5.0.1 KYC 状态判断规则
 
-永利需要拥有自己的 KYC records、policy 和 decision ownership。KYC 服务可以由第三方 provider 提供，例如 Sumsub、Onfido、Jumio、Trulioo 或现有 casino KYC 系统，但最终能否办理 virtual asset deposit 应由永利的业务规则和合规决策确认。
+运营方需要拥有自己的 KYC records、policy 和 decision ownership。KYC 服务可以由第三方 provider 提供，例如 Sumsub、Onfido、Jumio、Trulioo 或现有 casino KYC 系统，但最终能否办理 virtual asset deposit 应由运营方的业务规则和合规决策确认。
 
 推荐分层：
 
 ```text
-Wynn App / Backend
-  -> Wynn KYC orchestration layer
+Operator App / Backend
+  -> Operator KYC orchestration layer
   -> Third-party KYC provider / existing casino KYC system
-  -> Wynn KYC policy engine
+  -> Operator KYC policy engine
   -> Compliance review if needed
   -> Final KYC status
 ```
@@ -465,7 +465,7 @@ reasons = [
 最终判断不应完全交给 provider。推荐边界是：
 
 ```text
-Provider result + Wynn policy + Compliance decision = final KYC status
+Provider result + Operator policy + Compliance decision = final KYC status
 ```
 
 ### 5.2 FATF Travel Rule
@@ -487,7 +487,7 @@ Travel Rule 是 FATF 针对虚拟资产转账的信息传递要求。达到监�
 Pad 端字段原则：
 
 - 员工需要填写或确认客户侧 originator 信息。
-- Beneficiary name 可以展示为固定业务名称，例如 `Wynn Macau Treasury Account`。
+- Beneficiary name 可以展示为固定业务名称，例如 `Macau operator Treasury Account`。
 - Beneficiary VASP / custody route 不建议让员工填写，也不建议在 Pad 端暴露真实 vault ID、account ID 或内部路由 ID。
 - 正式系统应由后端配置固定 beneficiary / custodian 信息，例如 `Hex Trust Custody Provider`、`wtaVaultId`、`travelRuleProviderRef`。
 
@@ -552,7 +552,7 @@ Funds arrive at generated wallet
 - Pre-deposit screening 只能检查客户声明的钱包，不能完全替代到账后的真实交易监控。
 - 客户可能从不同钱包、交易所或混合来源打款。
 - 到账后仍需判断资金是否 clear。
-- 入金后还要判断真实到账交易是否 clear，以及是否可以进入 Wynn Treasury Account。
+- 入金后还要判断真实到账交易是否 clear，以及是否可以进入 Treasury Account。
 
 按资产类型的路由逻辑：
 
@@ -575,7 +575,7 @@ Asset requires conversion
 
 - WTA 是最终资金池，不一定是客户直接打款的地址。
 - 客户打款地址是交易级或客户级的入金地址，用来识别“这笔钱是谁打来的”。
-- WTA 是永利的 treasury 账户，用来集中持有、清算、转银行或支持后续 payout。
+- WTA 是运营方的 treasury 账户，用来集中持有、清算、转银行或支持后续 payout。
 - 当前 deposit demo 默认演示可直接入账的稳定币。Prime Broker 兑换逻辑从本流程拆出，后续单独设计。
 
 ## 6. Project C 流程图中的系统组件
@@ -642,7 +642,7 @@ Prime Broker 是负责报价和兑换的交易/流动性服务商。
 
 ### WTA
 
-WTA 是 Wynn Treasury Account，即永利金库账户/资金清算账户。
+WTA 是 Treasury Account，即运营方金库账户/资金清算账户。
 
 它是虚拟资产资金最终集中管理的位置。
 
@@ -655,12 +655,12 @@ WTA 是 Wynn Treasury Account，即永利金库账户/资金清算账户。
 
 WTA 通常由 Custodian Wallet Provider 管理，例如 BitGo、Fireblocks、Stripe 类托管钱包服务。
 
-更准确地说，WTA 不是一个普通“钱包地址”，而是永利在托管方体系中的 treasury account / vault / wallet structure。
+更准确地说，WTA 不是一个普通“钱包地址”，而是运营方在托管方体系中的 treasury account / vault / wallet structure。
 
 WTA 可以有一个主账户，也可以有多个账户。推荐不要只设计成一个单一地址，而是设计成分层账户结构：
 
 ```text
-Wynn Custody Entity
+Operator Custody Entity
   -> WTA - USDC Treasury Vault
   -> WTA - USDT Treasury Vault
   -> WTA - Unsupported-asset exception vault
@@ -672,14 +672,14 @@ Wynn Custody Entity
 
 - **客户入金地址**：面向单笔 deposit request 或单个 patron 生成，用于收款和归因。
 - **Collection wallet / deposit wallet**：托管方内部用于接收客户入金的地址集合。
-- **WTA treasury vault**：永利最终清算和持有资金的 treasury 账户。
+- **WTA treasury vault**：运营方最终清算和持有资金的 treasury 账户。
 - **Payout wallet / policy-controlled wallet**：用于出金，必须有白名单、审批和出金前筛查。
 
 WTA 和入金地址的区别：
 
 | 项目 | 入金地址 | WTA |
 | --- | --- | --- |
-| 作用 | 接收客户本次转账 | 永利集中持有和清算资金 |
+| 作用 | 接收客户本次转账 | 运营方集中持有和清算资金 |
 | 生命周期 | 建议单次或短期有效 | 长期存在 |
 | 是否给客户看 | 会给客户或通过链接展示 | 通常不给客户直接看 |
 | 合规用途 | 交易归因、监控、筛查绑定 | treasury、清算、payout、对账 |
@@ -837,17 +837,17 @@ If asset is unsupported or non-target stable:
 
 ### 7.4 关键设计问题
 
-需要和 Hex Trust / Frax / 永利业务方确认：
+需要和 Hex Trust / Frax / 运营方业务方确认：
 
 - Hex Trust API 是否支持按单笔交易生成独立 deposit address。
 - 地址是 chain account、sub-wallet、vault address，还是 memo/tag 模型。
 - 是否支持 webhook。
 - 是否支持 Travel Rule 字段透传或只做本系统留存。
-- KYT 是由 Hex Trust 集成 Chainalysis 提供，还是永利需要独立直连 Chainalysis / TRM / Elliptic。
+- KYT 是由 Hex Trust 集成 Chainalysis 提供，还是运营方需要独立直连 Chainalysis / TRM / Elliptic。
 - WTA 应按资产分 vault，还是按业务实体 / 司法辖区分 vault。
 - Stable coin 的目标资产是 USDC、USDT，还是多个 WTA vault 并存。
 - Prime Broker 与 Hex Trust 之间是链上转账、内部账户划转，还是 broker API 直连。
-- Payout 的审批流由 Hex Trust policy engine 完成，还是永利本地先审批再提交 Hex Trust。
+- Payout 的审批流由 Hex Trust policy engine 完成，还是运营方本地先审批再提交 Hex Trust。
 
 ### 7.5 当前 demo 的抽象
 

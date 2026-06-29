@@ -75,7 +75,7 @@
 
         <circle cx="382" cy="607" r="11" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
         <text x="382" y="612" font-size="13" font-weight="800" fill="#7c3aed" text-anchor="middle">4</text>
-        <text x="406" y="612" font-size="17" font-weight="400" fill="#111827" text-anchor="start"><tspan x="406" dy="0">Wynn policy owns</tspan><tspan x="406" dy="22">final decision</tspan></text>
+        <text x="406" y="612" font-size="17" font-weight="400" fill="#111827" text-anchor="start"><tspan x="406" dy="0">Operator policy owns</tspan><tspan x="406" dy="22">final decision</tspan></text>
 
       <rect x="370" y="725" width="215" height="108" rx="14" fill="#f1f5f9" stroke="#dbe3ee" stroke-width="1" />
       <text x="388" y="753" font-size="15" font-weight="700" fill="#111827" text-anchor="start"><tspan x="388" dy="0">Gate: KYC approved</tspan></text>
@@ -331,7 +331,7 @@
 
   <rect x="60" y="1340" width="2285" height="162" rx="24" fill="#ffffff" stroke="#d7dee8" stroke-width="2" filter="url(#shadow)"/>
   <text x="96" y="1384" font-size="24" font-weight="850" fill="#111827">Custody and Operating Controls</text>
-  <text x="96" y="1418" font-size="17" font-weight="400" fill="#64748b" text-anchor="start"><tspan x="96" dy="0">Hex Trust provides custody security; Wynn/HyperTransfer enforces operator access controls, Macau access exclusion, receipt gating, and internal ledger controls.</tspan></text>
+  <text x="96" y="1418" font-size="17" font-weight="400" fill="#64748b" text-anchor="start"><tspan x="96" dy="0">Hex Trust provides custody security; Operator/HyperTransfer enforces operator access controls, Macau access exclusion, receipt gating, and internal ledger controls.</tspan></text>
   <rect x="96" y="1450" width="176" height="36" rx="18" fill="#ecfeff" stroke="#0891b2" stroke-width="1" />
   <text x="184" y="1474" font-size="15" font-weight="700" fill="#0891b2" text-anchor="middle"><tspan x="184" dy="0">100% cold storage</tspan></text>
   <rect x="290" y="1450" width="160" height="36" rx="18" fill="#ecfeff" stroke="#0891b2" stroke-width="1" />

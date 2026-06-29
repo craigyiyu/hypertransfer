@@ -77,7 +77,7 @@ export function DepositIntake() {
     const submission: TravelRuleSubmission = {
       ...travelRuleDraft,
       originatorName: customers.find((customer) => customer.id === deposit.customerId)?.name ?? "",
-      beneficiaryName: "Wynn Macau Treasury",
+      beneficiaryName: "Macau operator Treasury",
     };
     const submitted = mockTravelRuleProvider.submitTravelRule(deposit, submission);
     const address = mockAddressProvider.issueAddress(deposit);

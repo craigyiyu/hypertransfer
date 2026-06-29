@@ -24,7 +24,7 @@ The diagram is organized as a professional stage-gate flow so a client can see b
 | Stage | What happens |
 |---|---|
 | 1. Account Access and MFA | New users register with SMS OTP, bind authenticator-based TOTP, and receive recovery codes. Returning users log in through password + TOTP/recovery-code verification. |
-| 2. KYC and Customer Eligibility | Customer identity data is collected, checked by a KYC provider or existing casino KYC system, and finalized by Wynn policy. Pending/EDD and blocked paths are shown explicitly. |
+| 2. KYC and Customer Eligibility | Customer identity data is collected, checked by a KYC provider or existing casino KYC system, and finalized by Operator policy. Pending/EDD and blocked paths are shown explicitly. |
 | 3. Deposit Setup | The customer selects a Phase 1 supported asset/network, enters the expected amount, and the backend creates a DepositRequest. Phase 1 should default to USDT on ERC-20/TRC-20 and USDC on ERC-20. BTC and ETH assets are excluded. |
 | 4. Source Wallet KYT | The customer enters the source wallet and HyperTransfer screens it before address issuance. EDD/Fail paths do not receive a deposit address until manual review clears. |
 | 5. Travel Rule Gate | HyperTransfer / WML collects and gates Travel Rule data before address issuance when required by threshold, policy, or jurisdiction. Provider options include Hex Trust/Sumsub if contractually enabled, or Notabene/Sygna/TRP. |
@@ -40,7 +40,7 @@ The diagram is organized as a professional stage-gate flow so a client can see b
 4. **Pre-deposit KYT gate**: source wallet must pass screening; EDD and Fail paths do not auto-proceed.
 5. **Travel Rule gate**: HyperTransfer / WML enforces the gate before address issuance. Hex Trust/Sumsub may be used if contractually enabled; otherwise a third-party provider such as Notabene/Sygna/TRP should be used.
 6. **Wallet ownership gate**: a 1-unit verification deposit confirms that the source wallet and session address match.
-7. **Confirmation gate**: Hex Trust confirmation thresholds are chain-defined, not Wynn-customized; EVM chains use 5 confirmations and Tron uses 4 confirmations.
+7. **Confirmation gate**: Hex Trust confirmation thresholds are chain-defined, not Operator-customized; EVM chains use 5 confirmations and Tron uses 4 confirmations.
 8. **Transaction KYT gate**: the real incoming txHash is screened after funds arrive; pre-deposit wallet KYT does not replace transaction-level screening.
 9. **Treasury settlement / OTC gate**: clear USDC/USDT funds settle to WTA, while conversion or depeg liquidation goes through HT Markets OTC and treasury approval.
 10. **Refund / payout gate**: refunds/payouts require authenticated destination-wallet collection, destination-wallet KYT, treasury/compliance approval, policy checks, custody signing, broadcast, webhook completion, reconciliation, and audit evidence.
@@ -71,7 +71,7 @@ Customer/support opens refund request
 - Use `Hex Trust` when referring to the custody provider/company. Use `Hex Safe` when referring to the platform/API surface used for address issuance, webhook monitoring, policy controls, and signed withdrawals.
 - Under the Hex Trust clarification response, built-in Travel Rule capability exists through Sumsub, but it is not currently enforced at the platform layer for WML's Hong Kong Hex Trust Limited contracting setup. HyperTransfer should therefore keep the Travel Rule gate and provider adapter under WML control.
 - HT Markets OTC conversion is separately available for stablecoin on/off-ramp. The clarification response states a 0.50% all-in fee and USD 150 minimum fee for USDT/USDC to USD or USD to USDT/USDC trades.
-- Macau access exclusion means Macau-based staff/devices/networks should not operate the VA platform. Hex Trust does not enforce this on Wynn's behalf, so it belongs in Wynn / HyperTransfer IAM, device, network, and operator-provisioning controls.
-- `WTA` means Wynn Treasury Account / treasury vault structure, not a single exposed deposit address.
+- Macau access exclusion means Macau-based staff/devices/networks should not operate the VA platform. Hex Trust does not enforce this on Operator's behalf, so it belongs in Operator / HyperTransfer IAM, device, network, and operator-provisioning controls.
+- `WTA` means Treasury Account / treasury vault structure, not a single exposed deposit address.
 - `Source Wallet Address` is the customer's sending wallet. It is different from the receiving address issued by Hex Trust.
 - Production implementation should keep KYC, KYT, Travel Rule, address issuance, transaction monitoring, settlement, payout, and audit logging behind backend provider adapters.

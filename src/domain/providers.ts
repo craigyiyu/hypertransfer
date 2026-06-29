@@ -149,7 +149,7 @@ export const mockAddressProvider: AddressProvider = {
     return {
       id: `addr-${deposit.id}`,
       depositId: deposit.id,
-      address: `${prefix}${suffix}wynnvaonetimeaddress`,
+      address: `${prefix}${suffix}operatorvaonetimeaddress`,
       provider: "Mock HT Custody Adapter",
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6).toISOString(),
       voided: false,
