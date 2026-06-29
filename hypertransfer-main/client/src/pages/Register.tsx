@@ -1,7 +1,7 @@
 /**
- * Register — 创建账户(第一因子:手机号 + 真实短信 OTP)。
- * 字段:姓名、邮箱、区号+手机号、短信验证码、密码(实时强度反馈)。
- * 提交 -> 调 /api/register 拿到 TOTP 绑定信息 -> 暂存 sessionStorage -> 跳 /setup-2fa。
+ * Register — 创建账户(第一因子:邮箱 + Email OTP, process v1 口径; 不再用手机号/短信)。
+ * 字段:姓名、邮箱、邮箱验证码、密码(实时强度反馈)。
+ * 提交 -> 调 /api/register/email 拿 TOTP 绑定信息 -> 暂存 sessionStorage(viaEmail) -> 跳 /setup-2fa。
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -9,20 +9,12 @@ import { useDemo } from "@/contexts/DemoContext";
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import FormField from "@/components/FormField";
-import { User, Mail, Lock, Eye, EyeOff, Phone, MessageSquare, Loader2, ShieldCheck } from "lucide-react";
-import { validateFullName, validateEmail, validatePassword, validatePhoneNumber, ValidationResult } from "@/lib/validation";
+import { User, Mail, Lock, Eye, EyeOff, MessageSquare, Loader2, ShieldCheck } from "lucide-react";
+import { validateFullName, validateEmail, validatePassword, ValidationResult } from "@/lib/validation";
 import { authApi, apiError } from "@/lib/api";
-import { PENDING_REGISTER_KEY } from "@/lib/authFlow";
+import { PENDING_REGISTER_KEY, PendingRegister } from "@/lib/authFlow";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-
-const AREA_CODES = [
-  { code: "86", label: "🇨🇳 +86" },
-  { code: "852", label: "🇭🇰 +852" },
-  { code: "853", label: "🇲🇴 +853" },
-  { code: "886", label: "🇹🇼 +886" },
-  { code: "1", label: "🇺🇸 +1" },
-];
 
 export default function Register() {
   const [, navigate] = useLocation();
@@ -30,8 +22,6 @@ export default function Register() {
   const { isDemoMode, getDemoValue } = useDemoMode();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [areaCode, setAreaCode] = useState("86");
-  const [phone, setPhone] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [sending, setSending] = useState(false);
@@ -39,16 +29,16 @@ export default function Register() {
   const [submitting, setSubmitting] = useState(false);
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [touched, setTouched] = useState({ name: false, email: false, phone: false, password: false });
-  const [errors, setErrors] = useState({ name: "", email: "", phone: "", password: "" });
+  const [touched, setTouched] = useState({ name: false, email: false, password: false });
+  const [errors, setErrors] = useState({ name: "", email: "", password: "" });
 
-  // Demo 模式:仅自动填充文本字段(短信验证码必须真实获取)
+  // Demo 模式:仅自动填充文本字段(邮箱验证码必须真实获取)
   useEffect(() => {
     if (isDemoMode) {
       setName(getDemoValue("firstName") + " " + getDemoValue("lastName"));
       setEmail(getDemoValue("email"));
       setPassword(getDemoValue("password"));
-      setTouched({ name: true, email: true, phone: false, password: true });
+      setTouched({ name: true, email: true, password: true });
     }
   }, [isDemoMode]);
 
@@ -61,37 +51,35 @@ export default function Register() {
 
   const nameValidation = touched.name ? validateFullName(name) : { valid: true };
   const emailValidation = touched.email ? validateEmail(email) : { valid: true };
-  const phoneValidation = touched.phone ? validatePhoneNumber(areaCode + phone) : { valid: true };
   const passwordValidation = touched.password ? validatePassword(password) : { valid: true };
+  const emailLooksValid = validateEmail(email).valid && email.length > 0;
   const otpEntered = codeSent && /^\d{6}$/.test(verificationCode);
 
   const canSubmit =
-    nameValidation.valid && emailValidation.valid && phoneValidation.valid &&
-    passwordValidation.valid && otpEntered &&
-    name.length > 0 && email.length > 0 && phone.length > 0 && password.length > 0 &&
+    nameValidation.valid && emailValidation.valid && passwordValidation.valid && otpEntered &&
+    name.length > 0 && email.length > 0 && password.length > 0 &&
     !submitting;
 
-  const handleFieldBlur = (field: "name" | "email" | "phone" | "password") => {
+  const handleFieldBlur = (field: "name" | "email" | "password") => {
     setTouched({ ...touched, [field]: true });
     let validation: ValidationResult = { valid: true };
     if (field === "name") validation = validateFullName(name);
     if (field === "email") validation = validateEmail(email);
-    if (field === "phone") validation = validatePhoneNumber(areaCode + phone);
     if (field === "password") validation = validatePassword(password);
     setErrors({ ...errors, [field]: validation.error || "" });
   };
 
   const handleSendCode = async () => {
-    const validation = validatePhoneNumber(areaCode + phone);
-    setTouched({ ...touched, phone: true });
-    setErrors({ ...errors, phone: validation.error || "" });
+    const validation = validateEmail(email);
+    setTouched({ ...touched, email: true });
+    setErrors({ ...errors, email: validation.error || "" });
     if (!validation.valid) return;
     setSending(true);
     try {
-      const { data } = await authApi.sendOtp(areaCode, phone);
+      const { data } = await authApi.registerEmailSendOtp(email.trim());
       setCodeSent(true);
       setCooldown(data.cooldown || 60);
-      toast.success("Verification code sent. Please check your SMS.");
+      toast.success("Verification code sent. Please check your email.");
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -103,17 +91,17 @@ export default function Register() {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const { data } = await authApi.register({
-        areaCode, phoneNumber: phone, otp: verificationCode, name, email, password,
+      const { data } = await authApi.registerEmail({
+        email: email.trim(), emailOtp: verificationCode, name, password,
       });
-      // 暂存绑定信息给 Setup2FA 页面使用
-      sessionStorage.setItem(PENDING_REGISTER_KEY, JSON.stringify({
-        areaCode, phoneNumber: phone, name, email,
+      // 暂存绑定信息给 Setup2FA(viaEmail → 用 email 激活 TOTP, 无手机号)。
+      const pending: PendingRegister = {
+        areaCode: "", phoneNumber: "", name, email: email.trim(),
         qr: data.qr_png_base64, secret: data.secret, otpauth: data.otpauth_uri,
-        expiresAt: data.expires_at,
-      }));
-      // 同步到 DemoContext,供后续 KYC / Dashboard 等页面使用
-      updateState({ patronName: name, patronEmail: email, patronPhone: `+${areaCode} ${phone}` });
+        expiresAt: data.expires_at, viaEmail: true,
+      };
+      sessionStorage.setItem(PENDING_REGISTER_KEY, JSON.stringify(pending));
+      updateState({ patronName: name, patronEmail: email.trim() });
       navigate("/setup-2fa");
     } catch (e) {
       toast.error(apiError(e));
@@ -137,7 +125,7 @@ export default function Register() {
 
   return (
     <Shell showBack backTo="/" title="Create Account" subtitle="Set up your secure account profile">
-      {/* 邀请制说明:邮箱邀请是主路径,手机自助注册作为并存兼容通道(PR②-2 决策 2)。 */}
+      {/* 邀请制说明:邮箱邀请是主路径,开放注册作为并存通道。 */}
       <div className="card-wine rounded-lg p-3 mb-5 flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-gold shrink-0 mt-0.5" />
         <div className="text-xs text-muted-foreground leading-relaxed">
@@ -162,49 +150,22 @@ export default function Register() {
 
         <FormField
           label="Email Address" type="email" value={email}
-          onChange={(e) => setEmail(e.target.value)} onBlur={() => handleFieldBlur("email")}
+          onChange={(e) => { setEmail(e.target.value); setCodeSent(false); setVerificationCode(""); }}
+          onBlur={() => handleFieldBlur("email")}
           placeholder="your@email.com" icon={<Mail className="w-4 h-4" />}
           error={touched.email ? errors.email : undefined}
           success={touched.email && emailValidation.valid} required
         />
 
-        {/* 区号 + 手机号 */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground flex items-center gap-1">
-            Mobile Number <span className="text-destructive">*</span>
-          </label>
-          <div className="flex gap-2">
-            <select
-              value={areaCode}
-              onChange={(e) => { setAreaCode(e.target.value); setCodeSent(false); setVerificationCode(""); }}
-              className="w-[104px] shrink-0 rounded-lg bg-secondary/50 border border-border/50 px-3 text-sm text-foreground focus:outline-none focus:border-gold/50"
-            >
-              {AREA_CODES.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}
-            </select>
-            <div className="relative flex-1">
-              <input
-                type="tel" inputMode="numeric" value={phone}
-                onChange={(e) => { setPhone(e.target.value.replace(/[^\d]/g, "")); setCodeSent(false); setVerificationCode(""); }}
-                onBlur={() => handleFieldBlur("phone")}
-                placeholder="Mobile number"
-                className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
-                  ${touched.phone && errors.phone ? "border-destructive/50 focus:border-destructive" : "border-border/50 focus:border-gold/50"}
-                  focus:outline-none focus:ring-1 focus:ring-gold/30 placeholder:text-muted-foreground/40`}
-              />
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
-            </div>
-          </div>
-          {touched.phone && errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
-        </div>
-
+        {/* Email OTP:发码 + 验证码 */}
         <div className="space-y-2">
           <button
             type="button" onClick={handleSendCode}
-            disabled={!phone || sending || cooldown > 0}
+            disabled={!emailLooksValid || sending || cooldown > 0}
             className="w-full rounded-xl py-3 text-xs font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {sending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? "Resend Verification Code" : "Send Verification Code"}
+            {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? "Resend Email Code" : "Send Email Verification Code"}
           </button>
 
           {codeSent && (
@@ -227,7 +188,7 @@ export default function Register() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground/60">
-                Verification code sent to +{areaCode} {phone}
+                Verification code sent to {email}
               </p>
             </motion.div>
           )}

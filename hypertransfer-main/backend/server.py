@@ -1460,6 +1460,14 @@ class RegisterInviteIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class RegisterEmailIn(BaseModel):
+    # 开放注册(第一因子=Email OTP, 无手机号)。process v1: 邮箱 OTP 登录/注册。
+    email: str = Field(min_length=3, max_length=120)
+    emailOtp: str = Field(min_length=4, max_length=10)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=128)
+
+
 # --- 2FA 可选 / step-up（PR③）---
 class RegisterActivateSkipIn(BaseModel):
     # 跳过 2FA 直接激活: 手机注册用 areaCode+phoneNumber, 邀请注册用 email 定位 pending 用户
@@ -2124,6 +2132,67 @@ def register_invite(body: RegisterInviteIn):
                 {"userId": uid, "email": email})
     write_audit(uid, "user.register_invite", "user", uid, {"email": email})
 
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
+    return {
+        "email": email,
+        "otpauth_uri": otpauth,
+        "secret": secret,
+        "qr_png_base64": qr_data_uri(otpauth),
+        "expires_at": expires_at,
+        "expires_in": TOTP_ENROLL_TTL,
+    }
+
+
+@app.post("/api/register/email/send-otp")
+def register_email_send_otp(body: EmailOtpIn):
+    """开放注册第一因子: 给 email 发 Email OTP(process v1: 邮箱 OTP, 替代手机短信)。
+    已 active 的邮箱 → 409 引导登录; 其余正常发码(限频在 issue_email_otp 内)。"""
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="邮箱格式无效")
+    with db() as conn:
+        dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
+    if dup and dup["status"] == "active":
+        raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+    issue_email_otp(email)
+    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN}
+
+
+@app.post("/api/register/email")
+def register_email(body: RegisterEmailIn):
+    """开放注册: Email OTP(第一因子) → 建 patron(pending_totp) + TOTP secret。
+    无手机号; 激活复用 confirm-totp(email)。结构同 register_invite 但不需邀请 token。"""
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="邮箱格式无效")
+    with db() as conn:
+        dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
+        if dup and dup["status"] == "active":
+            raise HTTPException(status_code=409, detail="该邮箱已被注册, 请直接登录")
+    verify_email_otp(email, body.emailOtp)        # 第一因子: 邮箱已验真(校验通过即消费)
+    secret = pyotp.random_base32()
+    pw_hash, pw_salt = hash_password(body.password)
+    now = int(time.time())
+    expires_at = now + TOTP_ENROLL_TTL
+    uid = str(uuid.uuid4())
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        if existing:                               # 复用 pending 占位行, 避免 UNIQUE(email) 冲突
+            uid = existing["id"]
+            conn.execute(
+                """UPDATE users SET name=?, pw_hash=?, pw_salt=?, totp_secret=?, status='pending_totp',
+                          user_type='patron', last_counter=NULL, totp_expires_at=? WHERE id=?""",
+                (body.name.strip(), pw_hash, pw_salt, secret, expires_at, uid),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                                     totp_secret, status, user_type, last_counter, totp_expires_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?, 'patron', ?,?,?)""",
+                (uid, None, "", "", body.name.strip(), email, pw_hash, pw_salt,
+                 secret, "pending_totp", None, expires_at, now),
+            )
+    write_audit(uid, "user.register_email", "user", uid, {"email": email})
     otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
     return {
         "email": email,
