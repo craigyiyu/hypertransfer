@@ -21,6 +21,7 @@ __pycache__/
 
 # Local/demo databases
 *.db
+*.db.bak
 *.sqlite
 *.sqlite3
 
