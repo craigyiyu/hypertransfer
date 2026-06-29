@@ -21,22 +21,25 @@
 
 ```bash
 cd hypertransfer-main
-./dev.sh        # 一键起 后端(8000)+前端(3000)，并打印手机访问地址
-# 或手动：backend/run.sh 起后端；另开终端 corepack pnpm dev 起前端
+./dev.sh        # 一键: 装依赖 → 灌演示数据(seed_demo.py) → 起后端(8000)+前端(3000)
+                # Ctrl-C 退出(连带停后端)。打印前端/后台地址 + 取 TOTP 的命令。
 ```
 
-`.env`（仓库外不入 git）建议配：
-- `HT_ADMIN_EMAIL` / `HT_ADMIN_PASSWORD` → 启动自动种一个 **admin 员工账号**（后台演示用，admin 角色可操作全部 4 面板）
-- `SUMSUB_*` → 真实 Sumsub sandbox KYC（已可用）
-- `HEXSAFE_*`（可选）→ 配了走**真实** Hex Safe sandbox 发址/到账/提现；不配则非生产**demo 占位**（流程照走，地址/到账为演示数据）
+`dev.sh` 启动时会自动跑 `backend/seed_demo.py` 灌入"零等待"演示数据（5 个员工 + 1 个已 KYC 客户 + 后台 3 条待办），**每次启动重置为干净初始态**。
+`.env`（仓库外不入 git）：`SUMSUB_*` 已配 → KYC 走真实 sandbox；`HEXSAFE_*` 未配 → 入金发址/到账走 demo 占位（流程照走）。无需再配 `HT_ADMIN_*`，账号由 seed 提供。
 
-### 0.3 演示账号
+### 0.3 演示账号（由 `seed_demo.py` 预置，开箱即用）
 
-| 角色 | 账号 | 说明 |
+> 取员工登录用的 6 位 TOTP（30 秒一变）：`./backend/.venv/bin/python backend/seed_demo.py code`
+> 或把固定 secret `JBSWY3DPEHPK3PXP` 一次性加进 Authenticator 扫码免手输（**demo 专用，非真实凭据**）。
+
+| 角色 | 登录 | 说明 |
 |---|---|---|
-| **客户（patron）** | 走"流程一"现注册；或 `/login` 点 **Use Demo Account** / `demo.user@hypercrypto.com` `Demo@12345` | demo 账号无真实 KYC，适合**只看客户端 UI**；要喂后台真实队列请走真实注册+KYC |
-| **员工（staff）** | `.env` 里 `HT_ADMIN_EMAIL`/`HT_ADMIN_PASSWORD` 种的 admin | **admin 一个账号即可操作全部后台面板**（后端 `require_role` admin 全通） |
-| 要演示 **RBAC 分权** | 用 admin 在「员工管理」面板建 rm / marketing / compliance / custodian 账号，分别登录看"只看到本角色按钮" | 见流程一第 6 步 |
+| **客户（patron）** | `patron.demo@hypercrypto.com` / `Patron@Demo123`（**2FA 关，邮箱+密码直接进**） | KYC 已通过未过期，开箱可走入金/退款；后台队列里已有 ta 的一笔入金 + 一笔退款 |
+| **员工 · admin** | `admin@demo.local` / `Staff@Demo123` + **6 位 TOTP** | **一个 admin 即可操作全部 4 面板**（后端 `require_role` admin 全通） |
+| **员工 · 分角色（演示 RBAC）** | `rm@` / `marketing@` / `compliance@` / `custodian@``demo.local`，同密码 + 同 TOTP | 分别登录看"只看到本角色的面板/按钮"，越权 403 |
+
+> 注：所有员工账号 **staff 强制 2FA**（安全设计，patron 才可关）；同一 TOTP secret 所以一个码对所有员工通用。客户端旧的 `demo.user@hypercrypto.com` / `Use Demo Account` 仍可用，但**无真实后端会话**，喂不进后台真实队列——演示后台闭环请用上面 seed 的账号。
 
 ### 0.4 全局"真实 vs demo"边界（演示时如实说，建立信任）
 
