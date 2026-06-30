@@ -13,7 +13,7 @@
 > **②③④⑤⑥ + ①前端 已全部实现并验证（本批已直接 commit + 推送 main(按用户确认)）**：见 §「入金/退款流真实化 — 构建清单」逐项状态。
 > 已落地：**②KYC 硬阻断**（`require_kyc` 挂 create/screen/issue/main）；**③入金编排后端**（`deposit_requests` 表 + `/api/deposits*` 状态机：create→screen→issue-address→confirm-test(1USDT→写 verified_wallets)→main + staff 队列/marker/settle + forex probe）；**③前端**（NewDeposit/WalletScreening/DepositAddress/MainDeposit backend-first + mock 回退）；**①前端**（RefundProcess 自由地址输入→**verified-wallet picker**，合规红线落地）；**④Forex**（探测端点 + demo 结算，无真实 OTC API 如实回报）；**⑤Marker/Receipt**（demo）；**⑥SMTP**（已 env-gated 真实化 + `.env.example` 补全）+ **迁移**（旧库迁移在副本上验证通过）。
 > 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund 通过；前端 `tsc` + `vite build` 全绿。（浏览器可视化验证被 preview-MCP 沙箱 cwd 故障阻断，非代码问题。）
-> **下一步（需外部依赖，本机无凭据无法做）**：①接 Hex Safe sandbox 真实凭据 → 把 issue-address / 1 USDT 轮询 / refund withdrawal 从 demo 切真实；②真实 Wallet KYT（Chainalysis/TRM 或 Hex Trust KYT 合同端点，现为 server 端 mock adapter 占位，已结构化可换）；③Sumsub 账户激活 Travel Rule 产品后切真实；④生产化（SMTP 真实中继、PostgreSQL 迁移、2FA 可选 + step-up）。
+> **下一步（需外部依赖，本机无凭据无法做）**：①接 Hex Safe sandbox 真实凭据 → 把 issue-address / 1 USDT 轮询 / refund withdrawal 从 demo 切真实；②真实 Wallet KYT = **走 Hex Safe API**（2026-06-29 用户口径：需调研其 KYT 端点；sandbox 暂无文档化端点 → 确认前回落 Chainalysis/TRM/Elliptic；现为 `screen_source_wallet` mock 占位，已结构化可换）；③Sumsub 账户激活 Travel Rule 产品后切真实；④生产化（SMTP 真实中继、PostgreSQL 迁移、2FA 可选 + step-up）。
 > 口径见 `AGENTS.md` 2026-06-28 release note + memory `tr-provider-sumsub`。
 
 ---
@@ -138,7 +138,7 @@
 |---|---|---|---|
 | ✅ | **提交退款请求**：后端退款单端点 + 前端 wallet-picker | 后端真实 + 前端接真实 | `①后端`commit `983ba99` + `①前端`本批：RefundProcess 自由地址输入→verified-wallet picker |
 | ✅ | 重新 KYC（6 个月有效期）校验 | 真实(本地 KYC 表) | `refund_create` 调 `user_kyc_ok`，不过则 `kyc_failed` |
-| 🟡 | 重新 Wallet KYT | mock(可换) | `refund_screen` 由 compliance 录入决策；真实 KYT 同入金 wallet screening 待接 |
+| 🟡 | 重新 Wallet KYT | mock(可换) | `refund_screen` 由 compliance 录入决策；真实 KYT 同入金 wallet screening，**目标=Hex Safe API（需调研其 KYT 端点，sandbox 暂无→回落第三方 KYT）** |
 | ✅ | 管理层审批（后端端点 + 角色守卫 + 留痕） | 真实 | `refund_approve`(compliance/admin) 要求 kyc_ok + kyt pass + 审计 |
 | ✅/🟡 | Vault 余额校验（不足挂起/通知 ops） | 真实(配置时) | `refund_execute` 调 `_hexsafe_vault_has_balance`(配置时)；sandbox 空 vault → insufficient_funds |
 | ✅ | **只能退回原钱包（禁止输新地址；与历史已验证钱包比对）** | 真实 | ⚠️**合规红线落地**：后端 walletId 必属本人 verified_wallets(否则 400)；前端 picker 无自由输入。TestClient + 活动服务器 curl 双验证 |

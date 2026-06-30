@@ -1,10 +1,14 @@
 /**
- * RefundProcess — Customer-facing refund request and destination verification.
+ * RefundProcess — Customer-facing refund / return request.
  * Treasury approval and Hex Safe payout execution stay in the staff portal.
  *
- * 合规红线(process v1 §C / §10): 退款只能退回客户**此前已验证过的原钱包**,
- * 严禁自由输入新地址。本页用 wallet-picker(后端 verified_wallets, demo 回退=入金来源钱包)
- * 取代旧的自由地址输入框。真实登录客户选真实原钱包 → 调 refundApi.create(walletId)。
+ * 口径来源: 最终流程 v1 §C「RETURN」+ 规则 #10/#11
+ *   - 退款金额**不绑定**入金额: 可多可少, 客户端不设上限, 由员工端 "Sufficient Fund in Vault?"
+ *     + 管理层审批兜底(process v1 §C 第 5 步)。后端 /api/refunds 早已接受任意 amountDecimal。
+ *   - 退款只能退回客户**此前已验证过的原钱包**(verified_wallets), 严禁自由输入新地址(规则 #10)。
+ *   - 退款前重新 KYT 筛查(Wallet clear?), 再走管理层审批。
+ * 本页因此重构为 "Return to a verified wallet": 选原钱包 → 输任意金额 → 可选原因 → 提交,
+ * 不再以单笔已完成入金为中心、不再把金额写死成 latestMainTx.amount。
  */
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -40,6 +44,7 @@ const reasonOptions = Object.entries(REFUND_REASON_LABELS) as [RefundReason, str
 interface RefundWalletOption {
   id: string;
   address: string;
+  network: "tron" | "ethereum" | "demo";
   chainLabel: string;
   source: "verified" | "demo";
 }
@@ -61,7 +66,9 @@ export default function RefundProcess() {
   const [reason, setReason] = useState<RefundReason>("customer_cancelled");
   const [verifiedWallets, setVerifiedWallets] = useState<VerifiedWallet[]>([]);
   const [selectedWalletId, setSelectedWalletId] = useState("");
+  const [amount, setAmount] = useState("");
   const [pickError, setPickError] = useState("");
+  const [amountError, setAmountError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // 拉取本人已验证原钱包(后端真实)。失败/为空 → 回退 demo(入金来源钱包)。
@@ -80,37 +87,48 @@ export default function RefundProcess() {
     };
   }, []);
 
+  const asset = state.selectedAsset || "USDT";
+  const request = state.refundRequest;
+  // 仅作"最近一笔入金"参考(留痕/审计用), 退款金额不依赖它。
   const latestMainTx = useMemo(
     () => state.transactions.find((tx) => tx.type === "main" && (tx.status === "confirmed" || tx.status === "cleared")),
     [state.transactions],
   );
-  const refundAmount = parseFloat(latestMainTx?.amount || state.mainDepositAmount) || 0;
-  const hasRefundableDeposit = Boolean(latestMainTx && refundAmount > 0 && state.mainDepositConfirmed);
-  const request = state.refundRequest;
-  const networkLabel = state.selectedNetwork === "tron" ? "TRC-20" : "ERC-20";
 
-  // 候选钱包: 优先后端 verified_wallets; 否则回退到入金来源钱包(demo, 客户已通过筛查+1USDT验证)。
+  // 候选钱包: 优先后端 verified_wallets; 否则回退到入金来源钱包(demo, 客户已通过筛查 + 1 USDT 验证)。
   const walletOptions = useMemo<RefundWalletOption[]>(() => {
     if (verifiedWallets.length) {
-      return verifiedWallets.map((w) => ({
-        id: w.id,
-        address: w.address,
-        chainLabel: w.chainId.includes("tron") ? "TRC-20" : "ERC-20",
-        source: "verified" as const,
-      }));
+      return verifiedWallets.map((w) => {
+        const isTron = w.chainId.includes("tron");
+        return {
+          id: w.id,
+          address: w.address,
+          network: (isTron ? "tron" : "ethereum") as RefundWalletOption["network"],
+          chainLabel: isTron ? "TRC-20" : "ERC-20",
+          source: "verified" as const,
+        };
+      });
     }
     if (state.sourceWallet) {
+      const net = (state.selectedNetwork || "demo") as string;
+      const network: RefundWalletOption["network"] =
+        net === "tron" ? "tron" : net === "ethereum" ? "ethereum" : "demo";
       return [
         {
           id: `demo:${state.sourceWallet}`,
           address: state.sourceWallet,
-          chainLabel: networkLabel,
+          network,
+          chainLabel: network === "tron" ? "TRC-20" : network === "ethereum" ? "ERC-20" : "Demo",
           source: "demo" as const,
         },
       ];
     }
     return [];
-  }, [verifiedWallets, state.sourceWallet, networkLabel]);
+  }, [verifiedWallets, state.sourceWallet, state.selectedNetwork]);
+
+  // 资格: 有已验证原钱包(后端或 demo)即可发起。KYC 闸门在首页入口 + 后端 /api/refunds 已校验。
+  const canRequestRefund = walletOptions.length > 0;
+  const parsedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
 
   // 默认选中首项; 候选变化(后端 verified wallets 异步到达, 替换掉 demo 回退)时, 若当前选中已不在列表则重选。
   useEffect(() => {
@@ -119,25 +137,11 @@ export default function RefundProcess() {
     }
   }, [walletOptions, selectedWalletId]);
 
-  const createRequest = () => {
-    if (!latestMainTx) return;
-    try {
-      const next = createRefundRequest({
-        originalDepositSessionId: latestMainTx.sessionId,
-        originalTxHash: latestMainTx.txHash,
-        asset: latestMainTx.asset,
-        network: latestMainTx.network,
-        amount: refundAmount,
-        reason,
-      });
-      updateState({ refundRequest: next });
-      toast.success("Refund request created", {
-        description: "Select the original wallet to receive the refund.",
-      });
-    } catch (err) {
-      toast.error("Refund unavailable", {
-        description: err instanceof Error ? err.message : "Unsupported asset or network.",
-      });
+  const handleAmountChange = (value: string) => {
+    const normalized = value.replace(/,/g, "");
+    if (/^\d*\.?\d{0,6}$/.test(normalized)) {
+      setAmount(normalized);
+      setAmountError("");
     }
   };
 
@@ -145,31 +149,49 @@ export default function RefundProcess() {
     seedRefundDemo();
     setReason("customer_cancelled");
     setSelectedWalletId("");
+    setAmount("");
     setPickError("");
-    toast.success("Demo refundable deposit loaded", {
-      description: "A cleared 12,500 USDT TRC-20 deposit is ready for refund testing.",
+    setAmountError("");
+    toast.success("Demo verified wallet loaded", {
+      description: "A KYC-approved customer with a verified TRC-20 wallet is ready for refund testing.",
     });
   };
 
-  const submitWallet = async () => {
-    if (!request) return;
+  // 一步提交: 选钱包 + 任意金额 + 原因 → 建退款单(本地状态机展示) + 真实后端 /api/refunds(verified 钱包)。
+  const createRefund = async () => {
     const picked = walletOptions.find((w) => w.id === selectedWalletId);
     if (!picked) {
       setPickError("Select a previously verified wallet to receive the refund.");
       return;
     }
+    if (parsedAmount <= 0) {
+      setAmountError("Enter the amount you want returned.");
+      return;
+    }
     setPickError("");
+    setAmountError("");
     setSubmitting(true);
+
     try {
-      // 真实路径: 选中的是后端已验证原钱包 → 创建真实退款单(强制 walletId, 后端再校验所属)。
+      // 本地退款单(驱动 UI 状态展示)。金额来自用户输入, 与入金额无关。
+      const base = createRefundRequest({
+        originalDepositSessionId: latestMainTx?.sessionId || "",
+        originalTxHash: latestMainTx?.txHash || "",
+        asset,
+        network: picked.network,
+        amount: parsedAmount,
+        reason,
+      });
+
+      // 真实路径: 选中的是后端已验证原钱包 → 创建真实退款单(强制 walletId, 后端再校验所属 + 任意金额)。
       if (picked.source === "verified") {
         try {
           const { data } = await refundApi.create({
             walletId: picked.id,
-            amountDecimal: String(refundAmount),
+            amountDecimal: String(parsedAmount),
             reason,
           });
-          const next = submitRefundForApproval(submitRefundDestination(request, picked.address));
+          const next = submitRefundForApproval(submitRefundDestination(base, picked.address));
           updateState({ refundRequest: { ...next, id: data.requestId } });
           toast.success("Refund request submitted", {
             description: `Request ${data.requestId} — compliance & treasury will review in the staff portal.`,
@@ -187,8 +209,9 @@ export default function RefundProcess() {
           toast.message("Using local demo flow", { description: apiError(err) });
         }
       }
+
       // demo 路径: 仅退回入金来源钱包(已验证), 走本地状态机做 KYT 展示。
-      const next = submitRefundDestination(request, picked.address);
+      const next = submitRefundDestination(base, picked.address);
       updateState({ refundRequest: next });
       if (next.status === "destination_kyt_passed") {
         toast.success("Refund wallet passed KYT", { description: next.kytResult?.reference });
@@ -197,6 +220,11 @@ export default function RefundProcess() {
       } else {
         toast.error("Refund wallet rejected", { description: next.kytResult?.note });
       }
+    } catch (err) {
+      // createRefundRequest 的 Phase 1 资产/网络兜底校验(理论上 USDT + 已验证钱包不会触发)。
+      toast.error("Refund unavailable", {
+        description: err instanceof Error ? err.message : "Unsupported asset or network.",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -212,18 +240,19 @@ export default function RefundProcess() {
   };
 
   return (
-    <Shell showBack backTo="/deposit-success" title="Refund Request" subtitle="Return only to a verified original wallet">
+    <Shell showBack backTo="/dashboard" title="Request a Refund" subtitle="Return funds to a verified wallet">
       <div className="space-y-5">
-        {!hasRefundableDeposit && (
+        {!canRequestRefund && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="card-gold rounded-xl p-5 text-center"
           >
             <Undo2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm font-semibold text-foreground">No refundable deposit found</p>
+            <p className="text-sm font-semibold text-foreground">No verified wallet on file</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              A refund case can only be opened after a completed stablecoin deposit is matched to your account.
+              For your protection, refunds can only be returned to a wallet you previously verified during a deposit.
+              Complete a deposit&apos;s 1 USDT wallet verification first, then funds can be returned to that original wallet.
             </p>
             <button
               onClick={() => navigate("/dashboard")}
@@ -240,49 +269,128 @@ export default function RefundProcess() {
           </motion.div>
         )}
 
-        {hasRefundableDeposit && (
+        {canRequestRefund && (
           <>
-            <div className="card-gold rounded-xl p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Original deposit</p>
-                  <p className="mt-1 text-lg font-semibold text-foreground">
-                    {formatAssetAmount(refundAmount, 0)} {latestMainTx?.asset}
-                  </p>
-                  <p className="text-xs text-gold">≈ {getHKDEquivalent(refundAmount, latestMainTx?.asset)}</p>
-                </div>
-                <span className="rounded-lg bg-gold/10 px-2 py-1 text-[10px] font-semibold text-gold">
-                  {networkLabel}
-                </span>
-              </div>
-              <div className="rounded-lg bg-input px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Original txHash</p>
-                <p className="mt-1 truncate font-mono text-[10px] text-gold">{latestMainTx?.txHash}</p>
-              </div>
-            </div>
-
+            {/* 输入区: 选已验证原钱包 + 任意金额 + 可选原因 (仅在尚未建单时显示) */}
             {!request && (
-              <div className="card-wine rounded-xl p-4 space-y-3">
-                <label className="block text-xs font-medium text-muted-foreground">Refund reason</label>
-                <select
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value as RefundReason)}
-                  className="h-12 w-full rounded-xl border border-border bg-input px-3 text-sm text-foreground outline-none focus:border-gold/50"
+              <>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="card-wine rounded-xl p-4"
                 >
-                  {reasonOptions.map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={createRequest}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold py-4 text-sm font-semibold text-background"
-                >
-                  Create Refund Request
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
+                  <div className="flex items-start gap-3">
+                    <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Return to a verified wallet</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Funds are returned only to a wallet you previously verified — new addresses cannot be entered.
+                        The amount can differ from any single deposit; treasury verifies the vault balance before payout.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* 已验证钱包选择 */}
+                <div className="card-gold rounded-xl p-4 space-y-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Verified wallet</p>
+                  <div className="space-y-2">
+                    {walletOptions.map((w) => {
+                      const active = selectedWalletId === w.id;
+                      return (
+                        <button
+                          key={w.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedWalletId(w.id);
+                            setPickError("");
+                          }}
+                          className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                            active ? "border-gold/70 bg-gold/5" : "border-border bg-input hover:border-gold/40"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-xs text-foreground">{shortAddr(w.address)}</p>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                              {w.chainLabel} · {w.source === "verified" ? "Verified wallet" : "Deposit source wallet"}
+                            </p>
+                          </div>
+                          <span
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                              active ? "border-gold" : "border-border"
+                            }`}
+                          >
+                            {active && <span className="h-2 w-2 rounded-full bg-gold" />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {pickError && (
+                    <p className="flex items-center gap-1.5 text-xs text-destructive">
+                      <AlertTriangle className="h-3 w-3" />
+                      {pickError}
+                    </p>
+                  )}
+                </div>
+
+                {/* 退款金额 (自由输入, 可多可少) */}
+                <div className="card-gold rounded-xl p-4 space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Refund amount</label>
+                  <div className="relative">
+                    <input
+                      inputMode="decimal"
+                      value={amount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      placeholder="0.00"
+                      className="h-14 w-full rounded-xl border border-border bg-input pr-16 pl-3 text-lg font-semibold text-foreground outline-none focus:border-gold/50"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-gold">
+                      {asset}
+                    </span>
+                  </div>
+                  {parsedAmount > 0 && (
+                    <p className="text-xs text-muted-foreground">≈ {getHKDEquivalent(parsedAmount, asset)}</p>
+                  )}
+                  {latestMainTx && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Most recent deposit: {formatAssetAmount(parseFloat(latestMainTx.amount) || 0, 0)} {latestMainTx.asset}
+                      {" "}· the refund amount does not have to match.
+                    </p>
+                  )}
+                  {amountError && (
+                    <p className="flex items-center gap-1.5 text-xs text-destructive">
+                      <AlertTriangle className="h-3 w-3" />
+                      {amountError}
+                    </p>
+                  )}
+                </div>
+
+                {/* 退款原因 (可选, 供员工端审批参考) */}
+                <div className="card-wine rounded-xl p-4 space-y-3">
+                  <label className="block text-xs font-medium text-muted-foreground">Refund reason</label>
+                  <select
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value as RefundReason)}
+                    className="h-12 w-full rounded-xl border border-border bg-input px-3 text-sm text-foreground outline-none focus:border-gold/50"
+                  >
+                    {reasonOptions.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={createRefund}
+                    disabled={submitting || parsedAmount <= 0 || !selectedWalletId}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold py-4 text-sm font-semibold text-background disabled:opacity-50"
+                  >
+                    {submitting ? "Submitting…" : "Create Refund Request"}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </>
             )}
 
+            {/* 已建单: 状态追踪 */}
             {request && (
               <>
                 <div className="card-gold rounded-xl p-4 space-y-3">
@@ -297,6 +405,16 @@ export default function RefundProcess() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded-lg bg-secondary/20 px-3 py-2">
+                      <p className="text-muted-foreground">Amount</p>
+                      <p className="mt-1 text-foreground">
+                        {formatAssetAmount(request.amount, 0)} {request.asset}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-secondary/20 px-3 py-2">
+                      <p className="text-muted-foreground">Destination</p>
+                      <p className="mt-1 truncate font-mono text-foreground">{shortAddr(request.destinationAddress)}</p>
+                    </div>
+                    <div className="rounded-lg bg-secondary/20 px-3 py-2">
                       <p className="text-muted-foreground">Reason</p>
                       <p className="mt-1 text-foreground">{REFUND_REASON_LABELS[request.reason]}</p>
                     </div>
@@ -306,78 +424,6 @@ export default function RefundProcess() {
                     </div>
                   </div>
                 </div>
-
-                {request.status === "address_required" && (
-                  <div className="card-wine rounded-xl p-4 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Choose verified original wallet</p>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          For your protection, refunds can only be returned to a wallet you previously verified during
-                          deposit. New or untested addresses cannot be entered.
-                        </p>
-                      </div>
-                    </div>
-
-                    {walletOptions.length === 0 ? (
-                      <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-3 text-xs text-warning">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          No verified wallet on file. Complete a deposit&apos;s 1 USDT wallet verification first, then
-                          the refund can be returned to that original wallet.
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {walletOptions.map((w) => {
-                          const active = selectedWalletId === w.id;
-                          return (
-                            <button
-                              key={w.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedWalletId(w.id);
-                                setPickError("");
-                              }}
-                              className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                                active ? "border-gold/70 bg-gold/5" : "border-border bg-input hover:border-gold/40"
-                              }`}
-                            >
-                              <div className="min-w-0">
-                                <p className="truncate font-mono text-xs text-foreground">{shortAddr(w.address)}</p>
-                                <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                                  {w.chainLabel} · {w.source === "verified" ? "Verified wallet" : "Deposit source wallet"}
-                                </p>
-                              </div>
-                              <span
-                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                                  active ? "border-gold" : "border-border"
-                                }`}
-                              >
-                                {active && <span className="h-2 w-2 rounded-full bg-gold" />}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {pickError && (
-                      <p className="flex items-center gap-1.5 text-xs text-destructive">
-                        <AlertTriangle className="h-3 w-3" />
-                        {pickError}
-                      </p>
-                    )}
-                    <button
-                      onClick={submitWallet}
-                      disabled={submitting || walletOptions.length === 0}
-                      className="w-full rounded-xl bg-gold py-4 text-sm font-semibold text-background disabled:opacity-50"
-                    >
-                      {submitting ? "Submitting…" : "Submit Refund to Verified Wallet"}
-                    </button>
-                  </div>
-                )}
 
                 {request.status === "destination_kyt_passed" && (
                   <div className="card-wine rounded-xl p-4 space-y-3 border-success/30">
@@ -414,7 +460,7 @@ export default function RefundProcess() {
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                           {request.status === "completed"
                             ? `Transfer ${request.payout.transferId} was completed on-chain.`
-                            : "Casino treasury and compliance staff must approve the payout before Hex Safe signing."}
+                            : "Casino treasury and compliance staff must approve the payout (including vault balance) before Hex Safe signing."}
                         </p>
                         {request.payout.txHash && (
                           <p className="mt-2 truncate font-mono text-[10px] text-gold">{request.payout.txHash}</p>

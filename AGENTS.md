@@ -71,7 +71,8 @@ corepack pnpm run build
 ## 业务规则
 
 > **⚠️ 最新口径（2026-06-23《HyperTransfer 最终流程 v1》，优先级最高）**：客户已确认最终流程 `ProjectInfo/20260623_Hypertransfer_process_v1.md`，决策记录 + 改造方案见 `ProjectInfo/20260623-System-Adjustment-Plan-vs-Process-v1.md` §〇。以下与之冲突的旧表述以 v1 决策为准：
-> - **退款**：只退回客户此前提供并验证过的**原钱包地址之一、不能输新地址**、退款前再次合规筛查（**取代**本文件下方及历史 Release Notes 中"客户确认新 destination wallet / 不要默认原路退回"）。原钱包失效走线下，不在 APP scope。
+> - **退款**：只退回客户此前提供并验证过的**原钱包地址之一、不能输新地址**、退款前再次合规筛查（**取代**本文件下方及历史 Release Notes 中"客户确认新 destination wallet / 不要默认原路退回"）。原钱包失效走线下，不在 APP scope。**退款金额不绑定入金额（可多可少），客户端不设上限——对应 process v1 §C「Sufficient Fund in Vault?」由员工端 vault 余额校验 + 管理层审批兜底；后端 `/api/refunds` 已支持任意 `amountDecimal`。退款入口在 Dashboard（KYC approved + 有 verified wallet 才可点）+ `/refund` 页（重构为"退回已验证钱包"：选已验证原钱包 + 自由输入金额 + 可选原因，不再以单笔入金为中心、不再写死金额）。**
+> - **三道合规闸门执行方（2026-06-29 用户确认，入金/退款通用）**：① **KYC** = Sumsub API 自动核验，有效期 6 个月、超期重做。② **Wallet KYT（来源/退款原钱包筛查）** = 走 **Hex Safe API**（需调研其 KYT 端点；sandbox 暂无文档化端点 → 确认前回落 Chainalysis/TRM/Elliptic；现为 `screen_source_wallet` mock 占位）。③ **Sufficient Fund in Vault** = **人工登录 Hex Trust 后台**核对 vault 余额，非应用内自动查。casino-ops 退款队列 UI（`RefundQueuePanel.tsx`）已为每道闸门标注 provider。
 > - **Travel Rule 阈值**：USD 1,000 ≈ HKD 8,000（**取代** 8000；旧 8000 实为把港币法定门槛当美元的 bug）。✅ 代码已改。
 > - **资产**：Phase 1 仅 USDT（**取代** USDT+USDC；USDC 前端禁用、保留代码备 Phase 2）。✅ 代码已改。
 > - **注册 / 2FA**：邀请制 + Email OTP（短信留 step-up）、2FA 可选 + 入金/退款 step-up 强制（已决策，代码待改造）。
@@ -221,6 +222,20 @@ Demo 登录：
 - 新增 / 修改 / 删除的关键代码文件。
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
+
+### 2026-06-29 退款重构（退回已验证钱包 + 自由金额 + 首页入口）+ 两处入金流 bug 修复
+
+- **日期 / 范围**：2026-06-29。HyperTransfer 客户端入金 / 退款流。线上测试入口同 §线上测试入口（`/dashboard`、`/refund`、`/new-deposit`、`/casino-ops`）。
+- **客户端入口变化**：
+  - **退款入口加到首页 Dashboard**（`pages/Dashboard.tsx` 新增「Request a refund」卡片）；**门槛**：KYC approved **且**至少一个已验证原钱包（后端 `refundApi.wallets()`，demo 回退=本会话已完成入金的来源钱包）才可点，否则置灰 + 文案提示。`/refund` 返回键改回 `/dashboard`（原为 `/deposit-success`）。
+- **客户端功能 / 行为变化**：
+  - **`/refund` 重构为"退回已验证钱包"**（`pages/RefundProcess.tsx`）：不再以单笔已完成入金为中心、不再把金额写死成 `latestMainTx.amount`。改为 **选已验证原钱包 → 自由输入退款金额（可多可少，带 HKD 估值）→ 可选原因 → 创建**。资格 = 有已验证钱包。明确提示"金额可与入金不同；treasury 放款前校验 vault 余额"。
+  - **Bug 修复①（退款报错）**：「Demo: skip & continue」把网络设为占位 `"demo"`，导致 `createRefundRequest` 的 Phase 1 网络白名单拦截抛 "Refunds are limited to supported Phase 1 stablecoin assets and networks."。现让 `"demo"` 占位**网络**豁免网络白名单（资产白名单仍始终生效，demo 也只用 USDT）；真实网络照旧拦截。
+  - **Bug 修复②（Travel Rule 跳回 1 USDT 验证页）**：`pages/TravelRule.tsx` 完成后**无条件** `navigate("/deposit-address")`，导致从 main_input「Proceed」绕到 TR 提交后被弹回"先发 1 USDT"说明页（还会重新发址覆盖原地址）。现按阶段返回：已发址 / 已过验证步骤（`testPaymentConfirmed || depositAddress`）回 `/main-deposit` 续主入金，否则才回 `/deposit-address`。
+- **业务规则 / 合规口径**：对齐 process v1 §C / 规则 #10·#11——退款**只退已验证原钱包**（前端 picker 禁自由输入 + 后端 `refund_create` 校验 walletId 必属本人 `verified_wallets`，双重落地）；退款**金额不绑定入金额**（后端 `/api/refunds` 已支持任意 `amountDecimal`），上限由员工端 vault 余额 + 管理层审批兜底（对应 "Sufficient Fund in Vault?"）。`REFUND_PROCESS_STEPS` 文案同步对齐（第 2 步=选已验证原钱包、第 4 步=审批含 vault 余额）。
+- **关键代码文件**：`client/src/pages/RefundProcess.tsx`（重写）、`client/src/pages/Dashboard.tsx`（入口 + 门槛）、`client/src/lib/refund-process.ts`（demo 网络豁免 + steps 文案）、`client/src/pages/TravelRule.tsx`（返回路由）。
+- **验证**：`corepack pnpm run check`（tsc）✅ + `corepack pnpm run build` ✅。浏览器自动验证**未跑**：preview 工具在本机环境无法 spawn（沙箱 getcwd / Operation not permitted），dev server 已恢复在 3000 供人工眼测。
+- **已知限制 / mock 边界**：vault 余额是否充足、管理层审批、Hex Safe 放款仍是 `/casino-ops` 退款队列 mock（compliance screen → approve → execute）——demo **不会真的校验 vault 余额**，属 treasury 侧职责。退款金额客户端不设上限，真实放行需 funded vault + Hex Safe quorum。
 
 ### 2026-06-28 内部管理界面（staff 后台 4 块接真实后端）
 

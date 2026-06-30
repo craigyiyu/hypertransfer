@@ -109,9 +109,14 @@ export default function RefundQueuePanel() {
         </button>
       </div>
 
-      <p className="mb-3 text-[11px] text-muted-foreground">
+      <p className="mb-2 text-[11px] text-muted-foreground">
         Your roles: {(user?.roles ?? []).join(", ") || "—"} · Refunds return only to a customer&apos;s previously-verified
         original wallet (enforced server-side).
+      </p>
+      <p className="mb-3 rounded-lg border border-border/40 bg-background/30 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
+        Gate execution — <span className="text-foreground">KYC</span>: Sumsub API (auto, valid 6 months; re-do on expiry) ·{" "}
+        <span className="text-foreground">Wallet KYT</span>: Hex Safe API (re-screen original wallet — currently mock, endpoint TBD) ·{" "}
+        <span className="text-foreground">Sufficient funds</span>: checked manually in the Hex Trust portal before custodian payout.
       </p>
 
       {error && (
@@ -141,8 +146,8 @@ export default function RefundQueuePanel() {
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Amount">{r.amountDecimal} {r.asset}</Field>
                 <Field label="Chain">{r.chainId}</Field>
-                <Field label="KYC">{r.kycOk ? "ok" : "failed"}</Field>
-                <Field label="Wallet KYT">{r.kytStatus || "not screened"}</Field>
+                <Field label="KYC" hint="Sumsub · 6-mo">{r.kycOk ? "ok" : "failed"}</Field>
+                <Field label="Wallet KYT" hint="Hex Safe API · mock">{r.kytStatus || "not screened"}</Field>
                 <Field label="Original wallet (verified)">
                   <span className="font-mono">{shortAddr(r.toAddress)}</span>
                 </Field>
@@ -198,11 +203,12 @@ export default function RefundQueuePanel() {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <div className="rounded-lg bg-background/40 px-3 py-2">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-xs text-foreground">{children}</p>
+      {hint && <p className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground/50">{hint}</p>}
     </div>
   );
 }

@@ -89,23 +89,23 @@ export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
 export const REFUND_PROCESS_STEPS = [
   {
     title: "Customer request",
-    detail: "Customer or support opens a refund case against a completed deposit.",
+    detail: "Customer opens a refund request and enters the amount to return (it can differ from any single deposit).",
   },
   {
-    title: "Refund address collection",
-    detail: "Customer confirms the refund destination through an authenticated one-time flow.",
+    title: "Verified wallet selection",
+    detail: "Customer chooses a previously verified original wallet — new addresses cannot be entered.",
   },
   {
     title: "Destination wallet KYT",
-    detail: "HyperTransfer screens the refund wallet before any payout approval.",
+    detail: "HyperTransfer re-screens the original wallet before any payout approval.",
   },
   {
     title: "Treasury approval",
-    detail: "Casino treasury/compliance approves amount, reason, evidence, and policy match.",
+    detail: "Casino treasury/compliance approves the amount, reason, and available vault balance.",
   },
   {
     title: "Hex Safe payout",
-    detail: "Custody adapter submits, signs, broadcasts, and tracks the refund transfer.",
+    detail: "Custody adapter submits, signs, broadcasts, and tracks the refund to the original wallet.",
   },
 ] as const;
 
@@ -117,7 +117,10 @@ export function createRefundRequest(input: {
   amount: number;
   reason: RefundReason;
 }): RefundRequest {
-  if (!isSupportedPhaseOneAsset(input.asset) || !isPhaseOneNetwork(input.asset, input.network)) {
+  // 资产白名单始终生效(demo 也只用 USDT, 本就合规)。"demo" 是 DEV demo-pass 的占位网络
+  // (见 NewDeposit.demoContinue / formatNetworkRail), 不是真链, 仅对它豁免网络白名单校验。
+  const isDemoNetwork = input.network === "demo";
+  if (!isSupportedPhaseOneAsset(input.asset) || (!isDemoNetwork && !isPhaseOneNetwork(input.asset, input.network))) {
     throw new Error("Refunds are limited to supported Phase 1 stablecoin assets and networks.");
   }
 

@@ -15,15 +15,39 @@ import {
   User,
   HelpCircle,
   Lock,
+  Undo2,
 } from "lucide-react";
 import { formatAssetAmount } from "@/lib/currency";
+import { refundApi, type VerifiedWallet } from "@/lib/api";
 import SessionRecovery from "@/components/SessionRecovery";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
+  const [verifiedWallets, setVerifiedWallets] = useState<VerifiedWallet[]>([]);
+
+  // 拉取本人已验证原钱包(后端真实); 失败/为空 → 回退 demo 信号(本会话已完成入金的来源钱包)。
+  useEffect(() => {
+    let alive = true;
+    refundApi
+      .wallets()
+      .then(({ data }) => {
+        if (alive) setVerifiedWallets(data.wallets || []);
+      })
+      .catch(() => {
+        if (alive) setVerifiedWallets([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const kycApproved = state.kyc.status === "approved";
+  // 退款门槛(process v1 §C): KYC 通过 + 至少一个已验证原钱包(后端 verified_wallets, 或 demo: 本会话已完成入金)。
+  const hasVerifiedWallet = verifiedWallets.length > 0 || (state.mainDepositConfirmed && Boolean(state.sourceWallet));
+  const canRefund = kycApproved && hasVerifiedWallet;
   
   const accountStatus = (() => {
     switch (state.kyc.status) {
@@ -176,6 +200,38 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.button>
+
+        {/* Refund / Return funds */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="card-gold rounded-xl p-4"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <Undo2 className="w-3.5 h-3.5 text-gold" />
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Return Funds</span>
+              </div>
+              <p className="text-sm font-semibold text-foreground">Request a refund</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                {canRefund
+                  ? "Return any amount to a wallet you previously verified."
+                  : kycApproved
+                  ? "Verify a wallet by completing a deposit's 1 USDT check first."
+                  : "Finish KYC and verify a wallet before requesting a refund."}
+              </p>
+            </div>
+            <button
+              onClick={() => navigate("/refund")}
+              disabled={!canRefund}
+              className="shrink-0 rounded-xl px-4 py-2.5 text-xs font-semibold border border-gold/40 text-gold hover:bg-gold/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
+              Request
+            </button>
+          </div>
+        </motion.div>
 
         {/* Pending alert */}
         {pendingTx > 0 && (

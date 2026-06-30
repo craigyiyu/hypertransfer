@@ -135,7 +135,10 @@ export default function TravelRule() {
 
     if (canPass) {
       toast.success("Travel Rule gate accepted", { description: providerReference });
-      navigate("/deposit-address");
+      // 若已发址 / 已过 1 USDT 验证步骤(从 main_input 的"Proceed"绕到 TR 这里), 直接回主入金,
+      // 不要再弹回 /deposit-address 那个"先发 1 USDT"说明页 —— 用户已经验证过了。
+      const alreadyInDepositSession = state.testPaymentConfirmed || Boolean(state.depositAddress);
+      navigate(alreadyInDepositSession ? "/main-deposit" : "/deposit-address");
       return;
     }
 
