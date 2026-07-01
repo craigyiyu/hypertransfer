@@ -2197,7 +2197,8 @@ def email_send_otp(body: EmailOtpIn):
     )
     if eligible:
         issue_email_otp(email)
-    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN}
+    # demo(DEMO_BYPASS_2FA): 告知前端可自动填码(verify_email_otp 接受任意 6 位)。
+    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN, "demo": bool(DEMO_BYPASS_2FA)}
 
 
 @app.post("/api/register/invite")
@@ -2208,12 +2209,18 @@ def register_invite(body: RegisterInviteIn):
     inv = get_invitation_by_token(body.token)
     if not inv:
         raise HTTPException(status_code=404, detail="Invalid invitation link")
-    invitation_is_redeemable(inv, email)
+    # demo(DEMO_BYPASS_2FA): 放宽 —— 允许重复注册 / 已消费或过期邀请, 演示可反复跑并始终"创建成功"。
+    demo = bool(DEMO_BYPASS_2FA)
+    if demo:
+        if normalize_email(inv["patron_email"]) != email:
+            raise HTTPException(status_code=400, detail="Email does not match the invitation")
+    else:
+        invitation_is_redeemable(inv, email)
 
-    # 邮箱不可被其他账户占用(并发/重复注册防护)。
+    # 邮箱不可被其他账户占用(并发/重复注册防护);demo 下允许覆盖重注册。
     with db() as conn:
         dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
-        if dup and dup["status"] == "active":
+        if dup and dup["status"] == "active" and not demo:
             raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
 
     verify_email_otp(email, body.emailOtp)  # 第一因子:邮箱已验真(校验通过即消费)
@@ -2226,7 +2233,7 @@ def register_invite(body: RegisterInviteIn):
     with db() as conn:
         # 二次确认邀请仍 issued(并发安全)
         inv2 = conn.execute("SELECT * FROM invitations WHERE id=?", (inv["id"],)).fetchone()
-        if not inv2 or inv2["status"] != "issued":
+        if not inv2 or (inv2["status"] != "issued" and not demo):
             raise HTTPException(status_code=409, detail="This invitation link is no longer valid")
         # email 可能已有 pending_totp 占位行 → 复用其 id;否则新建。
         existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()

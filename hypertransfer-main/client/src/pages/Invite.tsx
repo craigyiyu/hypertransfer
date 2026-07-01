@@ -105,7 +105,13 @@ export default function Invite() {
       const { data } = await emailApi.sendOtp(email);
       setCodeSent(true);
       setCooldown(data.cooldown || 60);
-      toast.success("Verification code sent. Please check your email.");
+      // demo: 自动填入验证码(后端 DEMO_BYPASS_2FA 下任意 6 位通过), 免去查邮件。
+      if (data.demo) {
+        setVerificationCode("000000");
+        toast.success("Demo: verification code auto-filled — just click Continue.");
+      } else {
+        toast.success("Verification code sent. Please check your email.");
+      }
     } catch (e) {
       toast.error(apiError(e));
     } finally {

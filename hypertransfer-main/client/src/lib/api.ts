@@ -262,7 +262,7 @@ export const invitationApi = {
 export const emailApi = {
   // 邀请注册第一因子:仅对已 issued 邀请的 email 发码(后端防枚举)
   sendOtp: (email: string) =>
-    api.post<{ ok: boolean; cooldown: number }>("/email/send-otp", { email }),
+    api.post<{ ok: boolean; cooldown: number; demo?: boolean }>("/email/send-otp", { email }),
 };
 
 export const inviteAuthApi = {
