@@ -29,6 +29,14 @@ export default function DepositSuccess() {
     ? formatAssetAmount(depositAmount, 0)
     : state.mainDepositAmount;
 
+  // 完成页对账信息: 链上交易哈希 + reference/transaction ID(供对账 + HK marketing 出 marker)。
+  const mainTx = state.transactions.find(
+    (t) => t.type === "main" && (t.status === "confirmed" || t.status === "cleared"),
+  );
+  const txHash = state.hexSafeStatus?.txHash || mainTx?.txHash || "";
+  const referenceId = state.depositRequestId || (txHash ? "HT-" + txHash.slice(2, 12).toUpperCase() : "—");
+  const shortHash = txHash ? `${txHash.slice(0, 10)}…${txHash.slice(-8)}` : "—";
+
   return (
     <Shell showProgress={false}>
       <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
@@ -84,6 +92,16 @@ export default function DepositSuccess() {
             <span className="text-foreground">{formatNetworkRail(state.selectedNetwork)}</span>
           </div>
           <div className="h-px bg-border" />
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground shrink-0">Transaction hash</span>
+            <span className="font-mono text-[10px] text-foreground truncate">{shortHash}</span>
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground shrink-0">Reference ID</span>
+            <span className="font-mono text-[11px] text-gold">{referenceId}</span>
+          </div>
+          <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Payment Status</span>
             <span className="text-success flex items-center gap-1">
@@ -94,7 +112,7 @@ export default function DepositSuccess() {
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Settlement</span>
             <span className="text-gold flex items-center gap-1">
-              <Clock className="w-3 h-3" /> In progress
+              <Clock className="w-3 h-3" /> In progress · pending marker
             </span>
           </div>
         </motion.div>
@@ -111,7 +129,7 @@ export default function DepositSuccess() {
             <div className="text-left">
               <p className="text-xs text-foreground font-medium">What happens next</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Once the funds are cleared by the custodian, the equivalent HKD amount will be credited to your account. You will receive a notification when settlement is complete.
+                Settlement stays <span className="text-gold">in progress</span> until the marketing team issues a marker for this reference. Status updates automatically once Hex Trust confirms the funds. You&apos;ll be notified when settlement completes.
               </p>
             </div>
           </div>

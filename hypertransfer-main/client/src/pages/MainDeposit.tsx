@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
-import { getHKDEquivalent, convertToHKD, formatHKD } from "@/lib/currency";
+import { getHKDEquivalent, convertToHKD, formatHKD, getExchangeRate, computeDepositFees } from "@/lib/currency";
 import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule, TRAVEL_RULE_THRESHOLD_USD } from "@/lib/compliance";
 import {
   createCustodyLogs,
@@ -399,20 +399,45 @@ export default function MainDeposit() {
               >
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposit Summary</p>
                 <div className="space-y-2">
+                  {/* 汇率(Hex Trust API, demo 值) —— 以 HKD 展示(非 MOP) */}
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Deposit Amount</span>
-                    <span className="text-foreground font-medium">{state.selectedAsset} {formatAssetAmount(mainAmount)}</span>
+                    <span className="text-muted-foreground">Exchange rate · Hex Trust</span>
+                    <span className="text-foreground">1 {state.selectedAsset} ≈ {formatHKD(getExchangeRate("USDT", "HKD"))}</span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground/70">
-                    On-chain gas is paid by the sender; the full amount is credited.
-                  </p>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Deposit amount</span>
+                    <span className="text-foreground font-medium">
+                      {state.selectedAsset} {formatAssetAmount(mainAmount)} · {formatHKD(convertToHKD(mainAmount, state.selectedAsset))}
+                    </span>
+                  </div>
+
+                  {/* 费用明细(确认前展示) */}
+                  <div className="border-t border-border/30 pt-2 space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Fees</p>
+                    {computeDepositFees().map((f) => (
+                      <div key={f.key} className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground">{f.label}</span>
+                        {f.waived ? (
+                          <span className="text-success">Waived · {f.note}</span>
+                        ) : (
+                          <span className="text-foreground">
+                            {f.unit === "USD" ? `$${f.amount.toFixed(2)}` : `${f.amount} ${f.unit}`} · {formatHKD(f.hkd)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
-                    <span className="text-foreground font-semibold">You'll Receive</span>
+                    <span className="text-foreground font-semibold">Credited to account</span>
                     <div className="text-right">
                       <span className="text-gold font-semibold">{state.selectedAsset} {formatAssetAmount(netReceive)}</span>
                       <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
                     </div>
                   </div>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    On-chain gas is covered by Hex Trust; the full deposit amount is credited.
+                  </p>
                 </div>
               </motion.div>
             )}
@@ -431,7 +456,7 @@ export default function MainDeposit() {
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground/60">
-                Same verified address &middot; {state.selectedNetwork} network only
+                Same verified address &middot; {formatNetworkRail(state.selectedNetwork)} network only
               </p>
             </div>
 

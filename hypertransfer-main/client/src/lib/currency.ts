@@ -118,6 +118,38 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
 }
 
 /**
+ * Deposit fee model (operator SOP). DEMO 值 —— 真实值待接 Hex Trust / Sumsub。
+ * - networkFeeUsdt: 链上网络费, **客户承担**(per SOP)。
+ * - walletScreeningFeeUsd: 钱包筛查(Sumsub KYT)服务费, 目前琐碎但逻辑先建。
+ * - gasFeeWaived: 托管侧 gas 由 Hex Trust 先垫 → 豁免则显示 0。
+ */
+export const DEPOSIT_FEE_MODEL = {
+  networkFeeUsdt: 0.03,
+  walletScreeningFeeUsd: 2,
+  gasFeeWaived: true,
+};
+
+export interface DepositFeeLine {
+  key: string;
+  label: string;
+  unit: "USDT" | "USD";
+  amount: number;
+  hkd: number;
+  waived?: boolean;
+  note?: string;
+}
+
+/** 确认前展示的费用明细(USD≈USDT 按 demo 汇率折 HKD)。 */
+export function computeDepositFees(): DepositFeeLine[] {
+  const { networkFeeUsdt, walletScreeningFeeUsd, gasFeeWaived } = DEPOSIT_FEE_MODEL;
+  return [
+    { key: "network", label: "Network fee (borne by customer)", unit: "USDT", amount: networkFeeUsdt, hkd: convertToHKD(networkFeeUsdt, "USDT") },
+    { key: "screening", label: "Wallet screening (Sumsub)", unit: "USD", amount: walletScreeningFeeUsd, hkd: convertToHKD(walletScreeningFeeUsd, "USDT") },
+    { key: "gas", label: "Network gas", unit: "USDT", amount: 0, hkd: 0, waived: gasFeeWaived, note: "Covered by Hex Trust" },
+  ];
+}
+
+/**
  * Network fee estimates (in USDT)
  * These are approximate values; real values would come from the blockchain
  */
