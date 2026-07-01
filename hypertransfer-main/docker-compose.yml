@@ -1,6 +1,6 @@
 # HyperTransfer 一键部署:前端(nginx 静态+反代) + 后端(FastAPI) + SQLite 持久化卷
 # 用法:  docker compose up -d --build
-# 访问:  http://<服务器IP>:${WEB_PORT:-8080}
+# 访问:  http://<服务器IP>:${WEB_PORT:-8090}
 
 services:
   backend:
@@ -46,7 +46,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-8090}:80"
 
 volumes:
   ht-db:
