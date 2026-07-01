@@ -134,7 +134,7 @@ export default function Invite() {
       const pending: PendingRegister = {
         areaCode: "", phoneNumber: "", name, email,
         qr: data.qr_png_base64, secret: data.secret, otpauth: data.otpauth_uri,
-        expiresAt: data.expires_at, viaEmail: true,
+        expiresAt: data.expires_at, viaEmail: true, demo: data.demo,
       };
       sessionStorage.setItem(PENDING_REGISTER_KEY, JSON.stringify(pending));
       updateState({ patronName: name, patronEmail: email });

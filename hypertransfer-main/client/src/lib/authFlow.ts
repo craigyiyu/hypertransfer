@@ -16,6 +16,7 @@ export interface PendingRegister {
   expiresAt: number; // 绑定会话截止(Unix 秒)
   // 邀请注册无手机号 → Setup2FA 用 email 激活 TOTP，且不提供「免短信重生成」入口。
   viaEmail?: boolean;
+  demo?: boolean;   // demo: Setup2FA 自动填 6 位码(confirm-totp 接受任意 6 位)
 }
 
 export interface LoginChallenge {

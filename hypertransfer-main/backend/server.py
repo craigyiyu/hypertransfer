@@ -1364,6 +1364,11 @@ def get_invitation_by_token(token: str) -> Optional[sqlite3.Row]:
 
 def invitation_is_redeemable(row: sqlite3.Row, email: str) -> None:
     """校验邀请可用于注册:status=issued、未过期、未消费、email 匹配。失败抛 4xx。"""
+    # demo(DEMO_BYPASS_2FA): 只校验 email 匹配, 放宽 consumed/expired/status —— 演示可反复跑同一链接。
+    if DEMO_BYPASS_2FA:
+        if normalize_email(row["patron_email"]) != normalize_email(email):
+            raise HTTPException(status_code=400, detail="Email does not match the invitation")
+        return
     if row["status"] == "consumed":
         raise HTTPException(status_code=409, detail="This invitation link has already been used")
     if row["status"] != "issued":
@@ -1621,9 +1626,14 @@ def confirm_totp(body: ConfirmIn):
             exp = user["totp_expires_at"]
             if exp is not None and int(time.time()) > exp:
                 raise HTTPException(status_code=410, detail="Enrollment timed out, please go back and get a new QR code")
-        counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
-        if counter is None:
-            raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
+        # 演示旁路(非生产): 任意 6 位码即激活, 免去演示现场取 TOTP(与 login/verify 一致)。
+        if DEMO_BYPASS_2FA and len(body.code) == 6 and body.code.isdigit():
+            print(f"[demo-bypass] confirm-totp accepted without TOTP verify for user {user['id']}")
+            counter = user["last_counter"] or 0
+        else:
+            counter = verify_totp(user["totp_secret"], body.code, user["last_counter"])
+            if counter is None:
+                raise HTTPException(status_code=400, detail="Verification code is incorrect or expired")
         conn.execute(
             "UPDATE users SET status='active', totp_enabled=1, last_counter=?, totp_expires_at=NULL WHERE id=?",
             (counter, user["id"]),
@@ -2272,6 +2282,7 @@ def register_invite(body: RegisterInviteIn):
         "qr_png_base64": qr_data_uri(otpauth),
         "expires_at": expires_at,
         "expires_in": TOTP_ENROLL_TTL,
+        "demo": demo,   # demo: 前端 Setup2FA 据此自动填 6 位码(confirm-totp 接受任意 6 位)
     }
 
 

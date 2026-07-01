@@ -117,6 +117,7 @@ export interface RegisterInviteResult {
   qr_png_base64: string;
   expires_at: number;
   expires_in: number;
+  demo?: boolean;   // demo: Setup2FA 据此自动填 6 位码(confirm-totp 接受任意 6 位)
 }
 
 export interface InvitationVerifyResult {
