@@ -15,6 +15,7 @@ import {
   type HexSafeVault,
   type HexSafeAddress,
 } from "@/lib/api";
+import { LabeledInput } from "@/components/ops-ui";
 
 // Phase 1 稳定币 rail 的 sandbox testnet 链(chainId 来自 GET /supported_chains)
 const CHAIN_OPTIONS = [
@@ -231,35 +232,37 @@ export default function HexSafeLivePanel() {
               <SendHorizontal className="h-3.5 w-3.5" /> Withdrawal / Refund (real fund action — release via Hex Safe approval/quorum)
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
-              <input
+              <LabeledInput
+                label="Ticker"
                 value={wd.ticker}
                 onChange={(e) => setWd({ ...wd, ticker: e.target.value })}
-                placeholder="ticker (USDT)"
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+                placeholder="USDT"
               />
-              <input
+              <LabeledInput
+                label="Chain ID"
                 value={wd.chainId}
                 onChange={(e) => setWd({ ...wd, chainId: e.target.value })}
-                placeholder="chainId (11155111)"
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+                placeholder="e.g. 11155111"
               />
-              <input
+              <LabeledInput
+                label="Amount"
                 value={wd.amountDecimal}
                 onChange={(e) => setWd({ ...wd, amountDecimal: e.target.value })}
-                placeholder="amount"
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+                placeholder="0.00"
               />
-              <input
+              <LabeledInput
+                label="From (vault address)"
+                containerClassName="sm:col-span-3"
                 value={wd.fromAddress}
                 onChange={(e) => setWd({ ...wd, fromAddress: e.target.value })}
-                placeholder="from (vault address)"
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm sm:col-span-3"
+                placeholder="Vault address funds are released from"
               />
-              <input
+              <LabeledInput
+                label="To (customer's previously-verified wallet)"
+                containerClassName="sm:col-span-3"
                 value={wd.toAddress}
                 onChange={(e) => setWd({ ...wd, toAddress: e.target.value })}
-                placeholder="to (customer's previously-verified wallet)"
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm sm:col-span-3"
+                placeholder="Customer's previously-verified wallet address"
               />
             </div>
             <button

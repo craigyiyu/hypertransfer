@@ -10,7 +10,7 @@ import { UserCog, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminApi, apiError } from "@/lib/api";
-import { ActionBtn, Pill } from "@/components/ops-ui";
+import { ActionBtn, LabeledInput, Pill } from "@/components/ops-ui";
 
 const ASSIGNABLE_ROLES = ["rm", "marketing", "compliance", "ops", "custodian", "admin"] as const;
 
@@ -89,24 +89,25 @@ export default function StaffAdminPanel() {
       ) : (
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-3">
-            <input
+            <LabeledInput
+              label="Full name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Full name"
-              className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+              placeholder="Staff full name"
             />
-            <input
+            <LabeledInput
+              label="Email"
+              type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="Email"
-              className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+              placeholder="name@hypervelocity.hk"
             />
-            <input
+            <LabeledInput
+              label="Temp password"
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="Temp password"
-              className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm"
+              placeholder="One-time password"
             />
           </div>
           <div className="flex flex-wrap gap-2">

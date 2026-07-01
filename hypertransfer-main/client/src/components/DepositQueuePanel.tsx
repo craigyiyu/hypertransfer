@@ -108,13 +108,15 @@ export default function DepositQueuePanel() {
                 </Field>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-end gap-2">
                 {canMarker && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Marker ref</span>
+                    <div className="flex items-center gap-1.5">
                     <input
                       value={markerDraft[d.id] ?? d.markerRef ?? ""}
                       onChange={(e) => setMarkerDraft({ ...markerDraft, [d.id]: e.target.value })}
-                      placeholder="Marker ref"
+                      placeholder="External marker reference"
                       className="w-32 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-xs font-mono"
                     />
                     <ActionBtn
@@ -124,6 +126,7 @@ export default function DepositQueuePanel() {
                     >
                       Save marker
                     </ActionBtn>
+                    </div>
                   </div>
                 )}
                 {showSettle && (

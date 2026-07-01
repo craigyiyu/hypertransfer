@@ -2,10 +2,31 @@
  * ops-ui — casino-ops 后台面板共用的小型展示组件(Pill / Field / ActionBtn / 头部)。
  * 黑金风, 与 HexSafeLivePanel / RefundQueuePanel 视觉一致。
  */
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, InputHTMLAttributes, ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 
 export type Tone = "success" | "warning" | "danger" | "neutral";
+
+/**
+ * LabeledInput — 表单输入框 + **上方字段名标签**(取代只把字段名放进 placeholder 的写法)。
+ * `containerClassName` 用于 grid col-span 等布局; `className` 透传到 <input>。
+ */
+export function LabeledInput({
+  label,
+  className = "",
+  containerClassName = "",
+  ...props
+}: { label: string; containerClassName?: string } & InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <label className={`flex flex-col gap-1 ${containerClassName}`}>
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+      <input
+        {...props}
+        className={`rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50 ${className}`}
+      />
+    </label>
+  );
+}
 
 export function Pill({ children, tone = "neutral" }: { children: string; tone?: Tone }) {
   const cls =
