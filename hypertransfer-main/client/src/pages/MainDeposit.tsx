@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Copy, Check, Clock, CheckCircle2, ArrowRight, DollarSign, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
-import { getHKDEquivalent, convertToHKD, formatHKD, getExchangeRate, computeDepositFees } from "@/lib/currency";
+import { getHKDEquivalent, convertToHKD, formatHKD, getExchangeRate, computeDepositFees, estimatedReceived } from "@/lib/currency";
 import { formatNetworkRail, getRequiredConfirmations, requiresTravelRule, TRAVEL_RULE_THRESHOLD_USD } from "@/lib/compliance";
 import {
   createCustodyLogs,
@@ -38,8 +38,8 @@ export default function MainDeposit() {
   // 确认数用 Hex Safe 真实 minBlockConfirmation(选网络时存); 无则回退(仅 demo bypass 路径)。
   const requiredConfirmations = state.selectedMinConfirmations ?? getRequiredConfirmations(state.selectedNetwork);
   const mainAmount = parseFloat(amount) || 0;
-  // 链上 gas 由发送方在源头支付, 收款方按发出额全额入账 —— 不再展示编造的"网络费"扣减。
-  const netReceive = mainAmount;
+  // 预估到账 = 存入额 − 网络 Gas 费(用户承担, 2026-07 口径)。
+  const netReceive = mainAmount > 0 ? estimatedReceived(mainAmount) : 0;
   const formatAssetAmount = (value: number, decimals = 2) =>
     value.toLocaleString("en-US", {
       minimumFractionDigits: decimals,
@@ -157,6 +157,16 @@ export default function MainDeposit() {
     setConfirmations(0);
   };
 
+  // 容错: 客户忽略 1 USDT 提示、直接发全额 —— Hex Trust 到账检测仍识别并接受, 不失败。
+  // 视作已验证 + 直接按已填金额(state.mainDepositAmount)进主入金监听/确认。
+  const handleFullAmountDetected = () => {
+    updateState({ testPaymentConfirmed: true });
+    toast.message("Full deposit detected", {
+      description: "You sent the full amount without the 1 USDT test — we've detected and accepted it.",
+    });
+    handleMainDepositSent();
+  };
+
   const shellTitle = phase === "verification" ? "Verification Deposit" : "Deposit Session";
   const shellSubtitle = phase === "verification"
     ? `Step 1 of 2: send only 1 ${state.selectedAsset}`
@@ -235,6 +245,14 @@ export default function MainDeposit() {
             >
               Confirm I've Sent 1&nbsp;{state.selectedAsset}
               <ArrowRight className="w-4 h-4" />
+            </button>
+
+            {/* 容错: 忽略提示直接发全额也能被识别接受, 不失败 */}
+            <button
+              onClick={handleFullAmountDetected}
+              className="w-full py-1 text-center text-[11px] text-muted-foreground/70 hover:text-gold transition-colors"
+            >
+              Sent the full amount already? We&apos;ll still detect &amp; accept it →
             </button>
           </>
         )}
@@ -417,26 +435,23 @@ export default function MainDeposit() {
                     {computeDepositFees().map((f) => (
                       <div key={f.key} className="flex items-center justify-between text-[11px]">
                         <span className="text-muted-foreground">{f.label}</span>
-                        {f.waived ? (
-                          <span className="text-success">Waived · {f.note}</span>
-                        ) : (
-                          <span className="text-foreground">
-                            {f.unit === "USD" ? `$${f.amount.toFixed(2)}` : `${f.amount} ${f.unit}`} · {formatHKD(f.hkd)}
-                          </span>
-                        )}
+                        <span className={f.deducted ? "text-foreground" : "text-muted-foreground"}>
+                          {f.deducted ? "−" : ""}{f.unit === "USD" ? `$${f.amount.toFixed(2)}` : `${f.amount} ${f.unit}`} · {formatHKD(f.hkd)}
+                          {f.note ? <span className="text-muted-foreground/50"> · {f.note}</span> : null}
+                        </span>
                       </div>
                     ))}
                   </div>
 
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
-                    <span className="text-foreground font-semibold">Credited to account</span>
+                    <span className="text-foreground font-semibold">Estimated received</span>
                     <div className="text-right">
                       <span className="text-gold font-semibold">{state.selectedAsset} {formatAssetAmount(netReceive)}</span>
                       <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
                     </div>
                   </div>
                   <p className="text-[10px] text-muted-foreground/60">
-                    On-chain gas is covered by Hex Trust; the full deposit amount is credited.
+                    Network gas fee is currently borne by the customer and deducted from the amount received.
                   </p>
                 </div>
               </motion.div>

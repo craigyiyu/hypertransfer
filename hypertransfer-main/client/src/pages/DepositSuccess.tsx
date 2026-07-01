@@ -7,8 +7,9 @@ import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, Banknote, Undo2 } from "lucide-react";
-import { getHKDEquivalent, formatHKD, convertToHKD } from "@/lib/currency";
-import { formatNetworkRail } from "@/lib/compliance";
+import { getHKDEquivalent, formatHKD, convertToHKD, estimatedReceived } from "@/lib/currency";
+import { formatNetworkRail, blockExplorerTxUrl } from "@/lib/compliance";
+import { ExternalLink } from "lucide-react";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
@@ -23,8 +24,8 @@ export default function DepositSuccess() {
   const { state } = useDemo();
 
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
-  // 链上 gas 由发送方支付, 收款方全额入账 —— 不展示编造的网络费。
-  const netReceive = depositAmount;
+  // 到账 = 存入额 − 网络 Gas 费(用户承担, 2026-07 口径)。
+  const netReceive = depositAmount > 0 ? estimatedReceived(depositAmount) : 0;
   const displayDepositAmount = depositAmount > 0
     ? formatAssetAmount(depositAmount, 0)
     : state.mainDepositAmount;
@@ -36,6 +37,7 @@ export default function DepositSuccess() {
   const txHash = state.hexSafeStatus?.txHash || mainTx?.txHash || "";
   const referenceId = state.depositRequestId || (txHash ? "HT-" + txHash.slice(2, 12).toUpperCase() : "—");
   const shortHash = txHash ? `${txHash.slice(0, 10)}…${txHash.slice(-8)}` : "—";
+  const explorerUrl = blockExplorerTxUrl(state.selectedNetwork, txHash);
 
   return (
     <Shell showProgress={false}>
@@ -94,7 +96,18 @@ export default function DepositSuccess() {
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">
             <span className="text-muted-foreground shrink-0">Transaction hash</span>
-            <span className="font-mono text-[10px] text-foreground truncate">{shortHash}</span>
+            {explorerUrl ? (
+              <a
+                href={explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 font-mono text-[10px] text-gold underline decoration-dotted truncate hover:text-gold-bright"
+              >
+                {shortHash} <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+              </a>
+            ) : (
+              <span className="font-mono text-[10px] text-foreground truncate">{shortHash}</span>
+            )}
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">

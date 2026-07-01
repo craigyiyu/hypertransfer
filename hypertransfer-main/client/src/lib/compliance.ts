@@ -69,6 +69,14 @@ export function formatNetworkRail(network: string) {
   return network || "pending";
 }
 
+/** 区块浏览器交易链接(供完成页追踪)。demo/未知链返回 "" —— 无真实浏览器。 */
+export function blockExplorerTxUrl(network: string, txHash: string): string {
+  if (!txHash) return "";
+  if (network === "tron") return `https://tronscan.org/#/transaction/${txHash}`;
+  if (network === "ethereum") return `https://etherscan.io/tx/${txHash}`;
+  return "";
+}
+
 export function isSupportedPhaseOneAsset(asset: string): asset is SupportedPhaseOneAsset {
   return SUPPORTED_PHASE_ONE_ASSETS.includes(asset as SupportedPhaseOneAsset);
 }

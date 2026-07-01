@@ -119,14 +119,13 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
 
 /**
  * Deposit fee model (operator SOP). DEMO 值 —— 真实值待接 Hex Trust / Sumsub。
- * - networkFeeUsdt: 链上网络费, **客户承担**(per SOP)。
- * - walletScreeningFeeUsd: 钱包筛查(Sumsub KYT)服务费, 目前琐碎但逻辑先建。
- * - gasFeeWaived: 托管侧 gas 由 Hex Trust 先垫 → 豁免则显示 0。
+ * - networkGasFeeUsdt: 链上网络 Gas 费, **目前用户承担**(从到账额扣除); 后端保留计算逻辑,
+ *   以备未来政策调整(如改由 Hex Trust 垫付)。
+ * - walletScreeningFeeUsd: 钱包筛查(Sumsub KYT)服务费, informational, 逻辑先建。
  */
 export const DEPOSIT_FEE_MODEL = {
-  networkFeeUsdt: 0.03,
+  networkGasFeeUsdt: 0.03,
   walletScreeningFeeUsd: 2,
-  gasFeeWaived: true,
 };
 
 export interface DepositFeeLine {
@@ -135,18 +134,22 @@ export interface DepositFeeLine {
   unit: "USDT" | "USD";
   amount: number;
   hkd: number;
-  waived?: boolean;
+  deducted?: boolean;   // 从到账额扣除(网络 Gas 费)
   note?: string;
 }
 
 /** 确认前展示的费用明细(USD≈USDT 按 demo 汇率折 HKD)。 */
 export function computeDepositFees(): DepositFeeLine[] {
-  const { networkFeeUsdt, walletScreeningFeeUsd, gasFeeWaived } = DEPOSIT_FEE_MODEL;
+  const { networkGasFeeUsdt, walletScreeningFeeUsd } = DEPOSIT_FEE_MODEL;
   return [
-    { key: "network", label: "Network fee (borne by customer)", unit: "USDT", amount: networkFeeUsdt, hkd: convertToHKD(networkFeeUsdt, "USDT") },
-    { key: "screening", label: "Wallet screening (Sumsub)", unit: "USD", amount: walletScreeningFeeUsd, hkd: convertToHKD(walletScreeningFeeUsd, "USDT") },
-    { key: "gas", label: "Network gas", unit: "USDT", amount: 0, hkd: 0, waived: gasFeeWaived, note: "Covered by Hex Trust" },
+    { key: "gas", label: "Network gas fee (borne by customer)", unit: "USDT", amount: networkGasFeeUsdt, hkd: convertToHKD(networkGasFeeUsdt, "USDT"), deducted: true },
+    { key: "screening", label: "Wallet screening (Sumsub)", unit: "USD", amount: walletScreeningFeeUsd, hkd: convertToHKD(walletScreeningFeeUsd, "USDT"), note: "Auto · Hex Trust" },
   ];
+}
+
+/** 预估到账金额 = 存入额 − 网络 Gas 费(用户承担)。 */
+export function estimatedReceived(depositAmount: number): number {
+  return Math.max(0, depositAmount - DEPOSIT_FEE_MODEL.networkGasFeeUsdt);
 }
 
 /**
