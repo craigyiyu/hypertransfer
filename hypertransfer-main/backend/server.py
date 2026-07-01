@@ -114,6 +114,7 @@ SUMSUB_WEBSDK_TTL = int(os.environ.get("SUMSUB_WEBSDK_TTL", "600"))
 SUMSUB_WEBHOOK_SECRET_KEY = os.environ.get("SUMSUB_WEBHOOK_SECRET_KEY", "").strip()
 SUMSUB_WEBSDK_SCRIPT_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js"
 DEMO_LOCAL_SESSION_TOKEN = "demo-local-session"
+DEMO_STAFF_SESSION_TOKEN = "demo-local-staff-session"   # 后台 demo 会话: 合成 admin(全权限), 仅非 production
 
 # 演示旁路: HT_DEMO_BYPASS_2FA=true 时, /login/verify 接受任意 6 位码(免去演示现场取 TOTP)。
 # ⚠️ 仅非生产生效——production 下即便置 true 也被忽略, 强制真实校验, 杜绝沦为认证旁路。
@@ -1243,6 +1244,19 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
             "user_type": "patron",
             "totp_enabled": 1,
         }
+    # 后台 demo 会话: 合成 staff/admin 用户(get_user_roles 给 admin → require_role 全通)。仅非 production。
+    if token == DEMO_STAFF_SESSION_TOKEN and SUMSUB_ENVIRONMENT != "production":
+        return {
+            "id": "demo-staff-id",
+            "phone": "",
+            "area_code": "",
+            "number": "",
+            "name": "Demo Ops Staff",
+            "email": "ops.staff@hypercrypto.com",
+            "status": "active",
+            "user_type": "staff",
+            "totp_enabled": 1,
+        }
     with db() as conn:
         sess = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not sess or sess["expires_at"] < int(time.time()):
@@ -1257,6 +1271,8 @@ def user_from_token(authorization: Optional[str]) -> sqlite3.Row:
 # RBAC (PR①: 角色 + 端点级守卫)
 # --------------------------------------------------------------------------- #
 def get_user_roles(user_id: str) -> "list[str]":
+    if user_id == "demo-staff-id" and SUMSUB_ENVIRONMENT != "production":
+        return ["admin"]        # 后台 demo 会话: 全权限
     with db() as conn:
         rows = conn.execute("SELECT role FROM user_roles WHERE user_id=?", (user_id,)).fetchall()
     return [r["role"] for r in rows]
@@ -1988,29 +2004,69 @@ def approve_invitation(invitation_id: str, body: InvitationReviewIn,
             "UPDATE invitations SET status='approved', reviewed_by=?, updated_at=? WHERE id=?",
             (user["id"], now, invitation_id),
         )
-        row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
     write_audit(user["id"], "invitation.approve", "invitation", invitation_id,
                 {"note": body.note} if body.note else None)
-    return {"ok": True, "invitation": invitation_public(row)}
+    # 决策(用户口径): 审批通过即**自动签发** single-use QR+link 并发邮件给客户, 去掉单独 issue
+    # 步骤/状态(对外审批状态只剩 submitted/approved/rejected)。底层仍置 status='issued' 以保证
+    # 邀请链接可用(注册流程 gate 在 issued); 前端把 issued/consumed 显示为 "Approved"。
+    return _issue_invite_link_and_email(invitation_id, user, "invitation.issue", "approved")
+
+
+def _load_details(row: sqlite3.Row) -> dict[str, Any]:
+    if row["details_json"]:
+        try:
+            return json.loads(row["details_json"]) or {}
+        except Exception:
+            return {}
+    return {}
 
 
 @app.post("/api/invitations/{invitation_id}/reject")
 def reject_invitation(invitation_id: str, body: InvitationReviewIn,
                       user: Any = Depends(require_role("marketing"))):
+    # 拒绝**必填原因**(用户口径): 无原因 → 400。原因并入 details_json.rejectReason, 供 RM 查看。
+    reason = (body.note or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reject reason is required")
     row = get_invitation(invitation_id)
     if not row:
         raise HTTPException(status_code=404, detail="Invitation not found")
     if row["status"] not in ("submitted", "approved"):
         raise HTTPException(status_code=409, detail="This invitation cannot be rejected")
     now = int(time.time())
+    details = _load_details(row)
+    details["rejectReason"] = reason
     with db() as conn:
         conn.execute(
-            "UPDATE invitations SET status='rejected', reviewed_by=?, updated_at=? WHERE id=?",
-            (user["id"], now, invitation_id),
+            "UPDATE invitations SET status='rejected', reviewed_by=?, details_json=?, updated_at=? WHERE id=?",
+            (user["id"], json.dumps(details), now, invitation_id),
         )
         row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
-    write_audit(user["id"], "invitation.reject", "invitation", invitation_id,
-                {"note": body.note} if body.note else None)
+    write_audit(user["id"], "invitation.reject", "invitation", invitation_id, {"reason": reason})
+    return {"ok": True, "invitation": invitation_public(row)}
+
+
+@app.post("/api/invitations/{invitation_id}/resubmit")
+def resubmit_invitation(invitation_id: str, user: Any = Depends(require_role("rm"))):
+    """RM 把被拒申请**直接重新提交**(rejected → submitted, 清除拒绝原因), 再次进审批队列。
+    仅提交者本人可 resubmit(admin 例外)。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    if "admin" not in set(get_user_roles(user["id"])) and row["created_by"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the submitting RM can resubmit this request")
+    if row["status"] != "rejected":
+        raise HTTPException(status_code=409, detail="Only rejected requests can be resubmitted")
+    now = int(time.time())
+    details = _load_details(row)
+    details.pop("rejectReason", None)
+    with db() as conn:
+        conn.execute(
+            "UPDATE invitations SET status='submitted', reviewed_by=NULL, details_json=?, updated_at=? WHERE id=?",
+            (json.dumps(details), now, invitation_id),
+        )
+        row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
+    write_audit(user["id"], "invitation.resubmit", "invitation", invitation_id, None)
     return {"ok": True, "invitation": invitation_public(row)}
 
 

@@ -10,6 +10,7 @@ import { ShieldCheck, Loader2, LogIn, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi, apiError, isStaffUser, type AuthUser } from "@/lib/api";
+import { DEMO_STAFF_TOKEN, DEMO_STAFF_USER } from "@/lib/demo-auth";
 
 export default function StaffLogin() {
   const [, navigate] = useLocation();
@@ -109,6 +110,18 @@ export default function StaffLogin() {
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
                 Continue
+              </button>
+
+              {/* DEMO: 一键以 admin(全权限)进入后台, 免密码/2FA。后端仅非 production 认此会话。 */}
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                <div className="relative flex justify-center"><span className="bg-card px-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">demo</span></div>
+              </div>
+              <button
+                onClick={() => finish(DEMO_STAFF_TOKEN, DEMO_STAFF_USER)}
+                className="w-full rounded-xl py-3 text-xs font-semibold border border-gold/40 text-gold hover:bg-gold/10 transition-all"
+              >
+                Demo login (all permissions)
               </button>
             </div>
           ) : (

@@ -11,13 +11,19 @@ import { UserPlus2, Check, X, LinkIcon, Send, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiError, invitationApi, type Invitation } from "@/lib/api";
-import { ActionBtn, Field, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
+import { ActionBtn, Field, LabeledInput, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
+
+// 对外审批状态只剩三种(决策): submitted / approved / rejected。
+// 底层 issued/consumed 是审批后签发的 token 机制(保证邀请链接可注册), 一律显示为 "approved"。
+function displayStatus(s: string): "submitted" | "approved" | "rejected" {
+  if (s === "rejected" || s === "revoked") return "rejected";
+  if (s === "submitted" || s === "pending") return "submitted";
+  return "approved"; // approved / issued / consumed / expired
+}
 
 function statusTone(s: string): Tone {
-  if (s === "issued" || s === "consumed") return "success";
-  if (s === "rejected" || s === "expired" || s === "revoked") return "danger";
-  if (s === "approved") return "warning";
-  return "neutral";
+  const d = displayStatus(s);
+  return d === "approved" ? "success" : d === "rejected" ? "danger" : "warning";
 }
 
 const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "", age: "", phone: "", passport: "" };
@@ -29,6 +35,7 @@ export default function InvitationReviewPanel() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [issued, setIssued] = useState<Record<string, { link: string; qr: string }>>({});
+  const [rejectDraft, setRejectDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [creating, setCreating] = useState(false);
 
@@ -126,10 +133,9 @@ export default function InvitationReviewPanel() {
     }
   };
 
-  const issue = (id: string) => runIssue(id, () => invitationApi.issue(id), "QR + link issued (single-use, 72h)");
   const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 72h link)");
-
-  const inputCls = "rounded-lg border border-border/60 bg-background px-3 py-2 text-sm";
+  // RM 把被拒申请直接重新提交(rejected → submitted)
+  const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
 
   return (
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
@@ -148,12 +154,12 @@ export default function InvitationReviewPanel() {
             Relationship Manager — submit patron details (already collected)
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <input value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="Member ID" className={inputCls} />
-            <input value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="Full name" className={inputCls} />
-            <input value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="Age" className={inputCls} />
-            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" className={inputCls} />
-            <input value={form.passport} onChange={(e) => setForm({ ...form, passport: e.target.value })} placeholder="Passport number" className={inputCls} />
-            <input value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="Email (required)" className={inputCls} />
+            <LabeledInput label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
+            <LabeledInput label="Full name" value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput label="Age" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 35" />
+            <LabeledInput label="Phone number" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+852 …" />
+            <LabeledInput label="Passport number" value={form.passport} onChange={(e) => setForm({ ...form, passport: e.target.value })} placeholder="Passport no." />
+            <LabeledInput label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
           </div>
           <div className="mt-2">
             <ActionBtn icon={Send} tone="neutral" disabled={creating || !form.patronEmail.trim()} onClick={() => void createInvite()}>
@@ -185,7 +191,7 @@ export default function InvitationReviewPanel() {
             <div key={inv.id} className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-foreground">{inv.patronName || inv.patronEmail}</span>
-                <Pill tone={statusTone(inv.status)}>{inv.status}</Pill>
+                <Pill tone={statusTone(inv.status)}>{displayStatus(inv.status)}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
                 <Field label="Member ID">{String(d.memberId || "—")}</Field>
@@ -210,17 +216,20 @@ export default function InvitationReviewPanel() {
                 </div>
               )}
 
+              {/* 拒绝原因(所有能看到此卡的人可见) */}
+              {inv.status === "rejected" && d.rejectReason ? (
+                <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-destructive">Reject reason</p>
+                  <p className="mt-0.5 text-xs text-foreground">{String(d.rejectReason)}</p>
+                </div>
+              ) : null}
+
               {canReview && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-end gap-2">
                   {inv.status === "submitted" && (
                     <ActionBtn icon={Check} tone="success" disabled={busy}
-                      onClick={() => void act(inv.id, () => invitationApi.approve(inv.id), "Access request approved")}>
+                      onClick={() => void runIssue(inv.id, () => invitationApi.approve(inv.id), "Approved — invite QR + link issued & emailed")}>
                       Approve access request
-                    </ActionBtn>
-                  )}
-                  {inv.status === "approved" && (
-                    <ActionBtn icon={LinkIcon} tone="warning" disabled={busy} onClick={() => void issue(inv.id)}>
-                      Issue QR + link (email)
                     </ActionBtn>
                   )}
                   {inv.status === "issued" && (
@@ -229,11 +238,31 @@ export default function InvitationReviewPanel() {
                     </ActionBtn>
                   )}
                   {(inv.status === "submitted" || inv.status === "approved") && (
-                    <ActionBtn icon={X} tone="danger" disabled={busy}
-                      onClick={() => void act(inv.id, () => invitationApi.reject(inv.id), "Access request rejected")}>
-                      Reject
-                    </ActionBtn>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reject reason (required)</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={rejectDraft[inv.id] ?? ""}
+                          onChange={(e) => setRejectDraft({ ...rejectDraft, [inv.id]: e.target.value })}
+                          placeholder="Why is this rejected?"
+                          className="w-56 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
+                        />
+                        <ActionBtn icon={X} tone="danger" disabled={busy || !(rejectDraft[inv.id] ?? "").trim()}
+                          onClick={() => void act(inv.id, () => invitationApi.reject(inv.id, (rejectDraft[inv.id] ?? "").trim()), "Access request rejected")}>
+                          Reject
+                        </ActionBtn>
+                      </div>
+                    </div>
                   )}
+                </div>
+              )}
+
+              {/* RM(提交者) 可把被拒申请直接重新提交 */}
+              {canCreate && inv.status === "rejected" && (
+                <div className="mt-3">
+                  <ActionBtn icon={Send} tone="neutral" disabled={busy} onClick={() => void resubmit(inv.id)}>
+                    Resubmit for review
+                  </ActionBtn>
                 </div>
               )}
             </div>

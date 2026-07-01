@@ -238,8 +238,9 @@ export const invitationApi = {
   // RM 查自己提交的申请(看审批进度)
   mine: () => api.get<{ ok: boolean; invitations: Invitation[] }>("/invitations/mine"),
 
+  // 审批通过即自动签发 QR+link 并发邮件(决策: 去掉单独 issue 步骤/状态), 故返回 inviteLink/qr。
   approve: (id: string, note = "") =>
-    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/approve`, { note }),
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/approve`, { note }),
 
   reject: (id: string, note = "") =>
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/reject`, { note }),
@@ -250,6 +251,10 @@ export const invitationApi = {
   // 对已 issued 的邀请重发邮件(后端重新签发 token + 72h, 旧链接失效)
   resend: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/resend`, {}),
+
+  // RM 把被拒申请直接重新提交(rejected → submitted, 清除拒绝原因)
+  resubmit: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/resubmit`, {}),
 };
 
 export const emailApi = {
