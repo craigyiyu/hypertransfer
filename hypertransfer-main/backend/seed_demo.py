@@ -116,12 +116,7 @@ def seed() -> None:
              "customer_cancelled", "requested", 1, now, now),
         )
 
-        # 待审邀请(Invitations): submitted, 等 marketing approve → issue
-        c.execute(
-            """INSERT INTO invitations(id,patron_email,patron_name,status,created_by,created_at,updated_at)
-               VALUES(?,?,?,?,?,?,?)""",
-            (INV_ID, "newvip@demo.local", "New VIP Patron", "submitted", "demo-rm", now, now),
-        )
+        # 邀请队列留空: 演示时由 RM 表单现场提交, 不预置测试记录(避免面板残留脏数据)
         c.commit()
 
 
@@ -140,7 +135,7 @@ def print_summary() -> None:
     print("\n[ 后台已有待办 ]  打开 /casino-ops 即见:")
     print("  - Deposit Queue : 1 笔待 Marker/结算 (DR-DEMO-0001, 5000 USDT)")
     print("  - Refund Queue  : 1 笔待审退款 (RF-DEMO-0001, 1200 USDT → 原钱包)")
-    print("  - Invitations   : 1 条待审邀请 (newvip@demo.local)")
+    print("  - Invitations   : (空, 演示时由 RM 表单现场提交)")
     print("===================================================================\n")
 
 
