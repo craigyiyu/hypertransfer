@@ -99,7 +99,7 @@ SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 
 # 邀请制（PR②-2）
-INVITE_TTL = 72 * 60 * 60         # 邀请链接 single-use + 72 小时有效（决策 4）
+INVITE_TTL = 6 * 60 * 60          # 邀请链接 single-use + 6 小时有效（2026-07 口径；过期由 RM 重发）
 INVITE_RESEND_COOLDOWN = 30       # 邀请邮件重发最小间隔(秒)——防邮件轰炸/SMTP 滥用
 INVITE_BASE_URL = (os.environ.get("HT_INVITE_BASE_URL") or os.environ.get("INVITE_BASE_URL", "")).strip()  # 邀请落地 URL 前缀(两种 env 名都认)
 
@@ -2110,12 +2110,12 @@ def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: st
         "You're invited to HyperTransfer",
         f"Hi {name},\n\n"
         f"You have been approved to open a HyperTransfer account.\n"
-        f"Use this single-use link within 72 hours to register (tied to {row['patron_email']}):\n\n"
+        f"Use this single-use link within 6 hours to register (tied to {row['patron_email']}):\n\n"
         f"{invite_link}\n\n"
         f"Or scan the attached QR code.\n\nHyperTransfer",
         html=(f"<p>Hi {name},</p>"
               f"<p>You have been approved to open a HyperTransfer account. "
-              f"Use this single-use link within 72 hours to register "
+              f"Use this single-use link within 6 hours to register "
               f"(tied to <b>{row['patron_email']}</b>):</p>"
               f"<p><a href=\"{invite_link}\">{invite_link}</a></p>"
               f"<p>Or scan this QR code:</p>"
@@ -2146,13 +2146,17 @@ def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marke
 
 
 @app.post("/api/invitations/{invitation_id}/resend")
-def resend_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
-    """对已 issued 的邀请重发邮件:重新签发 single-use token + 72h(旧链接失效),
-    再次投递。用于首封邮件丢失/进垃圾箱/链接过期的补发。consumed/未签发的不可重发。
+def resend_invitation(invitation_id: str, user: Any = Depends(require_role("marketing", "rm"))):
+    """对已 issued 的邀请重发邮件:重新签发 single-use token + 6h(旧链接失效),
+    再次投递。用于首封邮件丢失/进垃圾箱/**链接过期**的补发。**RM(提交者)** 也可重发
+    (issued 邀请转到 RM 页交付, 过期由 RM 重发); consumed/未签发的不可重发。
     带 INVITE_RESEND_COOLDOWN 节流(防邮件轰炸/SMTP 滥用; 也避免网络重试导致重复发信)。"""
     row = get_invitation(invitation_id)
     if not row:
         raise HTTPException(status_code=404, detail="Invitation not found")
+    # RM(非 marketing/admin)只能重发自己提交的邀请
+    if not (set(get_user_roles(user["id"])) & {"marketing", "admin"}) and row["created_by"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the submitting RM can resend this invite")
     if row["status"] != "issued":
         raise HTTPException(status_code=409, detail="Only issued invitations can have the email resent (issue it first if not issued; consumed ones cannot be resent)")
     wait = INVITE_RESEND_COOLDOWN - (int(time.time()) - (row["updated_at"] or 0))

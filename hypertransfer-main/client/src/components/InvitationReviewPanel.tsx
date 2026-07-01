@@ -26,7 +26,8 @@ function statusTone(s: string): Tone {
   return d === "approved" ? "success" : d === "rejected" ? "danger" : "warning";
 }
 
-const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "", age: "", phone: "", passport: "" };
+// 字段简化(2026-07 口径): 隐私 + 宿主拿不到敏感信息 → 只留 Member ID / 全名 / Email。
+const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "" };
 
 export default function InvitationReviewPanel() {
   const { user } = useAuth();
@@ -92,9 +93,6 @@ export default function InvitationReviewPanel() {
         patronName: form.patronName.trim() || undefined,
         details: {
           memberId: form.memberId.trim(),
-          age: form.age.trim(),
-          phone: form.phone.trim(),
-          passport: form.passport.trim(),
         },
       });
       toast.success("Access request submitted for review");
@@ -133,7 +131,7 @@ export default function InvitationReviewPanel() {
     }
   };
 
-  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 72h link)");
+  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 6h link)");
   // RM 把被拒申请直接重新提交(rejected → submitted)
   const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
   // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
@@ -162,9 +160,6 @@ export default function InvitationReviewPanel() {
           <div className="grid gap-2 sm:grid-cols-3">
             <LabeledInput label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
             <LabeledInput label="Full name" value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="As shown on ID" />
-            <LabeledInput label="Age" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 35" />
-            <LabeledInput label="Phone number" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+852 …" />
-            <LabeledInput label="Passport number" value={form.passport} onChange={(e) => setForm({ ...form, passport: e.target.value })} placeholder="Passport no." />
             <LabeledInput label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
           </div>
           <div className="mt-2">
@@ -204,12 +199,9 @@ export default function InvitationReviewPanel() {
                 <span className="text-xs font-semibold text-foreground">{inv.patronName || inv.patronEmail}</span>
                 <Pill tone={statusTone(inv.status)}>{displayStatus(inv.status)}</Pill>
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Member ID">{String(d.memberId || "—")}</Field>
                 <Field label="Email">{inv.patronEmail}</Field>
-                <Field label="Phone">{String(d.phone || "—")}</Field>
-                <Field label="Passport">{String(d.passport || "—")}</Field>
-                <Field label="Age">{String(d.age || "—")}</Field>
                 <Field label="Expires">{inv.expiresAt ? new Date(inv.expiresAt * 1000).toLocaleString("en-US") : "—"}</Field>
                 <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleDateString("en-US")}</Field>
               </div>
@@ -218,7 +210,7 @@ export default function InvitationReviewPanel() {
                 <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border border-success/30 bg-success/5 p-3">
                   <img src={show.qr} alt="invite QR" className="h-28 w-28 rounded-lg border border-border/50 bg-white p-1" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Single-use link (72h) · emailed to patron</p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Single-use link (6h) · emailed to patron</p>
                     <p className="mt-1 flex items-start gap-1.5 break-all text-[11px] text-success">
                       <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
                       {show.link}
@@ -231,7 +223,7 @@ export default function InvitationReviewPanel() {
               {!show && inv.status === "issued" && inv.inviteLink ? (
                 <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Invite link · give this to the customer (single-use · 72h)
+                    Invite link · give this to the customer (single-use · 6h)
                   </p>
                   <div className="mt-1.5 flex items-center gap-2">
                     <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-gold">{fullLink(inv.inviteLink)}</code>
@@ -240,6 +232,14 @@ export default function InvitationReviewPanel() {
                       className="flex shrink-0 items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10"
                     >
                       <LinkIcon className="h-3 w-3" /> Copy
+                    </button>
+                    {/* 过期由宿主(RM)重发: 重新签发 6h 链接 */}
+                    <button
+                      onClick={() => void resend(inv.id)}
+                      disabled={busy}
+                      className="flex shrink-0 items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-50"
+                    >
+                      <MailCheck className="h-3 w-3" /> Resend
                     </button>
                   </div>
                 </div>
