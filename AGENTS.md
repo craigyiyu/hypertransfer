@@ -107,6 +107,10 @@ Deposit 状态机要点：
 - Hex Trust / Hex Safe 真实 API 当前尚未接入产品；`hex-safe.ts`、`treasury-ops.ts`、`refund-process.ts` 中的 Hex Safe、HT Markets、reconciliation、refund payout 仍是 mock。不要对用户或客户声称已经完成 Hex Trust API live integration。
 - `ProjectInfo/virtual-asset-ppt.md` 中的 Hex Trust endpoint 名称是概念清单；真实开发必须以 Hex Trust 合同、正式 API 文档、sandbox、webhook payload sample、OpenAPI/Postman collection 为准。
 - HT Markets OTC 可做 USDT/USDC 与 USD 双向兑换；客户回复口径为 0.50% all-in fee、USD 150 minimum fee。
+- **入金费用模型（2026-06-30 用户确认，demo）**：**Gas 费由客户承担并从到账金额扣除**（口径已从早前"Hex Trust 承担 / 免 gas"**反转**为用户自付）。`MainDeposit` 确认前展示费用明细（汇率 + gas + 筛查费），`estimatedReceived = deposit − gas`；`DepositSuccess` credited 用 `estimatedReceived`。费用模型 `lib/currency.ts` `DEPOSIT_FEE_MODEL`（demo 值 `networkGasFeeUsdt: 0.03`、`walletScreeningFeeUsd: 2`）。**汇率**用 demo（Hex Trust 汇率口径待实接），展示为 **HKD** 估值。**txHash** 在完成页作区块浏览器链接（`lib/compliance.ts` `blockExplorerTxUrl`：tron→tronscan、ethereum→etherscan）。**结算**在录入 Marker 前显示「in progress · pending marker」。**全额容错**：客户若直接把全额打进 1 USDT 验证地址，`handleFullAmountDetected` 兜住不卡流程。
+- **邀请流（2026-06-30 用户确认口径）**：审批 **3 态收敛** `submitted / approved / rejected`（去掉 `issued`，批准即自动签发）；拒绝**必填原因**；RM 可 **resubmit**；批准后转 **RM 交付**（RM 页展示可复制 **邀请链接 + 二维码 + 时效状态**，过期可 resend）。RM 表单**字段简化**：`Member ID`（白标，**禁用「Win ID」**）、`First Name` + `Last Name`、`Email`（去掉 Age/Phone/Passport）。**邀请链接有效期 6 小时**（`INVITE_TTL`，原 72h）。
+- **工作人员端登录 = Okta SSO（demo，免 2FA）**：`/ops`（`StaffLogin.tsx`）主按钮「Sign in with Okta」直接进后台（demo 不真实接 Okta，admin 全权限）；邮箱+密码为次要入口。生产需真实接 Okta OIDC。
+- **Demo 便利（全部 gated on 后端 `HT_DEMO_BYPASS_2FA` / 非 production）**：Email/SMS OTP 发送后**自动填码**、2FA 首登/登录/忘密**自动填 6 位 + 点击必过**、已存在用户重复注册也显示成功、邀请可重复跑。**入金 skip 按钮不再用 `import.meta.env.DEV` 门槛**（会误伤线上 demo），改由**后端驱动的 demo 条件**（网络未配置 / `network==="demo"`）控制，线上 demo 也能跑。
 
 Provider adapter 约定：
 
@@ -162,7 +166,8 @@ Provider adapter 约定：
 
 客户/玩家端入口：
 
-- `http://127.0.0.1:3003/`：HyperTransfer landing page，含 referral QR demo、Create Account、Sign In。
+- `http://127.0.0.1:3003/`：**Demo 首页 hub**（`DemoHome.tsx`）——客户端入口（→ `/welcome`）+ 工作人员端入口（→ `/ops`）两张卡，方便演示切换。
+- `http://127.0.0.1:3003/welcome`：HyperTransfer landing page（原 `/` 的 Landing），含 referral QR demo、Create Account、Sign In。
 - `http://127.0.0.1:3003/login`：客户登录页；本地 demo 可用 `Use Demo Account` 或 `demo.user@hypercrypto.com` / `Demo@12345`。
 - `http://127.0.0.1:3003/invite?token=<签发的token>`：邀请落地页（公开）；token+邮箱校验 → Email OTP 注册 → setup-2fa。需先由 staff 走邀请流程签发 token。
 - `http://127.0.0.1:3003/register`：客户注册页（手机短信 OTP 自助注册并存；邀请制为主入口，见 /invite）。
@@ -184,7 +189,8 @@ Provider adapter 约定：
 
 澳门赌场工作人员后台入口：
 
-- `http://127.0.0.1:3003/casino-ops`：Operator VA Operations Portal，面向 casino treasury / compliance / finance / audit staff。
+- `http://127.0.0.1:3003/ops`：**工作人员登录页**（`StaffLogin.tsx`）——主入口 Okta SSO（demo 免 2FA，直接进后台），次要入口邮箱+密码。
+- `http://127.0.0.1:3003/casino-ops`：Operator VA Operations Portal，面向 casino treasury / compliance / finance / audit staff（登录后落地）。
 - `http://127.0.0.1:3003/treasury-controls`：后台别名，暂时保留兼容旧链接；不要从客户端导航过去。
 
 ## 线上测试入口
@@ -222,6 +228,27 @@ Demo 登录：
 - 新增 / 修改 / 删除的关键代码文件。
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
+
+### 2026-06-30 邀请流打磨 + 入金费用/汇率/容错 + Okta 员工登录 + Demo 首页 hub + demo 便利
+
+- **日期 / 范围**：2026-06-30 ~ 07-01。HyperTransfer 客户端 + 工作人员后台。分支 `feat/invite-flow-and-demo-login`（PR #10，Squash 待合并 `main`）。本地前端 3000 / 后端 8000 已起，Chrome MCP 真机点测通过。
+- **客户端入口变化**：
+  - **新增 Demo 首页 hub**（`pages/DemoHome.tsx`，路由 `/`）：客户端入口 → `/welcome`、工作人员端入口 → `/ops` 两张卡，演示时一处切换。原 Landing 移到 `/welcome`（`App.tsx`）。卡片动画只做 y-slide 不做 opacity（规避 framer-motion 在自动化下 RAF 节流导致卡片停在 opacity:0 的问题）。
+  - **工作人员登录页 `/ops` 改 Okta SSO**（`StaffLogin.tsx`）：主按钮「Sign in with Okta」直接进 `/casino-ops`（demo 不真接 Okta、免 2FA、admin 全权限），邮箱+密码降为次要入口。
+- **客户端功能 / 行为变化**：
+  - **入金费用明细 + 汇率 + 完成页凭证**（`MainDeposit.tsx` / `DepositSuccess.tsx` / `lib/currency.ts` / `lib/compliance.ts`）：确认前展示汇率（**HKD** 估值，demo）+ 费用明细；**Gas 费由客户承担并从到账扣除**（`estimatedReceived = deposit − gas`，口径较早前"免 gas"**已反转**）；完成页显示 **txHash（区块浏览器链接）+ Reference ID + 结算「in progress · pending marker」**；**全额容错** `handleFullAmountDetected`（客户直接打全额进验证地址不卡流程）；`formatNetworkRail` 展示网络 rail（含 TRC-20/ERC-20 说明）。
+  - **Demo 便利（全 gated on 后端 `HT_DEMO_BYPASS_2FA` / 非 production）**：Email/SMS OTP 发送后自动填码（`Invite.tsx`/`ForgotPassword.tsx`/`Login.tsx` 带回 `demo` flag）、**首登/登录/忘密 2FA 自动填 6 位 + 点击必过**（`Setup2FA.tsx`/`Verify2FA.tsx`/`StaffLogin.tsx`）、已存在用户重复注册也显示成功、邀请可重复跑（后端 `register_invite` + `invitation_is_redeemable` demo 放宽）。
+  - **入金 skip 按钮门槛修复**：`NewDeposit.tsx` / `DepositAddress.tsx` 的「skip & continue」原用 `import.meta.env.DEV` 门槛（线上 build 为 false → 线上 demo 点不了），改为**后端驱动条件**（网络未配置 / `selectedNetwork==="demo"`），线上 demo 也能跑。
+- **工作人员后台变化（邀请审核面板 `InvitationReviewPanel.tsx`）**：
+  - **审批 3 态收敛** `submitted / approved / rejected`（去 `issued`，**批准即自动签发**）；**拒绝必填原因**（存 `details_json.rejectReason`）；RM 可 **resubmit**（`invitationApi.resubmit` + 后端端点）；Marketing 列表过滤掉已批准/已消费，批准后**转 RM 交付**。
+  - **RM 交付卡**：持久展示**邀请链接 + 二维码（`inv.qrPngBase64`）+ 链接时效状态**（`Valid · Xh Ym left` / `Link expired`，由 `expiresAt` 计算）+ Copy/Resend；去重掉重复的「Resend invite email」按钮。
+  - **RM 表单字段简化**：`Member ID`（白标，**禁「Win ID」**）+ `First Name` + `Last Name` + `Email`（去 Age/Phone/Passport）；`patronName = First + " " + Last`；Created 显示到秒（`toLocaleString`）。表单标签移到输入框上方（共享 `LabeledInput`，`ops-ui.tsx`）。
+  - 后台底部「Staff portal boundary」横幅（含 Open Customer Dashboard 按钮）**已删除**（`CasinoOpsPortal.tsx`）。
+- **业务规则 / 合规口径**：Gas 费口径**反转**为客户承担（见 §业务规则「入金费用模型」）；邀请链接 TTL 72h→6h；邀请审批 3 态；工作人员端登录改 Okta SSO demo；均已回写 §业务规则 + `CLAUDE.md`。**白标**：Member ID 取代「Win ID」。
+- **后端变化**（`server.py`）：`DEMO_STAFF_SESSION_TOKEN` 识别 + `demo-staff-id`→admin 角色；`approve_invitation` 批准即签发；`reject_invitation` 必填原因；新增 `resubmit_invitation`；`invitation_public` 为已签发补 `inviteLink + qrPngBase64`；`INVITE_TTL` 6h；OTP/2FA/register/redeem 一系列 demo 放宽（gated on `HT_DEMO_BYPASS_2FA` + 非 prod）。`seed_demo.py` **不再预置** `newvip@demo.local` 测试邀请（邀请队列演示时现场提交）。
+- **关键代码文件**：新增 `pages/DemoHome.tsx`、`lib/currency.ts`；改 `App.tsx`、`pages/{StaffLogin,MainDeposit,DepositSuccess,Invite,Setup2FA,Verify2FA,ForgotPassword,Login,NewDeposit,DepositAddress,History,CasinoOpsPortal}.tsx`、`components/{InvitationReviewPanel,ops-ui,DepositQueuePanel,StaffAdminPanel,HexSafeLivePanel}.tsx`、`lib/{api,authFlow,compliance,currency}.ts`、`backend/{server.py,seed_demo.py}`。
+- **验证**：`corepack pnpm run check`（tsc）✅；**Chrome MCP 真机点测通过**（邀请→Email OTP→注册→2FA→KYC→入金→退款 + 登录/忘密/Okta 全链路自动填/一键过；退款自由金额建单；TravelRule 提交后回 `/main-deposit` 不弹回验证页）。
+- **已知限制 / mock 边界**：Okta 未真实接；汇率 / gas 为 demo 值（真实待 Hex Trust 汇率口径）；所有 demo 便利仅在 `HT_DEMO_BYPASS_2FA` + 非 production 生效，生产不受影响。DemoHome/Okta/费用模型随本分支上线，线上 `main` 合并后 §线上测试入口再补 `/` 与 `/ops`。
 
 ### 2026-06-29 退款重构（退回已验证钱包 + 自由金额 + 首页入口）+ 两处入金流 bug 修复
 
@@ -941,4 +968,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-06-28（入金编排批），追加 `2026-06-28 入金编排后端 + ②KYC 硬阻断 + ③真实发址 + ①退款前端 wallet-picker` release note：`deposit_requests` 表 + `/api/deposits*` 状态机、KYC 硬阻断挂入金/退款关键动作、退款只退已验证原钱包（前后端双重落地 + 前端 picker）、Forex 探测 + demo、Marker/Receipt demo、SMTP env-gated 真实化 + 持久库迁移验证。真实 vs demo 约定=配 Hex Safe 走真实、否则非 production demo 占位。验证 TestClient 31/31 + 活动服务器 curl + tsc/build 全绿。本批已直接 commit + 推送 main(按用户确认)。CLAUDE.md §4.4d/§5/§8 已同步。
+最后更新：2026-06-30（邀请流打磨 + demo login 批），追加 `2026-06-30 邀请流打磨 + 入金费用/汇率/容错 + Okta 员工登录 + Demo 首页 hub + demo 便利` release note：Demo 首页 hub（`/`→客户端/工作人员两卡，原 Landing 移 `/welcome`）、工作人员端 `/ops` 改 Okta SSO demo（免 2FA）、入金费用明细 + HKD 汇率 + **Gas 费客户承担并从到账扣除（口径反转）** + txHash 区块浏览器链接 + Reference + 结算 pending marker + 全额容错、邀请审批 3 态收敛 + 拒绝必填原因 + RM resubmit/交付卡（链接+二维码+时效）+ 字段简化（Member ID/First+Last/Email）+ 链接 TTL 6h、全套 demo 便利（自动填码 + 2FA 一键过，gated on `HT_DEMO_BYPASS_2FA` + 非 prod）、入金 skip 门槛改后端驱动（修线上 demo）、删后台 boundary 横幅、seed 不再预置测试邀请。验证 tsc ✅ + Chrome MCP 真机点测全链路通过。分支 `feat/invite-flow-and-demo-login`（PR #10，待 Squash 合并 main）。CLAUDE.md §3/§4.4c/§4.4e/§4.6/§8.6 已同步。
