@@ -25,6 +25,11 @@ export default function Verify2FA() {
     if (!ch) navigate("/login");
   }, []);
 
+  // demo: 自动填 6 位码(后端 DEMO_BYPASS_2FA 下 login/verify 接受任意 6 位), 点 Verify 即通过。
+  useEffect(() => {
+    if (ch?.demo) setCode("000000");
+  }, []);
+
   if (!ch) return null;
 
   const handleVerify = async () => {
@@ -62,6 +67,11 @@ export default function Verify2FA() {
             </InputOTPGroup>
           </InputOTP>
         </div>
+        {ch.demo && (
+          <p className="text-center text-[11px] text-gold/70">
+            Demo: code auto-filled — just click Verify (any 6 digits pass).
+          </p>
+        )}
       </div>
 
       <div className="mt-8">

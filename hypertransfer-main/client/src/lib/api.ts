@@ -162,7 +162,7 @@ export const authApi = {
     email?: string;
     password: string;
     // PR③: next='done' 时（用户未启用 2FA）直接带回 token+user，无需第二步
-  }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser }>("/login/start", p),
+  }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser; demo?: boolean }>("/login/start", p),
 
   loginVerify: (challenge: string, code: string) =>
     api.post<{ ok: boolean; token: string; user: AuthUser }>("/login/verify", {
@@ -176,7 +176,7 @@ export const authApi = {
 
   // 忘记密码:发重置短信
   passwordSendOtp: (areaCode: string, phoneNumber: string) =>
-    api.post<{ ok: boolean; cooldown: number }>("/password/send-otp", {
+    api.post<{ ok: boolean; cooldown: number; demo?: boolean }>("/password/send-otp", {
       areaCode,
       phoneNumber,
     }),

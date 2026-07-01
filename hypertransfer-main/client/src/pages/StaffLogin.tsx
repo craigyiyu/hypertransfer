@@ -20,6 +20,7 @@ export default function StaffLogin() {
   const [password, setPassword] = useState("");
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
+  const [demo, setDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const finish = (token: string, user: AuthUser) => {
@@ -43,6 +44,8 @@ export default function StaffLogin() {
         return;
       }
       setChallenge(data.challenge || "");
+      // demo: 自动填 2FA 码(login/verify 接受任意 6 位), 点 Verify 即通过。
+      if (data.demo) { setDemo(true); setCode("000000"); }
       setStep("2fa");
     } catch (e) {
       toast.error(apiError(e));
@@ -144,6 +147,11 @@ export default function StaffLogin() {
                 className={`${inputCls} text-center tracking-[0.5em] text-lg`}
                 autoFocus
               />
+              {demo && (
+                <p className="text-center text-[11px] text-gold/70">
+                  Demo: code auto-filled — just click Verify (any 6 digits pass).
+                </p>
+              )}
               <button
                 onClick={() => void submit2fa()}
                 disabled={code.length !== 6 || submitting}

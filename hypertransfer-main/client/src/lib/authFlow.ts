@@ -22,6 +22,7 @@ export interface PendingRegister {
 export interface LoginChallenge {
   challenge: string;
   label: string; // 展示用:登录的账号
+  demo?: boolean; // demo: Verify2FA 自动填 6 位码(login/verify 接受任意 6 位)
 }
 
 export function readPendingRegister(): PendingRegister | null {

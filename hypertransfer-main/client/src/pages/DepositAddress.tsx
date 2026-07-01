@@ -205,8 +205,8 @@ export default function DepositAddress() {
               Complete Required Gate
               <ArrowRight className="w-4 h-4" />
             </button>
-            {/* DEMO ONLY: 跳过 KYC/KYT/Travel Rule 闸门, 直接放行发址继续流程。仅 DEV 显示。 */}
-            {import.meta.env.DEV && (
+            {/* DEMO: 跳过 KYC/KYT/Travel Rule 闸门放行发址。仅 demo 占位网络(NewDeposit demoContinue)显示, 线上 demo 也生效。 */}
+            {state.selectedNetwork === "demo" && (
               <button
                 onClick={() =>
                   updateState({

@@ -258,8 +258,8 @@ export default function NewDeposit() {
         >
           Continue to Wallet Screening
         </button>
-        {/* DEMO ONLY: 无 Hex Safe 实链时也能往下走。仅 DEV 显示。 */}
-        {import.meta.env.DEV && (
+        {/* DEMO: Hex Safe 未配置(无实链)时提供占位路径 —— 用后端 configured 门槛, 线上 demo 也显示。 */}
+        {!netLoading && !netConfigured && (
           <button
             onClick={demoContinue}
             className="w-full mt-3 rounded-xl py-3 text-xs font-semibold border border-dashed border-gold/40 bg-gold/5 text-gold hover:bg-gold/10 transition-all"

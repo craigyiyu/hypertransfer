@@ -1017,6 +1017,12 @@ def issue_otp(phone: str, area_code: str, number: str) -> None:
 def verify_otp(phone: str, code: str) -> None:
     code = (code or "").strip()
     now = int(time.time())
+    # 演示旁路(非生产): 任意 6 位码通过, 免依赖短信投递(与 verify_email_otp 一致)。
+    if DEMO_BYPASS_2FA and len(code) == 6 and code.isdigit():
+        print(f"[demo-bypass] SMS OTP accepted without verification for {phone}")
+        with db() as conn:
+            conn.execute("DELETE FROM otps WHERE phone=?", (phone,))
+        return
     with db() as conn:
         row = conn.execute("SELECT * FROM otps WHERE phone=?", (phone,)).fetchone()
         if not row:
@@ -1717,7 +1723,8 @@ def password_send_otp(body: PwdResetStartIn):
         u = conn.execute("SELECT status FROM users WHERE phone=?", (phone,)).fetchone()
     if u and u["status"] == "active":
         issue_otp(phone, area, num)
-    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN}
+    # demo(DEMO_BYPASS_2FA): 告知前端可自动填重置码(verify_otp 在 demo 下接受任意 6 位)。
+    return {"ok": True, "cooldown": OTP_RESEND_COOLDOWN, "demo": bool(DEMO_BYPASS_2FA)}
 
 
 @app.post("/api/password/reset")
@@ -1761,7 +1768,8 @@ def login_start(body: LoginStartIn):
         token = create_session(user["id"])
         return {"ok": True, "next": "done", "token": token, "user": user_public(user)}
     challenge = create_challenge(user["id"])
-    return {"ok": True, "challenge": challenge, "next": "totp"}
+    # demo(DEMO_BYPASS_2FA): 告知前端可自动填 2FA 码(login/verify 接受任意 6 位)。
+    return {"ok": True, "challenge": challenge, "next": "totp", "demo": bool(DEMO_BYPASS_2FA)}
 
 
 @app.post("/api/login/verify")

@@ -32,6 +32,7 @@ export default function ForgotPassword() {
   const [areaCode, setAreaCode] = useState("86");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [demo, setDemo] = useState(false);
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [sending, setSending] = useState(false);
@@ -68,6 +69,8 @@ export default function ForgotPassword() {
       const { data } = await authApi.passwordSendOtp(areaCode, phone);
       setStep("reset");
       setCooldown(data.cooldown || 60);
+      // demo: 自动填重置码(后端 DEMO_BYPASS_2FA 下 verify_otp 接受任意 6 位)。
+      if (data.demo) { setDemo(true); setOtp("000000"); }
       toast.success("If this mobile number is registered, a verification code has been sent.");
     } catch (e) {
       toast.error(apiError(e));
@@ -184,6 +187,7 @@ export default function ForgotPassword() {
                 {cooldown > 0 ? `${cooldown}s` : "Resend"}
               </button>
             </div>
+            {demo && <p className="text-[11px] text-gold/70">Demo: code auto-filled (any 6 digits pass).</p>}
           </div>
 
           {/* 新密码 */}
