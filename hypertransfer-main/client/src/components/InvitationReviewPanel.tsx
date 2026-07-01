@@ -26,8 +26,8 @@ function statusTone(s: string): Tone {
   return d === "approved" ? "success" : d === "rejected" ? "danger" : "warning";
 }
 
-// 字段简化(2026-07 口径): 隐私 + 宿主拿不到敏感信息 → 只留 Member ID / 全名 / Email。
-const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "" };
+// 字段简化(2026-07 口径): 隐私 + 宿主拿不到敏感信息 → 只留 Member ID / First+Last name / Email。
+const EMPTY_FORM = { patronEmail: "", firstName: "", lastName: "", memberId: "" };
 
 export default function InvitationReviewPanel() {
   const { user } = useAuth();
@@ -88,11 +88,15 @@ export default function InvitationReviewPanel() {
     setCreating(true);
     try {
       // RM 提交已获取的 patron 资料: 邮箱/姓名为顶层字段, 其余进 details(后端透传存储)。
+      // 姓名拆 First/Last, 顶层 patronName 用 "First Last" 拼接(卡片/History 展示用)。
+      const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
       await invitationApi.create({
         patronEmail: form.patronEmail.trim(),
-        patronName: form.patronName.trim() || undefined,
+        patronName: fullName || undefined,
         details: {
           memberId: form.memberId.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
         },
       });
       toast.success("Access request submitted for review");
@@ -159,7 +163,8 @@ export default function InvitationReviewPanel() {
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
             <LabeledInput label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
-            <LabeledInput label="Full name" value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput label="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput label="Last name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="As shown on ID" />
             <LabeledInput label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
           </div>
           <div className="mt-2">
@@ -203,7 +208,7 @@ export default function InvitationReviewPanel() {
                 <Field label="Member ID">{String(d.memberId || "—")}</Field>
                 <Field label="Email">{inv.patronEmail}</Field>
                 <Field label="Expires">{inv.expiresAt ? new Date(inv.expiresAt * 1000).toLocaleString("en-US") : "—"}</Field>
-                <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleDateString("en-US")}</Field>
+                <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleString("en-US")}</Field>
               </div>
 
               {show && (
@@ -219,31 +224,60 @@ export default function InvitationReviewPanel() {
                 </div>
               )}
 
-              {/* issued: 可交付给客户的邀请链接(RM 页持久展示 + 复制)。避免与刚签发的 transient QR 块重复。 */}
-              {!show && inv.status === "issued" && inv.inviteLink ? (
-                <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Invite link · give this to the customer (single-use · 6h)
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-gold">{fullLink(inv.inviteLink)}</code>
-                    <button
-                      onClick={() => copyLink(inv.inviteLink!)}
-                      className="flex shrink-0 items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10"
-                    >
-                      <LinkIcon className="h-3 w-3" /> Copy
-                    </button>
-                    {/* 过期由宿主(RM)重发: 重新签发 6h 链接 */}
-                    <button
-                      onClick={() => void resend(inv.id)}
-                      disabled={busy}
-                      className="flex shrink-0 items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-50"
-                    >
-                      <MailCheck className="h-3 w-3" /> Resend
-                    </button>
+              {/* issued: 可交付给客户的邀请链接 + 二维码 + 时效状态(RM 页持久展示)。避免与刚签发的 transient QR 块重复。 */}
+              {!show && inv.status === "issued" && inv.inviteLink ? (() => {
+                const expMs = (inv.expiresAt ?? 0) * 1000;
+                const expired = expMs > 0 && expMs <= Date.now();
+                const minsLeft = Math.max(0, Math.round((expMs - Date.now()) / 60000));
+                const hh = Math.floor(minsLeft / 60);
+                const mm = minsLeft % 60;
+                return (
+                  <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Invite link · give this to the customer (single-use · 6h)
+                      </p>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          expired
+                            ? "border-destructive/40 bg-destructive/10 text-destructive"
+                            : "border-success/40 bg-success/10 text-success"
+                        }`}
+                      >
+                        {expired ? "Link expired" : `Valid · ${hh}h ${mm}m left`}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-start gap-3">
+                      {inv.qrPngBase64 ? (
+                        <img
+                          src={inv.qrPngBase64}
+                          alt="invite QR"
+                          className={`h-24 w-24 shrink-0 rounded-lg border border-border/50 bg-white p-1 ${expired ? "opacity-40" : ""}`}
+                        />
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <code className="block break-all font-mono text-[11px] text-gold">{fullLink(inv.inviteLink)}</code>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => copyLink(inv.inviteLink!)}
+                            className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10"
+                          >
+                            <LinkIcon className="h-3 w-3" /> Copy
+                          </button>
+                          {/* 过期/丢失由宿主(RM)重发: 重新签发 6h 链接 */}
+                          <button
+                            onClick={() => void resend(inv.id)}
+                            disabled={busy}
+                            className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-50"
+                          >
+                            <MailCheck className="h-3 w-3" /> {expired ? "Resend new link" : "Resend"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                );
+              })() : null}
 
               {/* 拒绝原因(所有能看到此卡的人可见) */}
               {inv.status === "rejected" && d.rejectReason ? (
@@ -259,11 +293,6 @@ export default function InvitationReviewPanel() {
                     <ActionBtn icon={Check} tone="success" disabled={busy}
                       onClick={() => void runIssue(inv.id, () => invitationApi.approve(inv.id), "Approved — invite QR + link issued & emailed")}>
                       Approve access request
-                    </ActionBtn>
-                  )}
-                  {inv.status === "issued" && (
-                    <ActionBtn icon={MailCheck} tone="neutral" disabled={busy} onClick={() => void resend(inv.id)}>
-                      Resend invite email
                     </ActionBtn>
                   )}
                   {(inv.status === "submitted" || inv.status === "approved") && (

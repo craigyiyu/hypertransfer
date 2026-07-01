@@ -117,7 +117,7 @@ export default function History() {
     formatAssetAmount(amount, isTestDeposit ? 2 : 0);
 
   return (
-    <Shell showBack backTo="/dashboard" title="Transaction History" subtitle="All your deposit records">
+    <Shell showBack backTo="/dashboard" title="Transaction History" subtitle={state.patronName ? `${state.patronName} · all deposit records` : "All your deposit records"}>
       <div className="space-y-4">
         {/* Filter bar */}
         <div className="flex items-center justify-between">
