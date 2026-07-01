@@ -218,6 +218,7 @@ export interface Invitation {
   updatedAt: number;
   token?: string;
   details?: Record<string, unknown> | null;
+  inviteLink?: string;   // 仅 issued: 可交付给客户的单次链接(RM 页展示/复制)
 }
 
 export const invitationApi = {

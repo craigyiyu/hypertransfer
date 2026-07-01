@@ -136,6 +136,12 @@ export default function InvitationReviewPanel() {
   const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 72h link)");
   // RM 把被拒申请直接重新提交(rejected → submitted)
   const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
+  // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
+  const fullLink = (link: string) => (link.startsWith("/") ? window.location.origin + link : link);
+  const copyLink = (link: string) => {
+    void navigator.clipboard.writeText(fullLink(link));
+    toast.success("Invite link copied — send it to the customer");
+  };
 
   return (
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
@@ -183,7 +189,12 @@ export default function InvitationReviewPanel() {
       )}
 
       <div className="space-y-3">
-        {invitations.map((inv) => {
+        {/* 审批页(Marketing): 批准后(approved/issued/consumed)不再显示 —— 已转到 RM 页交付。
+            admin 看全量便于总览; RM 用 mine() 看自己全部(含 issued 的交付链接)。 */}
+        {(canList && !isAdmin
+          ? invitations.filter((i) => !["approved", "issued", "consumed"].includes(i.status))
+          : invitations
+        ).map((inv) => {
           const busy = busyId === inv.id;
           const d = (inv.details ?? {}) as Record<string, unknown>;
           const show = issued[inv.id];
@@ -215,6 +226,24 @@ export default function InvitationReviewPanel() {
                   </div>
                 </div>
               )}
+
+              {/* issued: 可交付给客户的邀请链接(RM 页持久展示 + 复制)。避免与刚签发的 transient QR 块重复。 */}
+              {!show && inv.status === "issued" && inv.inviteLink ? (
+                <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Invite link · give this to the customer (single-use · 72h)
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-gold">{fullLink(inv.inviteLink)}</code>
+                    <button
+                      onClick={() => copyLink(inv.inviteLink!)}
+                      className="flex shrink-0 items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10"
+                    >
+                      <LinkIcon className="h-3 w-3" /> Copy
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {/* 拒绝原因(所有能看到此卡的人可见) */}
               {inv.status === "rejected" && d.rejectReason ? (

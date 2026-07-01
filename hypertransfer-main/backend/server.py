@@ -1339,6 +1339,14 @@ def invitation_public(row: sqlite3.Row, include_token: bool = False) -> dict[str
             data["details"] = None
     if include_token:
         data["token"] = row["token"] or ""
+    # issued 邀请: 附上可交付给客户的单次链接(供 RM 页展示/复制交给客户)。
+    if row["status"] == "issued" and row["token"]:
+        base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
+        data["inviteLink"] = (
+            f"{base}/invite?token={row['token']}"
+            if base
+            else f"/invite?token={urllib.parse.quote(row['token'], safe='')}"
+        )
     return data
 
 
