@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { isStaffUser } from "@/lib/api";
 import type { ReactNode } from "react";
 
 const STEPS = [
@@ -36,6 +37,7 @@ interface ShellProps {
   showProgress?: boolean;
   title?: string;
   subtitle?: string;
+  compactContent?: boolean;
 }
 
 export default function Shell({
@@ -45,6 +47,7 @@ export default function Shell({
   showProgress = true,
   title,
   subtitle,
+  compactContent = false,
 }: ShellProps) {
   const [location, navigate] = useLocation();
   const { state, resetAll } = useDemo();
@@ -54,6 +57,7 @@ export default function Shell({
 
   const stepIndex = STEPS.indexOf(location);
   const progress = stepIndex >= 0 ? ((stepIndex + 1) / STEPS.length) * 100 : 0;
+  const homeTarget = isAuthenticated ? (user && isStaffUser(user) ? "/casino-ops" : "/dashboard") : "/";
 
   return (
     <div
@@ -76,7 +80,7 @@ export default function Shell({
       )}
 
       {/* Main content area */}
-      <div className="w-full max-w-[420px] mx-auto px-4 py-6 flex flex-col min-h-[100svh] relative z-10">
+      <div className={`w-full max-w-[420px] mx-auto px-4 py-6 flex flex-col relative z-10 ${compactContent ? "" : "min-h-[100svh]"}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -90,12 +94,22 @@ export default function Shell({
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <div className="flex items-center gap-2">
+            <a
+              href={homeTarget}
+              onClick={(event) => {
+                event.preventDefault();
+                setShowUserMenu(false);
+                navigate(homeTarget);
+              }}
+              className="flex items-center gap-2 rounded-lg text-left transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-gold/40"
+              aria-label="Go to home"
+              title="Go to home"
+            >
               <Shield className="w-4 h-4 text-gold" />
               <span className="text-sm font-semibold tracking-wide text-gold">
                 HyperTransfer
               </span>
-            </div>
+            </a>
           </div>
           <div className="flex items-center gap-3">
             {isAuthenticated && (
@@ -174,14 +188,14 @@ export default function Shell({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
-            className="flex-1 flex flex-col"
+            className={compactContent ? "flex flex-col" : "flex-1 flex flex-col"}
           >
             {children}
           </motion.div>
         </AnimatePresence>
 
         {/* Minimal footer */}
-        <div className="mt-auto pt-6 pb-2 text-center">
+        <div className={`${compactContent ? "" : "mt-auto"} pt-6 pb-2 text-center`}>
           <p className="text-[10px] text-muted-foreground/50">
             Secured by HyperTransfer
           </p>

@@ -201,7 +201,7 @@ export default function Dashboard() {
           </div>
         </motion.button>
 
-        {/* Refund / Return funds */}
+        {/* Withdrawal / Return funds */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -212,15 +212,15 @@ export default function Dashboard() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <Undo2 className="w-3.5 h-3.5 text-gold" />
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Return Funds</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Withdraw Funds</span>
               </div>
-              <p className="text-sm font-semibold text-foreground">Request a refund</p>
+              <p className="text-sm font-semibold text-foreground">Request a withdrawal</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 {canRefund
                   ? "Return any amount to a wallet you previously verified."
                   : kycApproved
                   ? "Verify a wallet by completing a deposit's 1 USDT check first."
-                  : "Finish KYC and verify a wallet before requesting a refund."}
+                  : "Finish KYC and verify a wallet before requesting a withdrawal."}
               </p>
             </div>
             <button

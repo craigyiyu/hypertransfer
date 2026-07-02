@@ -56,42 +56,35 @@ export default function NewDeposit() {
   const selectedNetwork = selectedNet?.rail ?? "";
   const plannedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
   const travelRuleRequired = requiresTravelRule(selectedAsset, plannedAmount);
+  const useDemoNetwork = !netLoading && networks.length === 0;
+  const canContinue = plannedAmount > 0 && (Boolean(selectedChainId) || useDemoNetwork);
 
   const handleContinue = async () => {
     resetSession();
     const cleanAmount = amount.replace(/,/g, "");
+    const nextNetwork = selectedNetwork || (useDemoNetwork ? "demo" : "");
     updateState({
       selectedAsset,
-      selectedNetwork,
+      selectedNetwork: nextNetwork,
       selectedMinConfirmations: selectedNet?.minConfirmations ?? null,
       mainDepositAmount: cleanAmount,
     });
-    // 在后端建入金编排单(②KYC 闸门锚点 + ③真实发址)。失败(未部署/未登录/未过 KYC)→ 纯 demo 继续。
-    try {
-      const { data } = await depositApi.create({
-        network: selectedNetwork,
-        asset: selectedAsset,
-        amountDecimal: cleanAmount,
-      });
-      updateState({ depositRequestId: data.requestId });
-    } catch {
+    // Demo rail keeps the walkthrough moving when Hex Safe networks are not configured.
+    if (nextNetwork === "demo") {
       updateState({ depositRequestId: "" });
+    } else {
+      // 在后端建入金编排单(②KYC 闸门锚点 + ③真实发址)。失败(未部署/未登录/未过 KYC)→ 纯 demo 继续。
+      try {
+        const { data } = await depositApi.create({
+          network: nextNetwork,
+          asset: selectedAsset,
+          amountDecimal: cleanAmount,
+        });
+        updateState({ depositRequestId: data.requestId });
+      } catch {
+        updateState({ depositRequestId: "" });
+      }
     }
-    navigate("/wallet-screening");
-  };
-
-  // DEMO ONLY: 没有 Hex Safe 实链时也能演示 —— 占位网络(下游显示 "Demo", 不伪装真链) +
-  // 默认金额, 纯前端 mock 进下一步(不建后端单, 避免 "unsupported network" 报错)。仅 DEV。
-  const demoContinue = () => {
-    resetSession();
-    const cleanAmount = amount.replace(/,/g, "") || "1000";
-    updateState({
-      selectedAsset,
-      selectedNetwork: "demo",
-      selectedMinConfirmations: null,
-      mainDepositAmount: cleanAmount,
-      depositRequestId: "",
-    });
     navigate("/wallet-screening");
   };
 
@@ -160,7 +153,7 @@ export default function NewDeposit() {
                 Deposit networks are provisioned by the custody provider (Hex Safe).{" "}
                 {netConfigured
                   ? "No eligible network is currently available."
-                  : "None are available in this environment yet."}
+                  : "Demo will continue with an internal network placeholder."}
               </p>
             </div>
           ) : (
@@ -253,20 +246,11 @@ export default function NewDeposit() {
       <div className="mt-8">
         <button
           onClick={handleContinue}
-          disabled={!selectedChainId || plannedAmount <= 0}
+          disabled={!canContinue}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Continue to Wallet Screening
         </button>
-        {/* DEMO: Hex Safe 未配置(无实链)时提供占位路径 —— 用后端 configured 门槛, 线上 demo 也显示。 */}
-        {!netLoading && !netConfigured && (
-          <button
-            onClick={demoContinue}
-            className="w-full mt-3 rounded-xl py-3 text-xs font-semibold border border-dashed border-gold/40 bg-gold/5 text-gold hover:bg-gold/10 transition-all"
-          >
-            Demo: skip &amp; continue (no Hex Safe network needed)
-          </button>
-        )}
       </div>
     </Shell>
   );

@@ -2,14 +2,21 @@
  * DepositSuccess — Final confirmation screen after a successful deposit session.
  * Shows summary with HKD equivalent and next steps.
  */
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, Banknote, Undo2 } from "lucide-react";
-import { getHKDEquivalent, formatHKD, convertToHKD, estimatedReceived } from "@/lib/currency";
+import { CheckCircle2, Clock, Banknote } from "lucide-react";
+import { getHKDEquivalent, formatHKD, convertToHKD, estimatedReceived, DEPOSIT_FEE_MODEL } from "@/lib/currency";
 import { formatNetworkRail, blockExplorerTxUrl } from "@/lib/compliance";
+import { depositApi, type DepositRecord } from "@/lib/api";
 import { ExternalLink } from "lucide-react";
+import {
+  DEMO_DEPOSIT_SETTLEMENT_EVENT,
+  readDemoDepositSettlement,
+  type DemoDepositSettlementRecord,
+} from "@/lib/demo-deposit-settlement";
 
 const SUCCESS_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/success-illustration-eEvN4zYtHrbHQ2jjhx3ZrM.webp";
 
@@ -19,25 +26,96 @@ const formatAssetAmount = (value: number, decimals = 2) =>
     maximumFractionDigits: decimals,
   });
 
+const FALLBACK_SETTLEMENT = {
+  status: "pending_marker" as const,
+  markerRef: "",
+  markerIssuedAt: "",
+  receiptRef: "",
+};
+
 export default function DepositSuccess() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
+  const [depositRecord, setDepositRecord] = useState<DepositRecord | null>(null);
+  const [demoRecord, setDemoRecord] = useState<DemoDepositSettlementRecord | null>(() => readDemoDepositSettlement());
 
-  const depositAmount = parseFloat(state.mainDepositAmount) || 0;
+  const selectedAsset = state.selectedAsset || demoRecord?.asset || "USDT";
+  const selectedNetwork = state.selectedNetwork || demoRecord?.network || "demo";
+  const mainDepositAmount = state.mainDepositAmount || demoRecord?.amountDecimal || "";
+  const plannedAmount = parseFloat(mainDepositAmount) || 0;
+  const actualTransferredAmount = state.totalTransferredAmount || demoRecord?.amountDecimal || mainDepositAmount;
+  const depositAmount = parseFloat(actualTransferredAmount) || 0;
   // 到账 = 存入额 − 网络 Gas 费(用户承担, 2026-07 口径)。
   const netReceive = depositAmount > 0 ? estimatedReceived(depositAmount) : 0;
+  const gasFee = depositAmount > 0 ? Math.min(DEPOSIT_FEE_MODEL.networkGasFeeUsdt, depositAmount) : 0;
   const displayDepositAmount = depositAmount > 0
     ? formatAssetAmount(depositAmount, 0)
-    : state.mainDepositAmount;
+    : actualTransferredAmount;
+  const displayPlannedAmount = plannedAmount > 0
+    ? formatAssetAmount(plannedAmount, 0)
+    : mainDepositAmount;
+  const actualDiffersFromPlanned = plannedAmount > 0 && depositAmount > 0 && Math.abs(plannedAmount - depositAmount) > 0.000001;
 
   // 完成页对账信息: 链上交易哈希 + reference/transaction ID(供对账 + HK marketing 出 marker)。
   const mainTx = state.transactions.find(
     (t) => t.type === "main" && (t.status === "confirmed" || t.status === "cleared"),
   );
-  const txHash = state.hexSafeStatus?.txHash || mainTx?.txHash || "";
-  const referenceId = state.depositRequestId || (txHash ? "HT-" + txHash.slice(2, 12).toUpperCase() : "—");
+  const txHash = state.hexSafeStatus?.txHash || mainTx?.txHash || demoRecord?.txHash || "";
+  const referenceId = state.depositRequestId || demoRecord?.referenceId || (txHash ? "HT-" + txHash.slice(2, 12).toUpperCase() : "—");
   const shortHash = txHash ? `${txHash.slice(0, 10)}…${txHash.slice(-8)}` : "—";
-  const explorerUrl = blockExplorerTxUrl(state.selectedNetwork, txHash);
+  const explorerUrl = blockExplorerTxUrl(selectedNetwork, txHash);
+  const localSettlement = state.depositSettlement ?? FALLBACK_SETTLEMENT;
+  const markerRef = depositRecord?.markerRef || demoRecord?.markerRef || localSettlement.markerRef;
+  const receiptRef = depositRecord?.receiptRef || demoRecord?.receiptRef || localSettlement.receiptRef;
+  const settlementSettled = depositRecord?.status === "settled" || demoRecord?.status === "settled" || localSettlement.status === "settled";
+  const settlementText = settlementSettled
+    ? `Settled${receiptRef ? ` · ${receiptRef}` : ""}`
+    : markerRef
+    ? `Marker issued · ${markerRef}`
+    : "In progress · pending marker";
+  const SettlementIcon = settlementSettled || markerRef ? CheckCircle2 : Clock;
+  const settlementClass = settlementSettled || markerRef ? "text-success" : "text-gold";
+  const nextStepCopy = settlementSettled
+    ? "Settlement is complete. The marker and settlement receipt are now recorded for this deposit reference."
+    : markerRef
+    ? "The marker has been recorded. Settlement will complete after the vault / Forex confirmation is posted by operations."
+    : "Settlement stays in progress until the marketing team issues a marker for this reference. Status updates automatically once the marker or settlement receipt is recorded.";
+
+  useEffect(() => {
+    if (!state.depositRequestId) {
+      setDepositRecord(null);
+      return;
+    }
+
+    let alive = true;
+    const loadDeposit = async () => {
+      try {
+        const { data } = await depositApi.get(state.depositRequestId);
+        if (alive) setDepositRecord(data.deposit);
+      } catch {
+        if (alive) setDepositRecord(null);
+      }
+    };
+
+    void loadDeposit();
+    const timer = window.setInterval(loadDeposit, 4000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [state.depositRequestId]);
+
+  useEffect(() => {
+    const syncDemoRecord = () => setDemoRecord(readDemoDepositSettlement());
+    const timer = window.setInterval(syncDemoRecord, 3000);
+    window.addEventListener("storage", syncDemoRecord);
+    window.addEventListener(DEMO_DEPOSIT_SETTLEMENT_EVENT, syncDemoRecord);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("storage", syncDemoRecord);
+      window.removeEventListener(DEMO_DEPOSIT_SETTLEMENT_EVENT, syncDemoRecord);
+    };
+  }, []);
 
   return (
     <Shell showProgress={false}>
@@ -60,10 +138,10 @@ export default function DepositSuccess() {
         >
           <h1 className="text-xl font-bold text-foreground">Deposit Complete</h1>
           <p className="text-sm text-muted-foreground max-w-[280px]">
-            Your {displayDepositAmount} {state.selectedAsset} deposit has been confirmed and is being processed.
+            Your {displayDepositAmount} {selectedAsset} deposit has been confirmed and is being processed.
           </p>
           <p className="text-xs text-gold">
-            ≈ {getHKDEquivalent(state.mainDepositAmount, state.selectedAsset)}
+            ≈ {getHKDEquivalent(actualTransferredAmount, selectedAsset)}
           </p>
         </motion.div>
 
@@ -74,24 +152,38 @@ export default function DepositSuccess() {
           transition={{ delay: 0.4 }}
           className="w-full card-gold rounded-xl p-5 mt-8 space-y-3"
         >
+          {actualDiffersFromPlanned && (
+            <>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Planned Amount</span>
+                <span className="text-foreground font-semibold">
+                  {displayPlannedAmount} {selectedAsset}
+                </span>
+              </div>
+              <div className="h-px bg-border" />
+            </>
+          )}
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Amount Sent</span>
             <span className="text-foreground font-semibold">
-              {displayDepositAmount} {state.selectedAsset}
+              {displayDepositAmount} {selectedAsset}
             </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Credited</span>
             <div className="text-right">
-              <span className="text-gold font-semibold">{formatAssetAmount(netReceive)} {state.selectedAsset}</span>
-              <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, state.selectedAsset))}</p>
+              <span className="text-gold font-semibold">{formatAssetAmount(netReceive)} {selectedAsset}</span>
+              <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, selectedAsset))}</p>
+              <p className="text-[10px] text-warning">
+                Gas fee deducted: -{formatAssetAmount(gasFee)} {selectedAsset} · ≈ {formatHKD(convertToHKD(gasFee, selectedAsset))}
+              </p>
             </div>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Network</span>
-            <span className="text-foreground">{formatNetworkRail(state.selectedNetwork)}</span>
+            <span className="text-foreground">{formatNetworkRail(selectedNetwork)}</span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">
@@ -122,10 +214,11 @@ export default function DepositSuccess() {
             </span>
           </div>
           <div className="h-px bg-border" />
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center justify-between gap-3 text-xs">
             <span className="text-muted-foreground">Settlement</span>
-            <span className="text-gold flex items-center gap-1">
-              <Clock className="w-3 h-3" /> In progress · pending marker
+            <span className={`${settlementClass} flex min-w-0 items-center justify-end gap-1`}>
+              <SettlementIcon className="w-3 h-3 shrink-0" />
+              <span className="truncate">{settlementText}</span>
             </span>
           </div>
         </motion.div>
@@ -142,7 +235,7 @@ export default function DepositSuccess() {
             <div className="text-left">
               <p className="text-xs text-foreground font-medium">What happens next</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Settlement stays <span className="text-gold">in progress</span> until the marketing team issues a marker for this reference. Status updates automatically once Hex Trust confirms the funds. You&apos;ll be notified when settlement completes.
+                {nextStepCopy}
               </p>
             </div>
           </div>
@@ -155,19 +248,6 @@ export default function DepositSuccess() {
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
         >
           Make Another Deposit
-        </button>
-        <button
-          onClick={() => navigate("/refund")}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-3 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold"
-        >
-          <Undo2 className="h-3.5 w-3.5" />
-          Request Refund
-        </button>
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="w-full rounded-xl py-3 text-xs text-muted-foreground hover:text-gold transition-colors"
-        >
-          Return to Dashboard
         </button>
       </div>
     </Shell>

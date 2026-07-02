@@ -251,9 +251,13 @@ export const invitationApi = {
   issue: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/issue`, {}),
 
-  // 对已 issued 的邀请重发邮件(后端重新签发 token + 72h, 旧链接失效)
+  // 对已 issued 的邀请重发邮件(后端重新签发 token + 6h, 旧链接失效)
   resend: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/resend`, {}),
+
+  // 对当前有效 issued 链接重新发送邮件(不旋转 token)
+  email: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/email`, {}),
 
   // RM 把被拒申请直接重新提交(rejected → submitted, 清除拒绝原因)
   resubmit: (id: string) =>

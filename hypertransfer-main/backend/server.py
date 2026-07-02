@@ -231,7 +231,7 @@ NEW_SCHEMA_SQL = """
         signature_valid  INTEGER,
         received_at      INTEGER NOT NULL
     );
-    -- PR②-2: 邀请制准入。RM 提交 → Marketing 审核 → 签发单次/72h link → 客户消费。
+    -- PR②-2: 邀请制准入。RM 提交 → Marketing 审核 → 签发单次/6h link → 客户消费。
     CREATE TABLE IF NOT EXISTS invitations (
         id            TEXT PRIMARY KEY,           -- uuid
         patron_email  TEXT NOT NULL,
@@ -239,7 +239,7 @@ NEW_SCHEMA_SQL = """
         details_json  TEXT,                       -- RM 提交的客户资料(自由 JSON)
         token         TEXT UNIQUE,                -- 签发后才有: secrets.token_urlsafe, single-use
         status        TEXT NOT NULL,              -- submitted/approved/rejected/issued/consumed/expired/revoked
-        expires_at    INTEGER,                    -- 签发时 = now + 72h
+        expires_at    INTEGER,                    -- 签发时 = now + 6h
         created_by    TEXT NOT NULL,              -- RM user_id
         reviewed_by   TEXT,                       -- marketing user_id
         consumed_by   TEXT,                       -- 注册成功后的客户 user_id
@@ -695,7 +695,7 @@ def sumsub_request(
     if not sumsub_configured():
         raise HTTPException(
             status_code=503,
-            detail="Sumsub is not configured. Set SUMSUB_APP_TOKEN and SUMSUB_SECRET_KEY on the backend.",
+            detail="Verification provider is not configured. Set provider credentials on the backend.",
         )
     body = (
         json_dumps(payload).encode()
@@ -726,9 +726,9 @@ def sumsub_request(
             detail = body_json.get("description") or body_json.get("message") or raw
         except Exception:
             detail = raw or f"HTTP {e.code}"
-        raise HTTPException(status_code=502, detail=f"Sumsub API rejected request ({e.code}): {detail}")
+        raise HTTPException(status_code=502, detail=f"Verification provider API rejected request ({e.code}): {detail}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Sumsub API is unreachable: {e}")
+        raise HTTPException(status_code=502, detail=f"Verification provider API is unreachable: {e}")
 
 
 def sumsub_user_id(user: sqlite3.Row, suffix: str = "") -> str:
@@ -755,27 +755,36 @@ ID_DOC_TYPE_MAP = {
     "passport": "PASSPORT",
     "national_id": "ID_CARD",
     "drivers": "DRIVERS",
+    "residence_permit": "RESIDENCE_PERMIT",
 }
 
 
 def sumsub_fixed_info_from_kyc(user: sqlite3.Row, body: "SumsubKycStartIn") -> dict[str, Any]:
     fixed_info: dict[str, Any] = {
-        "phone": f"+{user['area_code']}{user['number']}",
+        "phone": body.phone.strip() or f"+{user['area_code']}{user['number']}",
     }
     if user["email"]:
         fixed_info["email"] = user["email"]
+    if body.firstName:
+        fixed_info["firstName"] = body.firstName.strip()
+    if body.lastName:
+        fixed_info["lastName"] = body.lastName.strip()
+    if body.middleName:
+        fixed_info["middleName"] = body.middleName.strip()
     if body.dob:
         fixed_info["dob"] = body.dob
     country = COUNTRY_ALPHA3.get(body.nationality)
     if country:
         fixed_info["nationality"] = country
         fixed_info["country"] = country
-    if body.address or body.city or country:
+    address_country = COUNTRY_ALPHA3.get(body.addressCountry) or country
+    if body.address or body.city or body.postalCode or address_country:
         fixed_info["addresses"] = [
             {
                 "street": body.address.strip() if body.address else "",
                 "town": body.city.strip() if body.city else "",
-                "country": country or "",
+                "postCode": body.postalCode.strip() if body.postalCode else "",
+                "country": address_country or "",
             }
         ]
     return {k: v for k, v in fixed_info.items() if v not in ("", None, [])}
@@ -932,7 +941,7 @@ def sumsub_ensure_applicant(user: sqlite3.Row, level_name: str, fixed_info: dict
         applicant_id = applicant.get("id")
 
     if not applicant_id:
-        raise HTTPException(status_code=502, detail="Sumsub did not return an applicant id.")
+        raise HTTPException(status_code=502, detail="Verification provider did not return an applicant id.")
 
     patched_fixed_info = sumsub_patch_fixed_info(applicant_id, fixed_info) if fixed_info else None
     if applicant is None:
@@ -1325,6 +1334,36 @@ def seed_staff_admin() -> None:
 # --------------------------------------------------------------------------- #
 # 邀请制（PR②-2）
 # --------------------------------------------------------------------------- #
+def invitation_link_for_token(token: str) -> str:
+    base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
+    return (
+        f"{base}/invite?token={token}"
+        if base
+        else f"/invite?token={urllib.parse.quote(token, safe='')}"
+    )
+
+
+def send_invitation_email(row: sqlite3.Row, invite_link: str, qr: str) -> str:
+    name = row["patron_name"] or "there"
+    return send_email(
+        row["patron_email"],
+        "You're invited to HyperTransfer",
+        f"Hi {name},\n\n"
+        f"You have been approved to open a HyperTransfer account.\n"
+        f"Use this single-use link within 6 hours to register (tied to {row['patron_email']}):\n\n"
+        f"{invite_link}\n\n"
+        f"Or scan the attached QR code.\n\nHyperTransfer",
+        html=(f"<p>Hi {name},</p>"
+              f"<p>You have been approved to open a HyperTransfer account. "
+              f"Use this single-use link within 6 hours to register "
+              f"(tied to <b>{row['patron_email']}</b>):</p>"
+              f"<p><a href=\"{invite_link}\">{invite_link}</a></p>"
+              f"<p>Or scan this QR code:</p>"
+              f"<p><img src=\"{qr}\" alt=\"invite QR\" width=\"180\" height=\"180\"/></p>"
+              f"<p>HyperTransfer</p>"),
+    )
+
+
 def invitation_public(row: sqlite3.Row, include_token: bool = False) -> dict[str, Any]:
     data: dict[str, Any] = {
         "id": row["id"],
@@ -1347,12 +1386,7 @@ def invitation_public(row: sqlite3.Row, include_token: bool = False) -> dict[str
         data["token"] = row["token"] or ""
     # issued 邀请: 附上可交付给客户的单次链接 + 二维码(供 RM 页展示/复制/扫码交给客户)。
     if row["status"] == "issued" and row["token"]:
-        base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
-        link = (
-            f"{base}/invite?token={row['token']}"
-            if base
-            else f"/invite?token={urllib.parse.quote(row['token'], safe='')}"
-        )
+        link = invitation_link_for_token(row["token"])
         data["inviteLink"] = link
         data["qrPngBase64"] = qr_data_uri(link)
     return data
@@ -1451,12 +1485,24 @@ class SumsubAccessTokenIn(BaseModel):
 
 
 class SumsubKycStartIn(BaseModel):
+    firstName: str = Field(default="", max_length=80)
+    lastName: str = Field(default="", max_length=80)
+    middleName: str = Field(default="", max_length=80)
     nationality: str = Field(default="", max_length=8)
     dob: str = Field(default="", max_length=10)
+    taxResidence: str = Field(default="", max_length=8)
+    phone: str = Field(default="", max_length=32)
     idType: str = Field(default="", max_length=32)
     idNumber: str = Field(default="", max_length=80)
+    documentCountry: str = Field(default="", max_length=8)
+    documentExpiry: str = Field(default="", max_length=10)
     address: str = Field(default="", max_length=240)
     city: str = Field(default="", max_length=80)
+    postalCode: str = Field(default="", max_length=32)
+    addressCountry: str = Field(default="", max_length=8)
+    occupation: str = Field(default="", max_length=120)
+    sourceOfFunds: str = Field(default="", max_length=240)
+    consentAccepted: bool = Field(default=False)
     levelName: str = Field(default="")
     ttlInSecs: Optional[int] = Field(default=None, ge=60, le=3600)
     apiOnly: bool = Field(default=False)
@@ -2100,7 +2146,7 @@ def resubmit_invitation(invitation_id: str, user: Any = Depends(require_role("rm
 
 def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: str,
                                  expected_status: str) -> dict[str, Any]:
-    """生成全新 single-use token + 72h 过期 → status=issued, 构造邀请链接 + 二维码,
+    """生成全新 single-use token + 6h 过期 → status=issued, 构造邀请链接 + 二维码,
     通过邮件适配器发送(真发或 console 降级), 写审计。issue 与 resend 共用本逻辑;
     resend 等同重新签发(旧 token 失效, 永远给一条可用的新链接, 避免重发过期/丢失链接)。
     UPDATE 带 `AND status=expected_status` 条件 + rowcount 校验, 关闭 check→act 之间被
@@ -2117,31 +2163,9 @@ def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: st
             raise HTTPException(status_code=409, detail="Invitation status changed, please refresh and try again")
         row = conn.execute("SELECT * FROM invitations WHERE id=?", (invitation_id,)).fetchone()
 
-    base = INVITE_BASE_URL.rstrip("/") if INVITE_BASE_URL else ""
-    invite_link = (
-        f"{base}/invite?token={token}"
-        if base
-        else f"/invite?token={urllib.parse.quote(token, safe='')}"
-    )
+    invite_link = invitation_link_for_token(token)
     qr = qr_data_uri(invite_link)              # 二维码(data URI), 随响应返回 + 内联进邮件
-    name = row["patron_name"] or "there"
-    channel = send_email(
-        row["patron_email"],
-        "You're invited to HyperTransfer",
-        f"Hi {name},\n\n"
-        f"You have been approved to open a HyperTransfer account.\n"
-        f"Use this single-use link within 6 hours to register (tied to {row['patron_email']}):\n\n"
-        f"{invite_link}\n\n"
-        f"Or scan the attached QR code.\n\nHyperTransfer",
-        html=(f"<p>Hi {name},</p>"
-              f"<p>You have been approved to open a HyperTransfer account. "
-              f"Use this single-use link within 6 hours to register "
-              f"(tied to <b>{row['patron_email']}</b>):</p>"
-              f"<p><a href=\"{invite_link}\">{invite_link}</a></p>"
-              f"<p>Or scan this QR code:</p>"
-              f"<p><img src=\"{qr}\" alt=\"invite QR\" width=\"180\" height=\"180\"/></p>"
-              f"<p>HyperTransfer</p>"),
-    )
+    channel = send_invitation_email(row, invite_link, qr)
     write_audit(user["id"], audit_action, "invitation", invitation_id,
                 {"expiresAt": expires_at, "emailChannel": channel})
     return {
@@ -2156,7 +2180,7 @@ def _issue_invite_link_and_email(invitation_id: str, user: Any, audit_action: st
 
 @app.post("/api/invitations/{invitation_id}/issue")
 def issue_invitation(invitation_id: str, user: Any = Depends(require_role("marketing"))):
-    """仅 approved 可签发:生成 single-use token + 72h 过期 → status=issued, 发送邀请邮件。"""
+    """仅 approved 可签发:生成 single-use token + 6h 过期 → status=issued, 发送邀请邮件。"""
     row = get_invitation(invitation_id)
     if not row:
         raise HTTPException(status_code=404, detail="Invitation not found")
@@ -2183,6 +2207,36 @@ def resend_invitation(invitation_id: str, user: Any = Depends(require_role("mark
     if wait > 0:
         raise HTTPException(status_code=429, detail=f"Resending too frequently, please try again in {wait}s")
     return _issue_invite_link_and_email(invitation_id, user, "invitation.resend", "issued")
+
+
+@app.post("/api/invitations/{invitation_id}/email")
+def email_invitation(invitation_id: str, user: Any = Depends(require_role("marketing", "rm"))):
+    """把当前有效 issued 链接再次发送给客户邮箱, 不旋转 token。
+    过期链接不发送: RM 应点击 resend 重新签发新的 6h 链接。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    roles = set(get_user_roles(user["id"]))
+    if not (roles & {"marketing", "admin"}) and row["created_by"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the submitting RM can email this invite")
+    if row["status"] != "issued" or not row["token"]:
+        raise HTTPException(status_code=409, detail="Only issued invitations can be emailed")
+    if row["expires_at"] and row["expires_at"] <= int(time.time()):
+        raise HTTPException(status_code=409, detail="Invite link expired; resend a new 6h link")
+
+    invite_link = invitation_link_for_token(row["token"])
+    qr = qr_data_uri(invite_link)
+    channel = send_invitation_email(row, invite_link, qr)
+    write_audit(user["id"], "invitation.email", "invitation", invitation_id,
+                {"expiresAt": row["expires_at"], "emailChannel": channel})
+    return {
+        "ok": True,
+        "invitation": invitation_public(row, include_token=True),
+        "inviteLink": invite_link,
+        "qrPngBase64": qr,
+        "emailChannel": channel,
+        "emailTo": row["patron_email"],
+    }
 
 
 @app.post("/api/invitations/verify")
@@ -2515,7 +2569,7 @@ def sumsub_normalize_tr(result: Any) -> dict[str, Any]:
     """归一化 Sumsub TR 结果为前端状态。模块未启用时 Sumsub 返回 403。"""
     if isinstance(result, dict) and result.get("_http_status") == 403:
         return {"status": "provider_not_enabled", "providerStatus": "", "reviewAnswer": "", "txnId": "",
-                "detail": result.get("description") or "Travel Rule module not enabled on Sumsub account"}
+                "detail": result.get("description") or "Travel Rule module not enabled on provider account"}
     data = result if isinstance(result, dict) else {}
     review = data.get("review", {}) if isinstance(data.get("review"), dict) else {}
     review_result = review.get("reviewResult", {}) if isinstance(review.get("reviewResult"), dict) else {}
@@ -2538,7 +2592,7 @@ def sumsub_travel_rule_submit(body: SumsubTravelRuleIn, authorization: Optional[
     user = user_from_token(authorization)
     row = sumsub_get_local_kyc(user["id"])
     if not row or not row["applicant_id"]:
-        raise HTTPException(status_code=409, detail="Complete KYC (create the Sumsub applicant) before submitting Travel Rule")
+        raise HTTPException(status_code=409, detail="Complete KYC before submitting Travel Rule")
     applicant_id = row["applicant_id"]
     txn = sumsub_build_travel_rule_txn(body)
     # 403(模块未启用)作为数据返回而非抛错, 让前端拿到明确状态而非崩流程。
@@ -2682,11 +2736,11 @@ async def sumsub_webhook(request: Request):
         calculated = hmac.new(SUMSUB_WEBHOOK_SECRET_KEY.encode(), raw_body, digest_mod).hexdigest()
         signature_valid = hmac.compare_digest(calculated, payload_digest)
         if not signature_valid:
-            raise HTTPException(status_code=401, detail="Invalid Sumsub webhook signature.")
+            raise HTTPException(status_code=401, detail="Invalid verification provider webhook signature.")
     try:
         payload = json.loads(raw_body.decode() or "{}")
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid Sumsub webhook payload.")
+        raise HTTPException(status_code=400, detail="Invalid verification provider webhook payload.")
     event_type = str(payload.get("type") or payload.get("applicantType") or "")
     applicant_id = str(payload.get("applicantId") or payload.get("applicant_id") or "")
     external_user_id = str(payload.get("externalUserId") or payload.get("external_user_id") or "")
@@ -3044,7 +3098,7 @@ def _refund_get_or_404(rid: str) -> sqlite3.Row:
     with db() as conn:
         r = conn.execute("SELECT * FROM refund_requests WHERE id=?", (rid,)).fetchone()
     if not r:
-        raise HTTPException(status_code=404, detail="Refund request not found")
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
     return r
 
 
@@ -3094,7 +3148,7 @@ def refund_create(body: RefundCreateIn, authorization: Optional[str] = Header(de
         w = conn.execute("SELECT * FROM verified_wallets WHERE id=? AND user_id=?",
                          (body.walletId, user["id"])).fetchone()
     if not w:
-        raise HTTPException(status_code=400, detail="The refund destination must be one of your previously verified wallets (new addresses are not accepted)")
+        raise HTTPException(status_code=400, detail="The withdrawal destination must be one of your previously verified wallets (new addresses are not accepted)")
     kyc_ok, kyc_reason = user_kyc_ok(user["id"])
     rid = "RF-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
     now = int(time.time())
@@ -3107,7 +3161,7 @@ def refund_create(body: RefundCreateIn, authorization: Optional[str] = Header(de
              body.reason or None, status, 1 if kyc_ok else 0, now, now),
         )
         conn.commit()
-    write_audit(user["id"], "refund.create", "refund", rid,
+    write_audit(user["id"], "withdrawal.create", "withdrawal", rid,
                 {"walletId": w["id"], "amount": body.amountDecimal, "kycOk": kyc_ok})
     resp: dict[str, Any] = {"ok": kyc_ok, "requestId": rid, "status": status}
     if not kyc_ok:
@@ -3147,7 +3201,7 @@ def refund_screen(rid: str, body: RefundScreenIn, user: Any = Depends(require_ro
         conn.execute("UPDATE refund_requests SET kyt_status=?, status=?, updated_at=? WHERE id=?",
                      (decision, new_status, int(time.time()), rid))
         conn.commit()
-    write_audit(user["id"], "refund.screen", "refund", rid, {"decision": decision})
+    write_audit(user["id"], "withdrawal.screen", "withdrawal", rid, {"decision": decision})
     return {"ok": True, "requestId": rid, "kytStatus": decision, "status": new_status}
 
 
@@ -3163,7 +3217,7 @@ def refund_approve(rid: str, user: Any = Depends(require_role("compliance", "adm
         conn.execute("UPDATE refund_requests SET status='approved', approved_by=?, updated_at=? WHERE id=?",
                      (user["id"], int(time.time()), rid))
         conn.commit()
-    write_audit(user["id"], "refund.approve", "refund", rid, None)
+    write_audit(user["id"], "withdrawal.approve", "withdrawal", rid, None)
     return {"ok": True, "requestId": rid, "status": "approved"}
 
 
@@ -3174,7 +3228,7 @@ def refund_reject(rid: str, user: Any = Depends(require_role("compliance", "admi
         conn.execute("UPDATE refund_requests SET status='rejected', approved_by=?, updated_at=? WHERE id=?",
                      (user["id"], int(time.time()), rid))
         conn.commit()
-    write_audit(user["id"], "refund.reject", "refund", rid, None)
+    write_audit(user["id"], "withdrawal.reject", "withdrawal", rid, None)
     return {"ok": True, "requestId": rid, "status": "rejected"}
 
 
@@ -3183,7 +3237,7 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
     """custodian 执行退款: vault 余额校验 → 真实 Hex Safe withdrawal 退回原钱包 → transfer_id 留痕。"""
     r = _refund_get_or_404(rid)
     if r["status"] != "approved":
-        raise HTTPException(status_code=409, detail="Refund request is not approved; cannot execute")
+        raise HTTPException(status_code=409, detail="Withdrawal request is not approved; cannot execute")
     enterprise_id = HEXSAFE_ENTERPRISE_ID
     vault_id = HEXSAFE_VAULT_ID
     if not enterprise_id or not vault_id:
@@ -3195,12 +3249,12 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
             conn.execute("UPDATE refund_requests SET status='insufficient_funds', updated_at=? WHERE id=?",
                          (int(time.time()), rid))
             conn.commit()
-        write_audit(user["id"], "refund.insufficient_funds", "refund", rid, {"note": bal_note})
+        write_audit(user["id"], "withdrawal.insufficient_funds", "withdrawal", rid, {"note": bal_note})
         raise HTTPException(status_code=409, detail=f"Insufficient vault balance: {bal_note}")
     idem = r["idempotency_key"] or str(uuid.uuid4())
     client = get_hexsafe_client()
     from_addr = (client.create_deposit_address(vault_id, r["chain_id"]) or {}).get("address", "")
-    write_audit(user["id"], "refund.execute.submit", "refund", rid,
+    write_audit(user["id"], "withdrawal.execute.submit", "withdrawal", rid,
                 {"to": r["to_address"], "amount": r["amount_decimal"], "idem": idem})
     result = _hexsafe_call(client.create_withdrawal, enterprise_id, r["asset"], r["chain_id"],
                            r["amount_decimal"], from_addr, r["to_address"], idempotency_key=idem)
@@ -3209,7 +3263,7 @@ def refund_execute(rid: str, user: Any = Depends(require_role("custodian"))):
         conn.execute("UPDATE refund_requests SET status='completed', transfer_id=?, idempotency_key=?, updated_at=? WHERE id=?",
                      (transfer_id, idem, int(time.time()), rid))
         conn.commit()
-    write_audit(user["id"], "refund.completed", "refund", rid, {"transferId": transfer_id})
+    write_audit(user["id"], "withdrawal.completed", "withdrawal", rid, {"transferId": transfer_id})
     return {"ok": True, "requestId": rid, "status": "completed", "transferId": transfer_id}
 
 

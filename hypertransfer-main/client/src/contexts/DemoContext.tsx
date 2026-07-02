@@ -8,6 +8,7 @@ import type {
 } from "@/lib/hex-safe";
 import type { OtcConversion } from "@/lib/treasury-ops";
 import type { RefundRequest } from "@/lib/refund-process";
+import { clearDemoDepositSettlement, writeDemoDepositSettlement } from "@/lib/demo-deposit-settlement";
 
 interface DemoState {
   patronName: string;
@@ -41,13 +42,24 @@ interface DemoState {
   custodyLogs: CustodyTransactionLog[];
   testPaymentSent: boolean;
   testPaymentConfirmed: boolean;
+  verificationTransferAmount: string;
+  verificationTxHash: string;
   mainDepositAmount: string;
   mainDepositConfirmed: boolean;
+  totalTransferredAmount: string;
   hostName: string;
   hostCode: string;
   otcConversion: OtcConversion | null;
   refundRequest: RefundRequest | null;
+  depositSettlement: DepositSettlement;
   transactions: Transaction[];
+}
+
+export interface DepositSettlement {
+  status: "pending_marker" | "marker_issued" | "settled";
+  markerRef: string;
+  markerIssuedAt: string;
+  receiptRef: string;
 }
 
 export interface Transaction {
@@ -106,12 +118,21 @@ const defaultState: DemoState = {
   custodyLogs: [],
   testPaymentSent: false,
   testPaymentConfirmed: false,
+  verificationTransferAmount: "",
+  verificationTxHash: "",
   mainDepositAmount: "",
   mainDepositConfirmed: false,
+  totalTransferredAmount: "",
   hostName: "Michael Chen",
   hostCode: "HC-8842",
   otcConversion: null,
   refundRequest: null,
+  depositSettlement: {
+    status: "pending_marker",
+    markerRef: "",
+    markerIssuedAt: "",
+    receiptRef: "",
+  },
   transactions: [],
 };
 
@@ -134,7 +155,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const seedRefundDemo = () => {
     const now = new Date();
     const demoMainTx: Transaction = {
-      id: "tx-demo-main-refund-001",
+      id: "tx-demo-main-withdrawal-001",
       type: "main",
       asset: "USDT",
       network: "tron",
@@ -142,8 +163,27 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       status: "cleared",
       date: now.toISOString(),
       txHash: "0x9f4a1c7b8d63e5f0a2b6c9d4e8f0123456789abcdef0123456789abcdef0123",
-      sessionId: "DEP-DEMO-REFUND-20260621",
+      sessionId: "DEP-DEMO-WITHDRAWAL-20260621",
     };
+    const referenceId = `HT-${demoMainTx.txHash.slice(2, 12).toUpperCase()}`;
+
+    writeDemoDepositSettlement({
+      referenceId,
+      asset: demoMainTx.asset,
+      network: demoMainTx.network,
+      amountDecimal: demoMainTx.amount,
+      sourceWallet: "TX9GxY8p8q6fZJ4dL9b2vQq7jK6mN5pA1B",
+      depositAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
+      txHash: demoMainTx.txHash,
+      travelRuleStatus: "travel_rule_accepted",
+      screeningStatus: "pass",
+      verifyStatus: "confirmed",
+      status: "pending_marker",
+      markerRef: "",
+      markerIssuedAt: "",
+      receiptRef: "",
+      updatedAt: now.toISOString(),
+    });
 
     setState((prev) => ({
       ...prev,
@@ -167,17 +207,26 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         address: "One Central, Macau",
         city: "Macau",
         country: "MO",
-        sourceOfFunds: "Casino account balance refund",
+        sourceOfFunds: "Casino account balance withdrawal",
         originatorVasp: "Customer self-hosted wallet",
         provider: "Demo provider reference",
         providerReference: "TR-DEMO-20260621-001",
       },
       depositAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
+      verificationTransferAmount: "0",
+      verificationTxHash: "",
       mainDepositAmount: demoMainTx.amount,
       mainDepositConfirmed: true,
+      totalTransferredAmount: demoMainTx.amount,
       testPaymentSent: true,
       testPaymentConfirmed: true,
       refundRequest: null,
+      depositSettlement: {
+        status: "pending_marker",
+        markerRef: "",
+        markerIssuedAt: "",
+        receiptRef: "",
+      },
       transactions: [
         demoMainTx,
         ...prev.transactions.filter((tx) => tx.id !== demoMainTx.id),
@@ -186,6 +235,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   };
 
   const resetSession = () => {
+    clearDemoDepositSettlement();
     setState((prev) => ({
       ...prev,
       selectedNetwork: "",
@@ -206,14 +256,26 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       custodyLogs: [],
       testPaymentSent: false,
       testPaymentConfirmed: false,
+      verificationTransferAmount: "",
+      verificationTxHash: "",
       mainDepositAmount: "",
       mainDepositConfirmed: false,
+      totalTransferredAmount: "",
       otcConversion: null,
       refundRequest: null,
+      depositSettlement: {
+        status: "pending_marker",
+        markerRef: "",
+        markerIssuedAt: "",
+        receiptRef: "",
+      },
     }));
   };
 
-  const resetAll = () => setState(defaultState);
+  const resetAll = () => {
+    clearDemoDepositSettlement();
+    setState(defaultState);
+  };
 
   return (
     <DemoContext.Provider

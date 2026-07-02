@@ -1,15 +1,16 @@
 /**
  * InvitationReviewPanel — 准入审批(Access Request, staff/casino-ops 用)。process v1 §A 第一步。
  *
- * RM 登录后台, 提交已获取的 patron 资料(Member ID/姓名/年龄/电话/护照/邮箱) → Submit access request;
- * Int'l Marketing 用外部系统核查后, 在本系统 Approve → 签发 single-use+72h 二维码+链接, 邮件发给客户。
+ * RM 登录后台, 提交已获取的 patron 资料(Member ID/姓名/邮箱) → Submit access request;
+ * Int'l Marketing 用外部系统核查后, 在本系统 Approve → 签发 single-use+6h 二维码+链接, 邮件发给客户。
  * 调后端 /api/invitations*; list 限 marketing/compliance/admin, create 限 rm, 审批/签发限 marketing。
  * 按 useAuth 角色显隐, 后端 require_role 才是真守卫。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserPlus2, Check, X, LinkIcon, Send, MailCheck } from "lucide-react";
+import { UserPlus2, Check, X, LinkIcon, Send, MailCheck, Copy, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { DEMO_AUTOFILL_EVENT, useDemoMode } from "@/contexts/DemoModeContext";
 import { apiError, invitationApi, type Invitation } from "@/lib/api";
 import { ActionBtn, Field, LabeledInput, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
@@ -28,9 +29,11 @@ function statusTone(s: string): Tone {
 
 // 字段简化(2026-07 口径): 隐私 + 宿主拿不到敏感信息 → 只留 Member ID / First+Last name / Email。
 const EMPTY_FORM = { patronEmail: "", firstName: "", lastName: "", memberId: "" };
+const PAGE_SIZE = 5;
 
 export default function InvitationReviewPanel() {
   const { user } = useAuth();
+  const { isDemoMode, getDemoValue } = useDemoMode();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,12 +42,50 @@ export default function InvitationReviewPanel() {
   const [rejectDraft, setRejectDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(1);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const roles = useMemo(() => new Set(user?.roles ?? []), [user]);
   const isAdmin = roles.has("admin");
   const canCreate = isAdmin || roles.has("rm");
   const canReview = isAdmin || roles.has("marketing");
   const canList = isAdmin || roles.has("marketing") || roles.has("compliance");
+
+  const applyDemoForm = useCallback(() => {
+    setForm({
+      memberId: getDemoValue("memberId"),
+      firstName: getDemoValue("firstName"),
+      lastName: getDemoValue("lastName"),
+      patronEmail: getDemoValue("patronEmail"),
+    });
+  }, [getDemoValue]);
+
+  useEffect(() => {
+    if (isDemoMode) applyDemoForm();
+    window.addEventListener(DEMO_AUTOFILL_EVENT, applyDemoForm);
+    return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyDemoForm);
+  }, [applyDemoForm, isDemoMode]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const queueInvitations = useMemo(
+    () =>
+      canList && !isAdmin
+        ? invitations.filter((i) => !["approved", "issued", "consumed"].includes(i.status))
+        : invitations,
+    [canList, invitations, isAdmin],
+  );
+  const pageCount = Math.max(1, Math.ceil(queueInvitations.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pagedInvitations = queueInvitations.slice(pageStart, pageStart + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
 
   const load = useCallback(async () => {
     if (!canList && !canCreate) {
@@ -136,6 +177,7 @@ export default function InvitationReviewPanel() {
   };
 
   const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 6h link)");
+  const emailInvite = (id: string) => runIssue(id, () => invitationApi.email(id), "Invite email sent to patron");
   // RM 把被拒申请直接重新提交(rejected → submitted)
   const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
   // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
@@ -143,6 +185,87 @@ export default function InvitationReviewPanel() {
   const copyLink = (link: string) => {
     void navigator.clipboard.writeText(fullLink(link));
     toast.success("Invite link copied — send it to the customer");
+  };
+
+  const expiryInfo = (inv: Invitation) => {
+    const expMs = (inv.expiresAt ?? 0) * 1000;
+    const expired = expMs > 0 && expMs <= nowMs;
+    const minsLeft = Math.max(0, Math.round((expMs - nowMs) / 60000));
+    return {
+      expired,
+      label: expired
+        ? "Expired"
+        : expMs > 0
+          ? `Valid · ${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m left`
+          : "No expiry",
+    };
+  };
+
+  const renderDeliveryBox = (inv: Invitation, link: string, qr: string) => {
+    const { expired, label } = expiryInfo(inv);
+    const busy = busyId === inv.id;
+    return (
+      <div
+        className={`mt-3 rounded-lg border p-3 transition-colors ${
+          expired
+            ? "border-border/50 bg-secondary/20 opacity-75"
+            : "border-success/30 bg-success/5"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Single-use link (6h) · emailed to patron
+          </p>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+              expired
+                ? "border-border/60 bg-background/40 text-muted-foreground"
+                : "border-success/40 bg-success/10 text-success"
+            }`}
+          >
+            {label}
+          </span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <img
+            src={qr}
+            alt="invite QR"
+            className={`h-28 w-28 rounded-lg border border-border/50 bg-white p-1 ${expired ? "grayscale opacity-40" : ""}`}
+          />
+          <div className="min-w-0 flex-1">
+            <p className={`flex items-start gap-1.5 break-all text-[11px] ${expired ? "text-muted-foreground" : "text-success"}`}>
+              <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
+              {fullLink(link)}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => copyLink(link)}
+                disabled={expired}
+                className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10 disabled:border-border/50 disabled:text-muted-foreground disabled:opacity-50"
+              >
+                <Copy className="h-3 w-3" /> Copy link
+              </button>
+              <button
+                onClick={() => void emailInvite(inv.id)}
+                disabled={expired || busy}
+                className="flex items-center gap-1 rounded-lg border border-success/40 px-2.5 py-1.5 text-[11px] font-semibold text-success transition-colors hover:bg-success/10 disabled:border-border/50 disabled:text-muted-foreground disabled:opacity-50"
+              >
+                <MailCheck className="h-3 w-3" /> Email customer
+              </button>
+              {expired && (
+                <button
+                  onClick={() => void resend(inv.id)}
+                  disabled={busy}
+                  className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+                >
+                  <Send className="h-3 w-3" /> Send new 6h link
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -162,10 +285,10 @@ export default function InvitationReviewPanel() {
             Relationship Manager — submit patron details (already collected)
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <LabeledInput label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
-            <LabeledInput label="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="As shown on ID" />
-            <LabeledInput label="Last name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="As shown on ID" />
-            <LabeledInput label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
+            <LabeledInput name="memberId" label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
+            <LabeledInput name="firstName" label="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput name="lastName" label="Last name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput name="patronEmail" label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
           </div>
           <div className="mt-2">
             <ActionBtn icon={Send} tone="neutral" disabled={creating || !form.patronEmail.trim()} onClick={() => void createInvite()}>
@@ -191,10 +314,7 @@ export default function InvitationReviewPanel() {
       <div className="space-y-3">
         {/* 审批页(Marketing): 批准后(approved/issued/consumed)不再显示 —— 已转到 RM 页交付。
             admin 看全量便于总览; RM 用 mine() 看自己全部(含 issued 的交付链接)。 */}
-        {(canList && !isAdmin
-          ? invitations.filter((i) => !["approved", "issued", "consumed"].includes(i.status))
-          : invitations
-        ).map((inv) => {
+        {pagedInvitations.map((inv) => {
           const busy = busyId === inv.id;
           const d = (inv.details ?? {}) as Record<string, unknown>;
           const show = issued[inv.id];
@@ -211,73 +331,12 @@ export default function InvitationReviewPanel() {
                 <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleString("en-US")}</Field>
               </div>
 
-              {show && (
-                <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border border-success/30 bg-success/5 p-3">
-                  <img src={show.qr} alt="invite QR" className="h-28 w-28 rounded-lg border border-border/50 bg-white p-1" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Single-use link (6h) · emailed to patron</p>
-                    <p className="mt-1 flex items-start gap-1.5 break-all text-[11px] text-success">
-                      <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
-                      {show.link}
-                    </p>
-                  </div>
-                </div>
-              )}
+              {show && renderDeliveryBox(inv, show.link, show.qr)}
 
               {/* issued: 可交付给客户的邀请链接 + 二维码 + 时效状态(RM 页持久展示)。避免与刚签发的 transient QR 块重复。 */}
-              {!show && inv.status === "issued" && inv.inviteLink ? (() => {
-                const expMs = (inv.expiresAt ?? 0) * 1000;
-                const expired = expMs > 0 && expMs <= Date.now();
-                const minsLeft = Math.max(0, Math.round((expMs - Date.now()) / 60000));
-                const hh = Math.floor(minsLeft / 60);
-                const mm = minsLeft % 60;
-                return (
-                  <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Invite link · give this to the customer (single-use · 6h)
-                      </p>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                          expired
-                            ? "border-destructive/40 bg-destructive/10 text-destructive"
-                            : "border-success/40 bg-success/10 text-success"
-                        }`}
-                      >
-                        {expired ? "Link expired" : `Valid · ${hh}h ${mm}m left`}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-start gap-3">
-                      {inv.qrPngBase64 ? (
-                        <img
-                          src={inv.qrPngBase64}
-                          alt="invite QR"
-                          className={`h-24 w-24 shrink-0 rounded-lg border border-border/50 bg-white p-1 ${expired ? "opacity-40" : ""}`}
-                        />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <code className="block break-all font-mono text-[11px] text-gold">{fullLink(inv.inviteLink)}</code>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button
-                            onClick={() => copyLink(inv.inviteLink!)}
-                            className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10"
-                          >
-                            <LinkIcon className="h-3 w-3" /> Copy
-                          </button>
-                          {/* 过期/丢失由宿主(RM)重发: 重新签发 6h 链接 */}
-                          <button
-                            onClick={() => void resend(inv.id)}
-                            disabled={busy}
-                            className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-50"
-                          >
-                            <MailCheck className="h-3 w-3" /> {expired ? "Resend new link" : "Resend"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })() : null}
+              {!show && inv.status === "issued" && inv.inviteLink && inv.qrPngBase64
+                ? renderDeliveryBox(inv, inv.inviteLink, inv.qrPngBase64)
+                : null}
 
               {/* 拒绝原因(所有能看到此卡的人可见) */}
               {inv.status === "rejected" && d.rejectReason ? (
@@ -327,6 +386,33 @@ export default function InvitationReviewPanel() {
           );
         })}
       </div>
+
+      {queueInvitations.length > PAGE_SIZE && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/40 pt-3">
+          <p className="text-[11px] text-muted-foreground">
+            Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, queueInvitations.length)} of {queueInvitations.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={safePage <= 1}
+              className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3 w-3" /> Prev
+            </button>
+            <span className="rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-[11px] font-semibold text-foreground">
+              Page {safePage} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              disabled={safePage >= pageCount}
+              className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-40"
+            >
+              Next <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

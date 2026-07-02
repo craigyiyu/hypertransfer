@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, XCircle, ArrowUpRight, Filter, Play, ChevronDown, Undo2 } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, ArrowUpRight, Play, ChevronDown, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { canProceedToDeposit } from "@/lib/kyc-status";
@@ -29,6 +29,7 @@ export default function History() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "pending">("all");
   const canDeposit = canProceedToDeposit(state.kyc);
 
   const formatDate = (iso: string) => {
@@ -65,6 +66,9 @@ export default function History() {
     }
     return acc;
   }, []);
+  const filteredSessions = groupedSessions.filter((session) =>
+    statusFilter === "all" ? true : session.status === statusFilter,
+  );
 
   const statusIcon = (status: string) => {
     switch (status) {
@@ -117,44 +121,66 @@ export default function History() {
     formatAssetAmount(amount, isTestDeposit ? 2 : 0);
 
   return (
-    <Shell showBack backTo="/dashboard" title="Transaction History" subtitle={state.patronName ? `${state.patronName} · all deposit records` : "All your deposit records"}>
+    <Shell
+      showBack
+      backTo="/dashboard"
+      compactContent
+      title="Transaction History"
+      subtitle={state.patronName ? `${state.patronName} · all deposit records` : "All your deposit records"}
+    >
       <div className="space-y-4">
         {/* Filter bar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2">
-            <button className="px-3 py-1.5 rounded-lg bg-gold/10 text-gold text-xs font-medium whitespace-nowrap">
-              All
-            </button>
-            <button className="px-3 py-1.5 rounded-lg text-muted-foreground text-xs hover:text-gold transition-colors whitespace-nowrap">
-              Completed
-            </button>
-            <button className="px-3 py-1.5 rounded-lg text-muted-foreground text-xs hover:text-gold transition-colors whitespace-nowrap">
-              Pending
-            </button>
-          </div>
-          <button className="text-muted-foreground hover:text-gold transition-colors flex-shrink-0">
-            <Filter className="w-4 h-4" />
+        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          <button
+            onClick={() => setStatusFilter("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              statusFilter === "all" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setStatusFilter("completed")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              statusFilter === "completed" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
+            }`}
+          >
+            Completed
+          </button>
+          <button
+            onClick={() => setStatusFilter("pending")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              statusFilter === "pending" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
+            }`}
+          >
+            Pending
           </button>
         </div>
 
         {/* Session list */}
-        {groupedSessions.length === 0 ? (
+        {filteredSessions.length === 0 ? (
           <div className="card-gold rounded-xl p-12 flex flex-col items-center text-center">
             <ArrowUpRight className="w-10 h-10 text-muted-foreground/20 mb-3" />
-            <p className="text-sm text-muted-foreground">No transactions yet</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
-              Your deposit history will appear here
+            <p className="text-sm text-muted-foreground">
+              {statusFilter === "all" ? "No transactions yet" : `No ${statusFilter} transactions`}
             </p>
-            <button
-              onClick={handleMakeDeposit}
-              className="mt-4 px-4 py-2 rounded-lg bg-gold/10 text-gold text-xs font-medium hover:bg-gold/20 transition-colors"
-            >
-              Make a Deposit
-            </button>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              {statusFilter === "all"
+                ? "Your deposit history will appear here"
+                : "Try another status filter"}
+            </p>
+            {statusFilter === "all" && (
+              <button
+                onClick={handleMakeDeposit}
+                className="mt-4 px-4 py-2 rounded-lg bg-gold/10 text-gold text-xs font-medium hover:bg-gold/20 transition-colors"
+              >
+                Make a Deposit
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {groupedSessions.map((session, i) => (
+            {filteredSessions.map((session, i) => (
               <motion.div
                 key={session.sessionId}
                 initial={{ opacity: 0, y: 10 }}
@@ -275,7 +301,7 @@ export default function History() {
                             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 py-2 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold"
                           >
                             <Undo2 className="h-3.5 w-3.5" />
-                            Request Refund
+                            Request Withdrawal
                           </button>
                         </div>
                       </>

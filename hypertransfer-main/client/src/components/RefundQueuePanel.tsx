@@ -59,7 +59,7 @@ export default function RefundQueuePanel() {
     } catch (err) {
       // 403 = 当前 staff 角色无权看退款队列(rm/marketing); 友好提示而非红错。
       const status = (err as { response?: { status?: number } })?.response?.status;
-      setError(status === 403 ? "Your staff role cannot view the refund queue (needs compliance / ops / custodian)." : apiError(err));
+      setError(status === 403 ? "Your staff role cannot view the withdrawal queue (needs compliance / ops / custodian)." : apiError(err));
       setRefunds([]);
     } finally {
       setLoading(false);
@@ -92,7 +92,7 @@ export default function RefundQueuePanel() {
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Refund Queue — Live /api/refunds
+              Withdrawal Queue — Live API
             </p>
             <h2 className="mt-1 text-base font-semibold text-foreground">
               Compliance KYT → Management approval → Custodian payout
@@ -110,11 +110,11 @@ export default function RefundQueuePanel() {
       </div>
 
       <p className="mb-2 text-[11px] text-muted-foreground">
-        Your roles: {(user?.roles ?? []).join(", ") || "—"} · Refunds return only to a customer&apos;s previously-verified
+        Your roles: {(user?.roles ?? []).join(", ") || "—"} · Withdrawals return only to a customer&apos;s previously-verified
         original wallet (enforced server-side).
       </p>
       <p className="mb-3 rounded-lg border border-border/40 bg-background/30 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
-        Gate execution — <span className="text-foreground">KYC</span>: Sumsub API (auto, valid 6 months; re-do on expiry) ·{" "}
+        Gate execution — <span className="text-foreground">KYC</span>: provider API (auto, valid 6 months; re-do on expiry) ·{" "}
         <span className="text-foreground">Wallet KYT</span>: Hex Safe API (re-screen original wallet — currently mock, endpoint TBD) ·{" "}
         <span className="text-foreground">Sufficient funds</span>: checked manually in the Hex Trust portal before custodian payout.
       </p>
@@ -125,7 +125,7 @@ export default function RefundQueuePanel() {
 
       {!error && refunds.length === 0 && (
         <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          {loading ? "Loading refund queue…" : "No refund requests in the queue."}
+          {loading ? "Loading withdrawal queue…" : "No withdrawal requests in the queue."}
         </p>
       )}
 
@@ -146,7 +146,7 @@ export default function RefundQueuePanel() {
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Amount">{r.amountDecimal} {r.asset}</Field>
                 <Field label="Chain">{r.chainId}</Field>
-                <Field label="KYC" hint="Sumsub · 6-mo">{r.kycOk ? "ok" : "failed"}</Field>
+                <Field label="KYC" hint="Provider · 6-mo">{r.kycOk ? "ok" : "failed"}</Field>
                 <Field label="Wallet KYT" hint="Hex Safe API · mock">{r.kytStatus || "not screened"}</Field>
                 <Field label="Original wallet (verified)">
                   <span className="font-mono">{shortAddr(r.toAddress)}</span>
@@ -175,19 +175,19 @@ export default function RefundQueuePanel() {
                 )}
                 {showApprove && (
                   <ActionBtn icon={Gavel} disabled={busy} tone="success"
-                    onClick={() => void act(r.id, () => refundApi.approve(r.id), "Refund approved by management")}>
+                    onClick={() => void act(r.id, () => refundApi.approve(r.id), "Withdrawal approved by management")}>
                     Approve (Management)
                   </ActionBtn>
                 )}
                 {showExecute && (
                   <ActionBtn icon={SendHorizontal} disabled={busy} tone="danger"
-                    onClick={() => void act(r.id, () => refundApi.execute(r.id), "Refund payout submitted to custodian")}>
+                    onClick={() => void act(r.id, () => refundApi.execute(r.id), "Withdrawal payout submitted to custodian")}>
                     Execute payout (Custodian)
                   </ActionBtn>
                 )}
                 {showReject && (
                   <ActionBtn icon={XCircle} disabled={busy} tone="neutral"
-                    onClick={() => void act(r.id, () => refundApi.reject(r.id), "Refund rejected")}>
+                    onClick={() => void act(r.id, () => refundApi.reject(r.id), "Withdrawal rejected")}>
                     Reject
                   </ActionBtn>
                 )}

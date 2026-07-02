@@ -2,7 +2,7 @@
  * DepositAddress — Explains the verification deposit rule before exposing the address.
  * The actual address is shown in the Step 1 deposit session only.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
@@ -12,6 +12,13 @@ import { getHKDEquivalent } from "@/lib/currency";
 import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 import { canPassTravelRuleGate } from "@/lib/travel-rule";
 import { depositApi } from "@/lib/api";
+
+const DEMO_DEPOSIT_DEFAULTS = {
+  asset: "USDT",
+  network: "demo",
+  amount: "2000",
+  sourceWallet: "0x742d35Cc6634C0532925a3b844Bc9e7595f8bEb0",
+};
 
 // Generate a mock deposit address based on network
 function generateAddress(network: string): string {
@@ -30,14 +37,19 @@ export default function DepositAddress() {
   const [, navigate] = useLocation();
   const { state, updateState } = useDemo();
   const [loading, setLoading] = useState(true);
-  const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
-  const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
+  const issuedRef = useRef(false);
+  const isDemoFlow = !state.depositRequestId || state.selectedNetwork === "demo" || !state.selectedNetwork;
+  const effectiveAsset = state.selectedAsset || DEMO_DEPOSIT_DEFAULTS.asset;
+  const effectiveNetwork = state.selectedNetwork || DEMO_DEPOSIT_DEFAULTS.network;
+  const effectiveAmountText = state.mainDepositAmount || (isDemoFlow ? DEMO_DEPOSIT_DEFAULTS.amount : "");
+  const plannedAmount = parseFloat(effectiveAmountText) || 0;
+  const travelRuleRequired = requiresTravelRule(effectiveAsset, plannedAmount);
   const kycApproved = state.kyc.status === "approved";
   const travelRuleGatePassed = canPassTravelRuleGate(
     state.travelRuleStatus,
     travelRuleRequired,
   );
-  const canIssueAddress = kycApproved && state.screeningPassed && travelRuleGatePassed;
+  const canIssueAddress = isDemoFlow || (kycApproved && state.screeningPassed && travelRuleGatePassed);
   const nextGateRoute = !kycApproved
     ? "/kyc"
     : !state.screeningPassed
@@ -47,15 +59,25 @@ export default function DepositAddress() {
     : "/wallet-screening";
 
   useEffect(() => {
+    if (isDemoFlow && state.depositAddress) {
+      setLoading(false);
+      const timer = window.setTimeout(() => navigate("/main-deposit"), 250);
+      return () => window.clearTimeout(timer);
+    }
+
     if (!canIssueAddress) {
       setLoading(false);
       return;
     }
+    if (issuedRef.current) {
+      return;
+    }
+    issuedRef.current = true;
     let alive = true;
     (async () => {
       // 真实: 有后端入金单 → Hex Safe 签发(地址按 vault×链固定); 否则回退本地占位地址。
       let addr = "";
-      if (state.depositRequestId) {
+      if (!isDemoFlow && state.depositRequestId) {
         try {
           // 回填前端 TR gate 结果: ≥USD1k 的单后端需要 'travel_rule_accepted' 才放行发址。
           const { data } = await depositApi.issueAddress(state.depositRequestId, state.travelRuleStatus);
@@ -65,18 +87,50 @@ export default function DepositAddress() {
         }
       }
       if (!addr) {
-        await new Promise((resolve) => setTimeout(resolve, 1500)); // demo: 模拟托管发址延时
-        addr = generateAddress(state.selectedNetwork);
+        await new Promise((resolve) => setTimeout(resolve, isDemoFlow ? 650 : 1500)); // demo: 模拟托管发址延时
+        addr = generateAddress(effectiveNetwork);
       }
       if (alive) {
-        updateState({ depositAddress: addr });
+        updateState({
+          selectedAsset: effectiveAsset,
+          selectedNetwork: effectiveNetwork,
+          selectedMinConfirmations: isDemoFlow ? null : state.selectedMinConfirmations,
+          mainDepositAmount: effectiveAmountText,
+          sourceWallet: state.sourceWallet || DEMO_DEPOSIT_DEFAULTS.sourceWallet,
+          kyc: isDemoFlow && state.kyc.status !== "approved" ? { ...state.kyc, status: "approved" } : state.kyc,
+          screeningPassed: isDemoFlow ? true : state.screeningPassed,
+          travelRuleComplete: isDemoFlow ? true : state.travelRuleComplete,
+          travelRuleStatus: isDemoFlow ? "travel_rule_accepted" : state.travelRuleStatus,
+          depositAddress: addr,
+        });
         setLoading(false);
+        if (isDemoFlow) {
+          window.setTimeout(() => {
+            if (alive) navigate("/main-deposit");
+          }, 250);
+        }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [canIssueAddress, state.selectedNetwork]);
+  }, [
+    canIssueAddress,
+    effectiveAmountText,
+    effectiveAsset,
+    effectiveNetwork,
+    isDemoFlow,
+    navigate,
+    state.depositRequestId,
+    state.depositAddress,
+    state.kyc.status,
+    state.screeningPassed,
+    state.selectedMinConfirmations,
+    state.sourceWallet,
+    state.travelRuleComplete,
+    state.travelRuleStatus,
+    updateState,
+  ]);
 
   return (
     <Shell showBack backTo="/wallet-screening" title="Deposit Verification" subtitle="Review the required first step">
@@ -84,10 +138,10 @@ export default function DepositAddress() {
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="px-2 py-1 rounded-md bg-gold/10 text-gold font-mono text-[10px]">
-            {state.selectedAsset}
+            {effectiveAsset}
           </div>
           <span>&middot;</span>
-          <span>{formatNetworkRail(state.selectedNetwork)} rail</span>
+          <span>{formatNetworkRail(effectiveNetwork)} rail</span>
           <span>&middot;</span>
           <span>{plannedAmount.toLocaleString()} expected</span>
         </div>
@@ -128,10 +182,10 @@ export default function DepositAddress() {
                 Important
               </p>
               <p className="text-sm text-foreground font-semibold">
-                Send only 1 {state.selectedAsset} first
+                Send only 1 {effectiveAsset} first
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                For payment security, we ask you to make a <span className="text-gold font-medium">1 {state.selectedAsset}</span> verification deposit first (≈ {getHKDEquivalent("1", state.selectedAsset)}). Please do not send your full deposit amount until the verification transfer is confirmed.
+                For payment security, we ask you to make a <span className="text-gold font-medium">1 {effectiveAsset}</span> verification deposit first (≈ {getHKDEquivalent("1", effectiveAsset)}). Please do not send your full deposit amount until the verification transfer is confirmed.
               </p>
             </div>
           </div>
@@ -160,13 +214,13 @@ export default function DepositAddress() {
             <div className="flex gap-3">
               <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">1</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Send exactly <span className="text-foreground font-medium">1 {state.selectedAsset}</span> to verify the address and network.
+                Send exactly <span className="text-foreground font-medium">1 {effectiveAsset}</span> to verify the address and network.
               </p>
             </div>
             <div className="flex gap-3">
               <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">2</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Wait for confirmation. The 1 {state.selectedAsset} verification deposit will be credited to your account.
+                Wait for confirmation. The 1 {effectiveAsset} verification deposit will be credited to your account.
               </p>
             </div>
             <div className="flex gap-3">
@@ -193,7 +247,13 @@ export default function DepositAddress() {
             disabled={loading}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {loading ? "Preparing Hex Safe Address..." : "Continue to Verification Deposit"}
+            {loading
+              ? isDemoFlow
+                ? "Preparing demo deposit session..."
+                : "Preparing Hex Safe Address..."
+              : isDemoFlow
+              ? "Continue to Demo Deposit"
+              : "Continue to Verification Deposit"}
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (

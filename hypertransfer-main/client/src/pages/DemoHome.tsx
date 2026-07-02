@@ -27,8 +27,8 @@ const ENTRIES: EntryCard[] = [
     key: "customer",
     eyebrow: "Customer",
     title: "Patron App",
-    desc: "The player-facing HyperTransfer H5: invite sign-in, KYC, compliant crypto deposit, and refunds.",
-    points: ["Invite-only sign-in + Email OTP", "KYC → source-wallet KYT → 1 USDT verify", "Deposit (fees / HKD) · Refund to verified wallet"],
+    desc: "The player-facing HyperTransfer H5: invite sign-in, KYC, compliant crypto deposit, and withdrawals.",
+    points: ["Invite-only sign-in + Email OTP", "KYC → source-wallet KYT → 1 USDT verify", "Deposit (fees / HKD) · Withdrawal to verified wallet"],
     cta: "Open customer app",
     to: "/welcome",
     icon: Users,
@@ -37,8 +37,8 @@ const ENTRIES: EntryCard[] = [
     key: "staff",
     eyebrow: "Operator",
     title: "Operations Portal",
-    desc: "Casino staff back office: access-request approvals, deposit & refund queues, custody, and settlement.",
-    points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Refunds", "Hex Safe custody · Treasury & compliance"],
+    desc: "Casino staff back office: access-request approvals, deposit & withdrawal queues, custody, and settlement.",
+    points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Withdrawals", "Hex Safe custody · Treasury & compliance"],
     cta: "Open staff portal",
     to: "/ops",
     icon: Building2,
@@ -69,11 +69,8 @@ export default function DemoHome() {
           </div>
           <h1 className="text-2xl font-bold text-foreground sm:text-3xl">HyperTransfer</h1>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Compliant virtual-asset deposit orchestration. Pick a side to explore the demo.
+            Compliant virtual-asset deposit orchestration.
           </p>
-          <span className="mt-3 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gold">
-            Demo entry
-          </span>
         </motion.div>
 
         {/* 两个入口卡片 */}

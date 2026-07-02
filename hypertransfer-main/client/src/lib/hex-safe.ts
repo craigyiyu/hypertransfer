@@ -37,12 +37,13 @@ export function createHexSafeStatus(input: {
   amount: number;
   receivingAddress: string;
   sourceWallet: string;
+  txHash?: string;
 }): HexSafeDepositStatus {
   const requiredConfirmations = getRequiredConfirmations(input.network);
 
   return {
     custodyTransactionId: `HTX-${Date.now().toString(36).toUpperCase()}`,
-    txHash: `0x${Array.from({ length: 64 }, () =>
+    txHash: input.txHash || `0x${Array.from({ length: 64 }, () =>
       "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("")}`,
     asset: input.asset,
     network: input.network,

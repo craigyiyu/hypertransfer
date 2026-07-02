@@ -64,13 +64,13 @@ export default function KYCStatus() {
       return;
     }
     if (result.status === 'approved') {
-      setProviderMessage('Verification approved by Sumsub.');
+      setProviderMessage('Verification approved by the provider.');
     } else if (result.status === 'rejected') {
       setProviderMessage(result.rejectionReason || 'Verification was not approved.');
     } else if (result.status === 'pending') {
-      setProviderMessage('Verification is still under Sumsub review.');
+      setProviderMessage('Verification is still under provider review.');
     } else {
-      setProviderMessage('No Sumsub KYC submission has been started for this account.');
+      setProviderMessage('No KYC submission has been started for this account.');
     }
   };
 
@@ -143,7 +143,7 @@ export default function KYCStatus() {
             </p>
             {providerStatus && (
               <p className="mt-2 text-xs text-slate-500">
-                Sumsub applicant: {providerStatus.applicantId || 'not created'} · {providerStatus.reviewStatus || 'no review yet'}
+                Verification profile: {providerStatus.applicantId || 'not created'} · {providerStatus.reviewStatus || 'no review yet'}
               </p>
             )}
           </div>
@@ -291,7 +291,7 @@ export default function KYCStatus() {
                   disabled={isChecking}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg"
                 >
-                  {isChecking ? 'Checking Sumsub...' : t('kycStatus.pending.checkButton')}
+                  {isChecking ? 'Checking verification status...' : t('kycStatus.pending.checkButton')}
                 </Button>
               )}
 

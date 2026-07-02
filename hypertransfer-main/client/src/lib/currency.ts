@@ -121,11 +121,9 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
  * Deposit fee model (operator SOP). DEMO 值 —— 真实值待接 Hex Trust / Sumsub。
  * - networkGasFeeUsdt: 链上网络 Gas 费, **目前用户承担**(从到账额扣除); 后端保留计算逻辑,
  *   以备未来政策调整(如改由 Hex Trust 垫付)。
- * - walletScreeningFeeUsd: 钱包筛查(Sumsub KYT)服务费, informational, 逻辑先建。
  */
 export const DEPOSIT_FEE_MODEL = {
   networkGasFeeUsdt: 0.03,
-  walletScreeningFeeUsd: 2,
 };
 
 export interface DepositFeeLine {
@@ -138,12 +136,11 @@ export interface DepositFeeLine {
   note?: string;
 }
 
-/** 确认前展示的费用明细(USD≈USDT 按 demo 汇率折 HKD)。 */
+/** 确认前展示的费用明细。 */
 export function computeDepositFees(): DepositFeeLine[] {
-  const { networkGasFeeUsdt, walletScreeningFeeUsd } = DEPOSIT_FEE_MODEL;
+  const { networkGasFeeUsdt } = DEPOSIT_FEE_MODEL;
   return [
     { key: "gas", label: "Network gas fee (borne by customer)", unit: "USDT", amount: networkGasFeeUsdt, hkd: convertToHKD(networkGasFeeUsdt, "USDT"), deducted: true },
-    { key: "screening", label: "Wallet screening (Sumsub)", unit: "USD", amount: walletScreeningFeeUsd, hkd: convertToHKD(walletScreeningFeeUsd, "USDT"), note: "Auto · Hex Trust" },
   ];
 }
 

@@ -222,14 +222,14 @@ export default function HexSafeLivePanel() {
               </p>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Address is fixed per vault×chain (not single-use). Prod gating: KYC(Sumsub)+KYT+Travel Rule(Sumsub)+TK Team approval before issuance.
+              Address is fixed per vault×chain (not single-use). Prod gating: KYC + KYT + Travel Rule + TK Team approval before issuance.
             </p>
           </div>
 
           {/* Withdrawal / payout */}
           <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm lg:col-span-2">
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-destructive">
-              <SendHorizontal className="h-3.5 w-3.5" /> Withdrawal / Refund (real fund action — release via Hex Safe approval/quorum)
+              <SendHorizontal className="h-3.5 w-3.5" /> Withdrawal / payout (real fund action — release via Hex Safe approval/quorum)
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
               <LabeledInput

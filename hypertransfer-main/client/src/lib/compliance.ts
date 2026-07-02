@@ -43,7 +43,7 @@ export const PHASE_ONE_NETWORKS: Record<
 };
 
 export const TRAVEL_RULE_PROVIDER_OPTIONS = [
-  "Hex Trust / Sumsub if contractually enabled",
+  "Hex Trust / provider route if contractually enabled",
   "Notabene",
   "Sygna Bridge",
   "TRP",
