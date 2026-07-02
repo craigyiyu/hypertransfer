@@ -230,6 +230,21 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-07-02 线上版本号 build metadata 修复
+
+- **日期 / 范围**：2026-07-02。HyperTransfer Demo 首页版本号显示与 Docker/GitHub Actions 部署链路。
+- **客户端入口变化**：无路由变化；修复 `/` Demo hub 底部 build label 从 `v1.0.0+local` 退回 fallback 的问题。
+- **客户端功能 / 行为变化**：前端静态包仍按 `v<package.json version>+<git short sha>` 显示版本号；Docker 构建时通过 `VITE_GIT_COMMIT` build arg 注入 Git short SHA。
+- **部署 / 运维变化**：
+  - `Dockerfile.frontend` 新增 `ARG/ENV VITE_APP_VERSION`、`VITE_GIT_COMMIT`，供 Vite build 读取。
+  - `docker-compose.yml` 将 `VITE_APP_VERSION`、`VITE_GIT_COMMIT` 作为 web build args 传入前端镜像构建。
+  - GitHub Actions 香港部署 workflow 在远端执行 `docker compose up --build` 前导出 `VITE_GIT_COMMIT="${GITHUB_SHA::7}"`。
+  - `deploy.sh` 手工部署时用 `git rev-parse --short HEAD` 导出 `VITE_GIT_COMMIT`，避免 Docker build context 不包含仓库根 `.git` 时继续显示 `local`。
+- **业务规则 / 合规口径**：无。
+- **关键代码文件**：`.github/workflows/hypertransfer-deploy-hk.yml`、`hypertransfer-main/Dockerfile.frontend`、`hypertransfer-main/docker-compose.yml`、`hypertransfer-main/deploy.sh`。
+- **验证**：`VITE_GIT_COMMIT=versioncheck corepack pnpm run build` ✅，构建产物包含 `v1.0.0+versioncheck`；`VITE_GIT_COMMIT=composecheck docker compose config` ✅，确认 web build args 含 `VITE_GIT_COMMIT: composecheck`；`corepack pnpm run check` ✅；`git diff --check` ✅。
+- **已知限制 / mock 边界**：已构建出的旧前端镜像仍会显示旧 label，必须重新部署/重建前端镜像后页面才会从 `local` 变为新 commit short SHA。
+
 ### 2026-07-02 PDF 修改意见全量收口 + Travel Rule Sumsub 核对
 
 - **日期 / 范围**：2026-07-02。HyperTransfer 客户端 KYC / Travel Rule / Dashboard / Deposit flow + 工作人员后台 Deposits。隔离本地测试 URL：`http://127.0.0.1:3123/kyc`、`/travel-rule`、`/dashboard`、`/deposit-success`、`/casino-ops`（前端 `3123` 代理后端 `8123`，测试 DB `/tmp/hypertransfer-test-8123.db`）。
@@ -1038,4 +1053,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-07-02（PDF 修改意见全量收口 + Travel Rule Sumsub 核对），新增 `2026-07-02 PDF 修改意见全量收口 + Travel Rule Sumsub 核对` release note：KYC 必填星号/底部 mandatory note/section title/Legal 与 Optional 文案收口；Travel Rule 按 Sumsub 官方文档核对后移除客户页 Beneficiary Route 与 Provider Strategy，但保留系统固定 counterparty route/provider adapter，并增加 provider config guard；MainDeposit 删除 `Deposit Confirmed` 中间页；Dashboard 删除 Deposit Overview / Withdraw Funds / History quick link，Recent Activity 改 amount/date/status + 点击展开详情；History 状态同步 WIP / Transferred / Settled；Casino Ops deposit queue 强化 session date、staff task 与 `Marker ref *`。验证 `corepack pnpm run check` ✅、`corepack pnpm run build` ✅（仅 chunk warning），Chrome Playwright 隔离服务完整跑通 KYC→Dashboard→Deposit→Travel Rule→MainDeposit→DepositSuccess→Dashboard 详情展开与 `/casino-ops` marker settled，业务 API 与 console 均无错误。CLAUDE.md 文末同步。
+最后更新：2026-07-02（线上版本号 build metadata 修复），新增 `2026-07-02 线上版本号 build metadata 修复` release note：前端 Docker build 新增 `VITE_APP_VERSION` / `VITE_GIT_COMMIT` build args，compose 传入 build args，GitHub Actions 香港部署用 `GITHUB_SHA::7` 导出 `VITE_GIT_COMMIT`，手工 `deploy.sh` 用 `git rev-parse --short HEAD` 导出，修复 Demo hub 版本号显示 `v1.0.0+local` 的问题。验证 `VITE_GIT_COMMIT=versioncheck corepack pnpm run build` ✅（产物包含 `v1.0.0+versioncheck`）、`VITE_GIT_COMMIT=composecheck docker compose config` ✅、`corepack pnpm run check` ✅、`git diff --check` ✅。CLAUDE.md 文末同步。

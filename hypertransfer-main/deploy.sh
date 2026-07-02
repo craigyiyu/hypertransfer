@@ -35,6 +35,12 @@ info "代码已更新"
 cd "$HT_DIR"
 info "工作目录: $(pwd)"
 
+# ---------- Step 2.5: 前端构建版本 ----------
+# Docker build context 是 hypertransfer-main/，不包含仓库根 .git；
+# 这里显式注入当前 commit，避免页面版本号退回 vX.Y.Z+local。
+export VITE_GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)"
+info "前端构建版本 commit: ${VITE_GIT_COMMIT}"
+
 # ---------- Step 3: 检查 .env 文件 ----------
 if [ ! -f .env ]; then
   if [ -f .env.example ]; then

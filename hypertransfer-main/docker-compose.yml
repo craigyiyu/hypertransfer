@@ -42,6 +42,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        # Build-time only: Vite bakes this into the static frontend bundle.
+        VITE_APP_VERSION: "${VITE_APP_VERSION:-}"
+        VITE_GIT_COMMIT: "${VITE_GIT_COMMIT:-local}"
     restart: unless-stopped
     depends_on:
       - backend

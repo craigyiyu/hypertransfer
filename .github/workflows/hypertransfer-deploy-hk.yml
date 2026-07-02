@@ -138,6 +138,7 @@ jobs:
 
           WEB_PORT="$(awk -F= '$1=="WEB_PORT"{print $2}' .env | tail -n 1)"
           WEB_PORT="${WEB_PORT:-8080}"
+          export VITE_GIT_COMMIT="${GITHUB_SHA::7}"
 
           mkdir -p backups
           if docker compose ps --services --filter status=running | grep -qx backend; then
