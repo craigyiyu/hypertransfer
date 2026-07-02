@@ -3604,11 +3604,16 @@ def deposit_main(did: str, body: DepositMainIn, authorization: Optional[str] = H
 @app.post("/api/deposits/{did}/marker")
 def deposit_marker(did: str, body: DepositMarkerIn,
                    user: Any = Depends(require_role("marketing", "ops", "admin"))):
-    """⑤(demo): Int'l Marketing 把外部签发的 Marker 编号录回系统(只读外部编号)。"""
+    """⑤(demo): Int'l Marketing 把外部签发的 Marker 编号录回系统。
+    Marker reference 代表 casino marker/筹码已给到客户, 因此入金单进入 settled。
+    """
     r = _deposit_get_or_404(did)
-    _deposit_update(did, marker_ref=body.markerRef.strip())
-    write_audit(user["id"], "deposit.marker", "deposit", did, {"markerRef": body.markerRef})
-    return {"ok": True, "requestId": did, "markerRef": body.markerRef.strip()}
+    if r["verify_status"] != "confirmed":
+        raise HTTPException(status_code=409, detail="The 1 USDT verification is not complete; cannot record settlement marker")
+    marker_ref = body.markerRef.strip()
+    _deposit_update(did, marker_ref=marker_ref, status="settled")
+    write_audit(user["id"], "deposit.marker", "deposit", did, {"markerRef": marker_ref})
+    return {"ok": True, "requestId": did, "status": "settled", "markerRef": marker_ref}
 
 
 @app.post("/api/deposits/{did}/settle")

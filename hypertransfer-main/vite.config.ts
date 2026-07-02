@@ -1,6 +1,7 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
@@ -15,6 +16,25 @@ const PROJECT_ROOT = import.meta.dirname;
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
+const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, "package.json"), "utf-8")) as {
+  version?: string;
+};
+
+function gitShortSha() {
+  try {
+    return execSync("git rev-parse --short HEAD", {
+      cwd: PROJECT_ROOT,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return "local";
+  }
+}
+
+const APP_VERSION = process.env.VITE_APP_VERSION || PACKAGE_JSON.version || "0.0.0";
+const GIT_COMMIT = process.env.VITE_GIT_COMMIT || gitShortSha();
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
@@ -207,6 +227,10 @@ const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(
 
 export default defineConfig({
   plugins,
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(APP_VERSION),
+    "import.meta.env.VITE_GIT_COMMIT": JSON.stringify(GIT_COMMIT),
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

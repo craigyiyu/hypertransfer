@@ -67,19 +67,19 @@ export default function DepositSuccess() {
   const localSettlement = state.depositSettlement ?? FALLBACK_SETTLEMENT;
   const markerRef = depositRecord?.markerRef || demoRecord?.markerRef || localSettlement.markerRef;
   const receiptRef = depositRecord?.receiptRef || demoRecord?.receiptRef || localSettlement.receiptRef;
-  const settlementSettled = depositRecord?.status === "settled" || demoRecord?.status === "settled" || localSettlement.status === "settled";
+  const settlementSettled =
+    Boolean(markerRef) ||
+    depositRecord?.status === "settled" ||
+    demoRecord?.status === "settled" ||
+    localSettlement.status === "settled";
   const settlementText = settlementSettled
-    ? `Settled${receiptRef ? ` · ${receiptRef}` : ""}`
-    : markerRef
-    ? `Marker issued · ${markerRef}`
+    ? `Settled${markerRef ? ` · ${markerRef}` : receiptRef ? ` · ${receiptRef}` : ""}`
     : "In progress · pending marker";
-  const SettlementIcon = settlementSettled || markerRef ? CheckCircle2 : Clock;
-  const settlementClass = settlementSettled || markerRef ? "text-success" : "text-gold";
+  const SettlementIcon = settlementSettled ? CheckCircle2 : Clock;
+  const settlementClass = settlementSettled ? "text-success" : "text-gold";
   const nextStepCopy = settlementSettled
-    ? "Settlement is complete. The marker and settlement receipt are now recorded for this deposit reference."
-    : markerRef
-    ? "The marker has been recorded. Settlement will complete after the vault / Forex confirmation is posted by operations."
-    : "Settlement stays in progress until the marketing team issues a marker for this reference. Status updates automatically once the marker or settlement receipt is recorded.";
+    ? "Settlement is complete. The marker reference is now recorded for this deposit and the casino marker has been credited."
+    : "Settlement stays in progress until the marketing team records the marker reference for this deposit.";
 
   useEffect(() => {
     if (!state.depositRequestId) {

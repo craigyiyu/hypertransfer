@@ -7,6 +7,7 @@
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Shield, ArrowRight, Users, Building2, ShieldCheck } from "lucide-react";
+import { appBuildLabel } from "@/lib/app-version";
 
 const HERO_BG =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/hero-bg-62bvwNpUn3XWmYV9fDibfk.webp";
@@ -37,8 +38,8 @@ const ENTRIES: EntryCard[] = [
     key: "staff",
     eyebrow: "Operator",
     title: "Operations Portal",
-    desc: "Casino staff back office: access-request approvals, deposit & withdrawal queues, custody, and settlement.",
-    points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Withdrawals", "Hex Safe custody · Treasury & compliance"],
+    desc: "Casino staff back office: access-request approvals, deposit and withdrawal queues, and marker settlement.",
+    points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Withdrawals", "Marker reference · WTA settlement"],
     cta: "Open staff portal",
     to: "/ops",
     icon: Building2,
@@ -117,6 +118,9 @@ export default function DemoHome() {
 
         <p className="mt-8 text-center text-[10px] text-muted-foreground/50">
           Demo hub · both entries shown for convenience — a real deployment separates customer and staff access.
+        </p>
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground/40">
+          {appBuildLabel}
         </p>
       </div>
     </div>

@@ -3,34 +3,87 @@
  * Groups test + main deposits by session with resumption capability.
  */
 import { useLocation } from "wouter";
-import { useDemo } from "@/contexts/DemoContext";
+import { useDemo, type Transaction } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, XCircle, ArrowUpRight, Play, ChevronDown, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { canProceedToDeposit } from "@/lib/kyc-status";
 import { formatAssetAmount } from "@/lib/currency";
 import { formatNetworkRail } from "@/lib/compliance";
+import {
+  DEMO_DEPOSIT_SETTLEMENT_EVENT,
+  readDemoDepositSettlement,
+  type DemoDepositSettlementRecord,
+} from "@/lib/demo-deposit-settlement";
+
+type HistoryStatus = "pending" | "deposit_completed" | "settled" | "failed";
+type HistoryFilter = "all" | "pending" | "deposit_completed" | "settled";
 
 interface SessionGroup {
   sessionId: string;
   asset: string;
   network: string;
-  status: "pending" | "completed" | "failed";
+  status: HistoryStatus;
   totalAmount: string;
-  testTx?: any;
-  mainTx?: any;
+  testTx?: Transaction;
+  mainTx?: Transaction;
   createdAt: string;
   completedAt?: string;
+  markerRef?: string;
+  markerIssuedAt?: string;
+  referenceId?: string;
+  receiptRef?: string;
 }
+
+const statusLabels: Record<HistoryStatus, string> = {
+  pending: "Pending",
+  deposit_completed: "Deposit Completed",
+  settled: "Settled",
+  failed: "Failed",
+};
+
+const filterLabels: Record<HistoryFilter, string> = {
+  all: "All",
+  pending: "Pending",
+  deposit_completed: "Deposit Completed",
+  settled: "Settled",
+};
+
+const isTxComplete = (tx?: Transaction) => tx?.status === "confirmed" || tx?.status === "cleared";
+
+const referenceIdFromTx = (tx?: Transaction) =>
+  tx?.txHash ? `HT-${tx.txHash.slice(2, 12).toUpperCase()}` : "";
+
+const demoSettlementMatchesSession = (record: DemoDepositSettlementRecord | null, session: SessionGroup) => {
+  if (!record || !session.mainTx) return false;
+  const referenceId = referenceIdFromTx(session.mainTx);
+  return Boolean(
+    (record.txHash && record.txHash === session.mainTx.txHash) ||
+      (record.referenceId && referenceId && record.referenceId === referenceId),
+  );
+};
 
 export default function History() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "pending">("all");
+  const [statusFilter, setStatusFilter] = useState<HistoryFilter>("all");
+  const [demoSettlement, setDemoSettlement] = useState<DemoDepositSettlementRecord | null>(() =>
+    readDemoDepositSettlement(),
+  );
   const canDeposit = canProceedToDeposit(state.kyc);
+
+  useEffect(() => {
+    const syncDemoSettlement = () => setDemoSettlement(readDemoDepositSettlement());
+    window.addEventListener("storage", syncDemoSettlement);
+    window.addEventListener(DEMO_DEPOSIT_SETTLEMENT_EVENT, syncDemoSettlement);
+    return () => {
+      window.removeEventListener("storage", syncDemoSettlement);
+      window.removeEventListener(DEMO_DEPOSIT_SETTLEMENT_EVENT, syncDemoSettlement);
+    };
+  }, []);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -42,15 +95,15 @@ export default function History() {
     });
   };
 
-  // Group transactions by session
-  const groupedSessions: SessionGroup[] = state.transactions.reduce((acc: SessionGroup[], tx) => {
+  const baseSessions: SessionGroup[] = state.transactions.reduce((acc: SessionGroup[], tx) => {
     const existing = acc.find((s) => s.sessionId === tx.sessionId);
     if (existing) {
       if (tx.type === "test") existing.testTx = tx;
       if (tx.type === "main") existing.mainTx = tx;
-      existing.totalAmount = tx.amount;
-      if (tx.status === "confirmed" || tx.status === "cleared") {
-        existing.status = "completed";
+      if (tx.type === "main") existing.totalAmount = tx.amount;
+      if (tx.status === "failed") existing.status = "failed";
+      if (tx.type === "main" && isTxComplete(tx)) {
+        existing.status = "deposit_completed";
         existing.completedAt = tx.date;
       }
     } else {
@@ -58,22 +111,94 @@ export default function History() {
         sessionId: tx.sessionId,
         asset: tx.asset,
         network: tx.network,
-        status: tx.type === "test" ? "pending" : "completed",
+        status: tx.type === "main" && isTxComplete(tx) ? "deposit_completed" : tx.status === "failed" ? "failed" : "pending",
         totalAmount: tx.amount,
         [tx.type === "test" ? "testTx" : "mainTx"]: tx,
         createdAt: tx.date,
+        completedAt: tx.type === "main" && isTxComplete(tx) ? tx.date : undefined,
       });
     }
     return acc;
   }, []);
+
+  const hasDemoSettlementSession = Boolean(
+    demoSettlement && baseSessions.some((session) => demoSettlementMatchesSession(demoSettlement, session)),
+  );
+  const sessionsWithDemoRecord: SessionGroup[] =
+    demoSettlement && !hasDemoSettlementSession
+      ? [
+          {
+            sessionId: demoSettlement.referenceId || demoSettlement.txHash || "HT-DEMO-DEPOSIT",
+            asset: demoSettlement.asset,
+            network: demoSettlement.network,
+            status: demoSettlement.markerRef || demoSettlement.status === "settled" ? "settled" : "deposit_completed",
+            totalAmount: demoSettlement.amountDecimal,
+            mainTx: {
+              id: `tx-${demoSettlement.referenceId || "demo-deposit"}`,
+              type: "main",
+              asset: demoSettlement.asset,
+              network: demoSettlement.network,
+              amount: demoSettlement.amountDecimal,
+              status: "confirmed",
+              date: demoSettlement.updatedAt || demoSettlement.markerIssuedAt || new Date().toISOString(),
+              txHash: demoSettlement.txHash,
+              sessionId: demoSettlement.referenceId || demoSettlement.txHash || "HT-DEMO-DEPOSIT",
+            },
+            createdAt: demoSettlement.updatedAt || demoSettlement.markerIssuedAt || new Date().toISOString(),
+            completedAt: demoSettlement.updatedAt || demoSettlement.markerIssuedAt || undefined,
+          },
+          ...baseSessions,
+        ]
+      : baseSessions;
+
+  const firstMainSessionId = sessionsWithDemoRecord.find((session) => session.mainTx)?.sessionId;
+  const groupedSessions: SessionGroup[] = sessionsWithDemoRecord.map((session) => {
+    const mainReferenceId = referenceIdFromTx(session.mainTx);
+    const demoRecordMatches = demoSettlementMatchesSession(demoSettlement, session);
+    const shouldUseDemoSettlement =
+      demoRecordMatches || (Boolean(demoSettlement?.markerRef) && session.sessionId === firstMainSessionId);
+    const shouldUseContextSettlement =
+      Boolean(state.depositSettlement?.markerRef || state.depositSettlement?.status === "settled") &&
+      session.sessionId === firstMainSessionId;
+    const markerRef = shouldUseDemoSettlement
+      ? demoSettlement?.markerRef
+      : shouldUseContextSettlement
+      ? state.depositSettlement.markerRef
+      : "";
+    const settlementStatus = shouldUseDemoSettlement
+      ? demoSettlement?.status
+      : shouldUseContextSettlement
+      ? state.depositSettlement.status
+      : "";
+    const status: HistoryStatus =
+      markerRef || settlementStatus === "settled"
+        ? "settled"
+        : session.status === "failed"
+        ? "failed"
+        : isTxComplete(session.mainTx)
+        ? "deposit_completed"
+        : "pending";
+
+    return {
+      ...session,
+      status,
+      markerRef: markerRef || undefined,
+      markerIssuedAt: shouldUseDemoSettlement ? demoSettlement?.markerIssuedAt : state.depositSettlement?.markerIssuedAt,
+      receiptRef: shouldUseDemoSettlement ? demoSettlement?.receiptRef : state.depositSettlement?.receiptRef,
+      referenceId: shouldUseDemoSettlement ? demoSettlement?.referenceId || mainReferenceId : mainReferenceId,
+    };
+  });
+
   const filteredSessions = groupedSessions.filter((session) =>
     statusFilter === "all" ? true : session.status === statusFilter,
   );
 
-  const statusIcon = (status: string) => {
+  const statusIcon = (status: HistoryStatus) => {
     switch (status) {
-      case "completed":
+      case "settled":
         return <CheckCircle2 className="w-4 h-4 text-success" />;
+      case "deposit_completed":
+        return <CheckCircle2 className="w-4 h-4 text-gold" />;
       case "failed":
         return <XCircle className="w-4 h-4 text-destructive" />;
       default:
@@ -81,10 +206,14 @@ export default function History() {
     }
   };
 
-  const statusColor = (status: string) => {
+  const statusColor = (status: HistoryStatus | Transaction["status"]) => {
     switch (status) {
-      case "completed":
+      case "settled":
+      case "confirmed":
+      case "cleared":
         return "text-success";
+      case "deposit_completed":
+        return "text-gold";
       case "failed":
         return "text-destructive";
       default:
@@ -131,30 +260,17 @@ export default function History() {
       <div className="space-y-4">
         {/* Filter bar */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          <button
-            onClick={() => setStatusFilter("all")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              statusFilter === "all" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setStatusFilter("completed")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              statusFilter === "completed" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
-            }`}
-          >
-            Completed
-          </button>
-          <button
-            onClick={() => setStatusFilter("pending")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              statusFilter === "pending" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
-            }`}
-          >
-            Pending
-          </button>
+          {(["all", "pending", "deposit_completed", "settled"] as HistoryFilter[]).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setStatusFilter(filter)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                statusFilter === filter ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
+              }`}
+            >
+              {filterLabels[filter]}
+            </button>
+          ))}
         </div>
 
         {/* Session list */}
@@ -162,7 +278,7 @@ export default function History() {
           <div className="card-gold rounded-xl p-12 flex flex-col items-center text-center">
             <ArrowUpRight className="w-10 h-10 text-muted-foreground/20 mb-3" />
             <p className="text-sm text-muted-foreground">
-              {statusFilter === "all" ? "No transactions yet" : `No ${statusFilter} transactions`}
+              {statusFilter === "all" ? "No transactions yet" : `No ${filterLabels[statusFilter]} transactions`}
             </p>
             <p className="text-xs text-muted-foreground/60 mt-1">
               {statusFilter === "all"
@@ -200,13 +316,18 @@ export default function History() {
                         <p className="text-sm font-medium text-foreground">
                           {session.asset} on {formatNetworkRail(session.network)}
                         </p>
-                        <span className={`text-xs font-medium capitalize ${statusColor(session.status)}`}>
-                          {session.status}
+                        <span className={`text-xs font-medium ${statusColor(session.status)}`}>
+                          {statusLabels[session.status]}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground/60 mt-0.5">
                         {formatSessionAmount(session.totalAmount, !session.mainTx)} {session.asset} • {formatDate(session.createdAt)}
                       </p>
+                      {session.markerRef && (
+                        <p className="mt-0.5 truncate text-xs text-gold">
+                          Marker reference: <span className="font-mono">{session.markerRef}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -285,16 +406,32 @@ export default function History() {
                             </div>
                             <div>
                               <p className="text-muted-foreground/60">Status</p>
-                              <p className={`font-medium capitalize ${statusColor(session.mainTx.status)}`}>
-                                {session.mainTx.status}
+                              <p className={`font-medium ${statusColor(session.status)}`}>
+                                {statusLabels[session.status]}
                               </p>
                             </div>
+                            {session.referenceId && (
+                              <div className="col-span-2">
+                                <p className="text-muted-foreground/60">Reference ID</p>
+                                <p className="font-mono text-[10px] text-gold truncate">
+                                  {session.referenceId}
+                                </p>
+                              </div>
+                            )}
                             <div className="col-span-2">
                               <p className="text-muted-foreground/60">Transaction Hash</p>
                               <p className="font-mono text-[10px] text-gold truncate">
                                 {session.mainTx.txHash}
                               </p>
                             </div>
+                            {session.markerRef && (
+                              <div className="col-span-2">
+                                <p className="text-muted-foreground/60">Marker Reference</p>
+                                <p className="font-mono text-[10px] text-success truncate">
+                                  {session.markerRef}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => navigate("/refund")}

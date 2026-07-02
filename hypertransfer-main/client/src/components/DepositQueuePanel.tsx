@@ -1,11 +1,12 @@
 /**
  * DepositQueuePanel — 真实入金队列(staff/casino-ops 用)。
  *
- * 调后端 GET /api/deposits(compliance/ops/custodian) + Marker 录回(marketing/ops) +
- * settle(custodian/ops, Forex 兑法币 demo + 生成 Receipt)。按 useAuth 角色显隐, 后端 require_role 守卫。
+ * 调后端 GET /api/deposits(compliance/ops/custodian) + Marker 录回(marketing/ops)。
+ * 录入 marker reference 即代表 casino marker/筹码已给到客户, 入金单进入 settled。
+ * 按 useAuth 角色显隐, 后端 require_role 守卫。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Boxes, Tag, Banknote } from "lucide-react";
+import { Boxes, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
@@ -46,7 +47,6 @@ export default function DepositQueuePanel() {
   const roles = useMemo(() => new Set(user?.roles ?? []), [user]);
   const isAdmin = roles.has("admin");
   const canMarker = isAdmin || roles.has("marketing") || roles.has("ops");
-  const canSettle = isAdmin || roles.has("custodian") || roles.has("ops");
   const demoMainTx = useMemo(
     () => state.transactions.find((tx) => tx.type === "main" && (tx.status === "confirmed" || tx.status === "cleared")),
     [state.transactions],
@@ -128,7 +128,7 @@ export default function DepositQueuePanel() {
       travelRuleStatus: demoTravelRuleStatus,
       screeningStatus: demoScreeningStatus,
       verifyStatus: demoVerifyStatus,
-      status: "marker_issued",
+      status: "settled",
       markerRef,
       markerIssuedAt: now,
       receiptRef: localSettlement.receiptRef,
@@ -139,7 +139,7 @@ export default function DepositQueuePanel() {
     updateState({
       depositSettlement: {
         ...localSettlement,
-        status: "marker_issued",
+        status: "settled",
         markerRef,
         markerIssuedAt: now,
       },
@@ -152,13 +152,12 @@ export default function DepositQueuePanel() {
       <PanelHeader
         icon={Boxes}
         eyebrow="Deposit Queue — Live /api/deposits"
-        title="Source-wallet KYT · 1 USDT verify · Marker · Forex settlement"
+        title="Source-wallet KYT · 1 USDT verify · Marker settlement"
         onRefresh={() => void load()}
         refreshing={loading}
       />
       <p className="mb-3 text-[11px] text-muted-foreground">
-        Your roles: {(user?.roles ?? []).join(", ") || "—"} · Marker &amp; fiat settlement are demo (Hex Trust OTC has no
-        quote/order API).
+        Your roles: {(user?.roles ?? []).join(", ") || "—"} · Marker reference is the casino-side settlement proof shown to the customer.
       </p>
 
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
@@ -174,7 +173,7 @@ export default function DepositQueuePanel() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-mono text-xs font-semibold text-foreground">{demoReferenceId}</span>
               <Pill tone={localSettlement.markerRef ? "success" : "warning"}>
-                {localSettlement.markerRef ? "marker issued" : "pending marker"}
+                {localSettlement.markerRef ? "settled" : "pending marker"}
               </Pill>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -185,7 +184,7 @@ export default function DepositQueuePanel() {
               <Field label="Travel Rule">{demoTravelRuleStatus}</Field>
               <Field label="Deposit address"><span className="font-mono">{shortAddr(demoDepositAddress)}</span></Field>
               <Field label="Marker">{localSettlement.markerRef || "—"}</Field>
-              <Field label="Settlement">{localSettlement.receiptRef || "pending marker"}</Field>
+              <Field label="Settlement">{localSettlement.markerRef ? "settled" : "pending marker"}</Field>
             </div>
 
             <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -216,13 +215,12 @@ export default function DepositQueuePanel() {
         )}
         {deposits.map((d) => {
           const busy = busyId === d.id;
-          const verified = d.verifyStatus === "confirmed";
-          const showSettle = canSettle && verified && d.status !== "settled";
+          const displayStatus = d.markerRef ? "settled" : d.status;
           return (
             <div key={d.id} className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-mono text-xs font-semibold text-foreground">{d.id}</span>
-                <Pill tone={statusTone(d.status)}>{d.status}</Pill>
+                <Pill tone={statusTone(displayStatus)}>{displayStatus}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Asset / network">{d.asset} · {d.network}</Field>
@@ -233,7 +231,7 @@ export default function DepositQueuePanel() {
                 <Field label="Deposit address"><span className="font-mono">{shortAddr(d.depositAddress)}</span></Field>
                 <Field label="Marker">{d.markerRef || "—"}</Field>
                 <Field label="Settlement">
-                  {d.receiptRef ? `${d.receiptRef} · ${d.fiatAmount} ${d.fiatCurrency}` : "—"}
+                  {d.markerRef ? `Settled · ${d.markerRef}` : "pending marker"}
                 </Field>
               </div>
 
@@ -258,17 +256,7 @@ export default function DepositQueuePanel() {
                     </div>
                   </div>
                 )}
-                {showSettle && (
-                  <ActionBtn
-                    icon={Banknote}
-                    tone="success"
-                    disabled={busy}
-                    onClick={() => void act(d.id, () => depositApi.settle(d.id), "Settled (Forex demo) + receipt issued")}
-                  >
-                    Settle → vault / Forex
-                  </ActionBtn>
-                )}
-                {!canMarker && !showSettle && (
+                {!canMarker && (
                   <span className="text-[11px] text-muted-foreground">No action available for your role at this status.</span>
                 )}
               </div>
