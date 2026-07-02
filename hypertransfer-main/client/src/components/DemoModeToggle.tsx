@@ -5,13 +5,17 @@
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import { Zap } from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 export default function DemoModeToggle() {
-  const { isDemoMode, toggleDemoMode } = useDemoMode();
+  const { isDemoMode, fillDemoData } = useDemoMode();
 
   return (
     <motion.button
-      onClick={toggleDemoMode}
+      onClick={() => {
+        fillDemoData();
+        toast.success("Demo data filled for this screen");
+      }}
       className={`
         fixed bottom-6 right-6 z-40
         w-14 h-14 rounded-full
@@ -27,7 +31,7 @@ export default function DemoModeToggle() {
       `}
       whileHover={{ scale: 1.1 }}
       whileTap={{ scale: 0.95 }}
-      title={isDemoMode ? "Demo Mode: ON" : "Demo Mode: OFF"}
+      title={isDemoMode ? "Demo Mode: ON · fill again" : "Fill demo data"}
     >
       <Zap className="w-5 h-5" />
     </motion.button>

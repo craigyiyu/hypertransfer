@@ -54,6 +54,11 @@ export default function Setup2FA() {
     if (!pending) navigate("/login");
   }, [pending, navigate]);
 
+  // demo: 自动填 6 位码(后端 DEMO_BYPASS_2FA 下 confirm-totp 接受任意 6 位), 点 Verify 即通过。
+  useEffect(() => {
+    if (pending?.demo) setCode("123456");
+  }, [pending]);
+
   // 倒计时:每秒根据 expiresAt 重算(切后台再回来也准)
   useEffect(() => {
     if (!pending) return;
@@ -211,6 +216,11 @@ export default function Setup2FA() {
               </InputOTPGroup>
             </InputOTP>
           </div>
+          {pending?.demo && (
+            <p className="text-center text-[11px] text-gold/70">
+              Demo: code auto-filled — just click Verify &amp; Continue (any 6 digits pass).
+            </p>
+          )}
         </div>
       </div>
 

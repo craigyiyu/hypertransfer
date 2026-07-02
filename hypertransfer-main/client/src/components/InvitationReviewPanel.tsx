@@ -1,42 +1,91 @@
 /**
  * InvitationReviewPanel — 准入审批(Access Request, staff/casino-ops 用)。process v1 §A 第一步。
  *
- * RM 登录后台, 提交已获取的 patron 资料(Member ID/姓名/年龄/电话/护照/邮箱) → Submit access request;
- * Int'l Marketing 用外部系统核查后, 在本系统 Approve → 签发 single-use+72h 二维码+链接, 邮件发给客户。
+ * RM 登录后台, 提交已获取的 patron 资料(Member ID/姓名/邮箱) → Submit access request;
+ * Int'l Marketing 用外部系统核查后, 在本系统 Approve → 签发 single-use+6h 二维码+链接, 邮件发给客户。
  * 调后端 /api/invitations*; list 限 marketing/compliance/admin, create 限 rm, 审批/签发限 marketing。
  * 按 useAuth 角色显隐, 后端 require_role 才是真守卫。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserPlus2, Check, X, LinkIcon, Send, MailCheck } from "lucide-react";
+import { UserPlus2, Check, X, LinkIcon, Send, MailCheck, Copy, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { DEMO_AUTOFILL_EVENT, useDemoMode } from "@/contexts/DemoModeContext";
 import { apiError, invitationApi, type Invitation } from "@/lib/api";
-import { ActionBtn, Field, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
+import { ActionBtn, Field, LabeledInput, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
-function statusTone(s: string): Tone {
-  if (s === "issued" || s === "consumed") return "success";
-  if (s === "rejected" || s === "expired" || s === "revoked") return "danger";
-  if (s === "approved") return "warning";
-  return "neutral";
+// 对外审批状态只剩三种(决策): submitted / approved / rejected。
+// 底层 issued/consumed 是审批后签发的 token 机制(保证邀请链接可注册), 一律显示为 "approved"。
+function displayStatus(s: string): "submitted" | "approved" | "rejected" {
+  if (s === "rejected" || s === "revoked") return "rejected";
+  if (s === "submitted" || s === "pending") return "submitted";
+  return "approved"; // approved / issued / consumed / expired
 }
 
-const EMPTY_FORM = { patronEmail: "", patronName: "", memberId: "", age: "", phone: "", passport: "" };
+function statusTone(s: string): Tone {
+  const d = displayStatus(s);
+  return d === "approved" ? "success" : d === "rejected" ? "danger" : "warning";
+}
+
+// 字段简化(2026-07 口径): 隐私 + 宿主拿不到敏感信息 → 只留 Member ID / First+Last name / Email。
+const EMPTY_FORM = { patronEmail: "", firstName: "", lastName: "", memberId: "" };
+const PAGE_SIZE = 5;
 
 export default function InvitationReviewPanel() {
   const { user } = useAuth();
+  const { isDemoMode, getDemoValue } = useDemoMode();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [issued, setIssued] = useState<Record<string, { link: string; qr: string }>>({});
+  const [rejectDraft, setRejectDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(1);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const roles = useMemo(() => new Set(user?.roles ?? []), [user]);
   const isAdmin = roles.has("admin");
   const canCreate = isAdmin || roles.has("rm");
   const canReview = isAdmin || roles.has("marketing");
   const canList = isAdmin || roles.has("marketing") || roles.has("compliance");
+
+  const applyDemoForm = useCallback(() => {
+    setForm({
+      memberId: getDemoValue("memberId"),
+      firstName: getDemoValue("firstName"),
+      lastName: getDemoValue("lastName"),
+      patronEmail: getDemoValue("patronEmail"),
+    });
+  }, [getDemoValue]);
+
+  useEffect(() => {
+    if (isDemoMode) applyDemoForm();
+    window.addEventListener(DEMO_AUTOFILL_EVENT, applyDemoForm);
+    return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyDemoForm);
+  }, [applyDemoForm, isDemoMode]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const queueInvitations = useMemo(
+    () =>
+      canList && !isAdmin
+        ? invitations.filter((i) => !["approved", "issued", "consumed"].includes(i.status))
+        : invitations,
+    [canList, invitations, isAdmin],
+  );
+  const pageCount = Math.max(1, Math.ceil(queueInvitations.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pagedInvitations = queueInvitations.slice(pageStart, pageStart + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
 
   const load = useCallback(async () => {
     if (!canList && !canCreate) {
@@ -80,14 +129,15 @@ export default function InvitationReviewPanel() {
     setCreating(true);
     try {
       // RM 提交已获取的 patron 资料: 邮箱/姓名为顶层字段, 其余进 details(后端透传存储)。
+      // 姓名拆 First/Last, 顶层 patronName 用 "First Last" 拼接(卡片/History 展示用)。
+      const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
       await invitationApi.create({
         patronEmail: form.patronEmail.trim(),
-        patronName: form.patronName.trim() || undefined,
+        patronName: fullName || undefined,
         details: {
           memberId: form.memberId.trim(),
-          age: form.age.trim(),
-          phone: form.phone.trim(),
-          passport: form.passport.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
         },
       });
       toast.success("Access request submitted for review");
@@ -126,10 +176,97 @@ export default function InvitationReviewPanel() {
     }
   };
 
-  const issue = (id: string) => runIssue(id, () => invitationApi.issue(id), "QR + link issued (single-use, 72h)");
-  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 72h link)");
+  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 6h link)");
+  const emailInvite = (id: string) => runIssue(id, () => invitationApi.email(id), "Invite email sent to patron");
+  // RM 把被拒申请直接重新提交(rejected → submitted)
+  const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
+  // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
+  const fullLink = (link: string) => (link.startsWith("/") ? window.location.origin + link : link);
+  const copyLink = (link: string) => {
+    void navigator.clipboard.writeText(fullLink(link));
+    toast.success("Invite link copied — send it to the customer");
+  };
 
-  const inputCls = "rounded-lg border border-border/60 bg-background px-3 py-2 text-sm";
+  const expiryInfo = (inv: Invitation) => {
+    const expMs = (inv.expiresAt ?? 0) * 1000;
+    const expired = expMs > 0 && expMs <= nowMs;
+    const minsLeft = Math.max(0, Math.round((expMs - nowMs) / 60000));
+    return {
+      expired,
+      label: expired
+        ? "Expired"
+        : expMs > 0
+          ? `Valid · ${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m left`
+          : "No expiry",
+    };
+  };
+
+  const renderDeliveryBox = (inv: Invitation, link: string, qr: string) => {
+    const { expired, label } = expiryInfo(inv);
+    const busy = busyId === inv.id;
+    return (
+      <div
+        className={`mt-3 rounded-lg border p-3 transition-colors ${
+          expired
+            ? "border-border/50 bg-secondary/20 opacity-75"
+            : "border-success/30 bg-success/5"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Single-use link (6h) · emailed to patron
+          </p>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+              expired
+                ? "border-border/60 bg-background/40 text-muted-foreground"
+                : "border-success/40 bg-success/10 text-success"
+            }`}
+          >
+            {label}
+          </span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <img
+            src={qr}
+            alt="invite QR"
+            className={`h-28 w-28 rounded-lg border border-border/50 bg-white p-1 ${expired ? "grayscale opacity-40" : ""}`}
+          />
+          <div className="min-w-0 flex-1">
+            <p className={`flex items-start gap-1.5 break-all text-[11px] ${expired ? "text-muted-foreground" : "text-success"}`}>
+              <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
+              {fullLink(link)}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => copyLink(link)}
+                disabled={expired}
+                className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10 disabled:border-border/50 disabled:text-muted-foreground disabled:opacity-50"
+              >
+                <Copy className="h-3 w-3" /> Copy link
+              </button>
+              <button
+                onClick={() => void emailInvite(inv.id)}
+                disabled={expired || busy}
+                className="flex items-center gap-1 rounded-lg border border-success/40 px-2.5 py-1.5 text-[11px] font-semibold text-success transition-colors hover:bg-success/10 disabled:border-border/50 disabled:text-muted-foreground disabled:opacity-50"
+              >
+                <MailCheck className="h-3 w-3" /> Email customer
+              </button>
+              {expired && (
+                <button
+                  onClick={() => void resend(inv.id)}
+                  disabled={busy}
+                  className="flex items-center gap-1 rounded-lg border border-gold/40 px-2.5 py-1.5 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+                >
+                  <Send className="h-3 w-3" /> Send new 6h link
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
@@ -148,12 +285,10 @@ export default function InvitationReviewPanel() {
             Relationship Manager — submit patron details (already collected)
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <input value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="Member ID" className={inputCls} />
-            <input value={form.patronName} onChange={(e) => setForm({ ...form, patronName: e.target.value })} placeholder="Full name" className={inputCls} />
-            <input value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="Age" className={inputCls} />
-            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" className={inputCls} />
-            <input value={form.passport} onChange={(e) => setForm({ ...form, passport: e.target.value })} placeholder="Passport number" className={inputCls} />
-            <input value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="Email (required)" className={inputCls} />
+            <LabeledInput name="memberId" label="Member ID" value={form.memberId} onChange={(e) => setForm({ ...form, memberId: e.target.value })} placeholder="e.g. VIP-1234" />
+            <LabeledInput name="firstName" label="First name" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput name="lastName" label="Last name" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="As shown on ID" />
+            <LabeledInput name="patronEmail" label="Email (required)" type="email" value={form.patronEmail} onChange={(e) => setForm({ ...form, patronEmail: e.target.value })} placeholder="name@example.com" />
           </div>
           <div className="mt-2">
             <ActionBtn icon={Send} tone="neutral" disabled={creating || !form.patronEmail.trim()} onClick={() => void createInvite()}>
@@ -177,7 +312,9 @@ export default function InvitationReviewPanel() {
       )}
 
       <div className="space-y-3">
-        {invitations.map((inv) => {
+        {/* 审批页(Marketing): 批准后(approved/issued/consumed)不再显示 —— 已转到 RM 页交付。
+            admin 看全量便于总览; RM 用 mine() 看自己全部(含 issued 的交付链接)。 */}
+        {pagedInvitations.map((inv) => {
           const busy = busyId === inv.id;
           const d = (inv.details ?? {}) as Record<string, unknown>;
           const show = issued[inv.id];
@@ -185,61 +322,97 @@ export default function InvitationReviewPanel() {
             <div key={inv.id} className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-foreground">{inv.patronName || inv.patronEmail}</span>
-                <Pill tone={statusTone(inv.status)}>{inv.status}</Pill>
+                <Pill tone={statusTone(inv.status)}>{displayStatus(inv.status)}</Pill>
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Member ID">{String(d.memberId || "—")}</Field>
                 <Field label="Email">{inv.patronEmail}</Field>
-                <Field label="Phone">{String(d.phone || "—")}</Field>
-                <Field label="Passport">{String(d.passport || "—")}</Field>
-                <Field label="Age">{String(d.age || "—")}</Field>
                 <Field label="Expires">{inv.expiresAt ? new Date(inv.expiresAt * 1000).toLocaleString("en-US") : "—"}</Field>
-                <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleDateString("en-US")}</Field>
+                <Field label="Created">{new Date(inv.createdAt * 1000).toLocaleString("en-US")}</Field>
               </div>
 
-              {show && (
-                <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border border-success/30 bg-success/5 p-3">
-                  <img src={show.qr} alt="invite QR" className="h-28 w-28 rounded-lg border border-border/50 bg-white p-1" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Single-use link (72h) · emailed to patron</p>
-                    <p className="mt-1 flex items-start gap-1.5 break-all text-[11px] text-success">
-                      <LinkIcon className="mt-0.5 h-3 w-3 shrink-0" />
-                      {show.link}
-                    </p>
-                  </div>
+              {show && renderDeliveryBox(inv, show.link, show.qr)}
+
+              {/* issued: 可交付给客户的邀请链接 + 二维码 + 时效状态(RM 页持久展示)。避免与刚签发的 transient QR 块重复。 */}
+              {!show && inv.status === "issued" && inv.inviteLink && inv.qrPngBase64
+                ? renderDeliveryBox(inv, inv.inviteLink, inv.qrPngBase64)
+                : null}
+
+              {/* 拒绝原因(所有能看到此卡的人可见) */}
+              {inv.status === "rejected" && d.rejectReason ? (
+                <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-destructive">Reject reason</p>
+                  <p className="mt-0.5 text-xs text-foreground">{String(d.rejectReason)}</p>
                 </div>
-              )}
+              ) : null}
 
               {canReview && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-end gap-2">
                   {inv.status === "submitted" && (
                     <ActionBtn icon={Check} tone="success" disabled={busy}
-                      onClick={() => void act(inv.id, () => invitationApi.approve(inv.id), "Access request approved")}>
+                      onClick={() => void runIssue(inv.id, () => invitationApi.approve(inv.id), "Approved — invite QR + link issued & emailed")}>
                       Approve access request
                     </ActionBtn>
                   )}
-                  {inv.status === "approved" && (
-                    <ActionBtn icon={LinkIcon} tone="warning" disabled={busy} onClick={() => void issue(inv.id)}>
-                      Issue QR + link (email)
-                    </ActionBtn>
-                  )}
-                  {inv.status === "issued" && (
-                    <ActionBtn icon={MailCheck} tone="neutral" disabled={busy} onClick={() => void resend(inv.id)}>
-                      Resend invite email
-                    </ActionBtn>
-                  )}
                   {(inv.status === "submitted" || inv.status === "approved") && (
-                    <ActionBtn icon={X} tone="danger" disabled={busy}
-                      onClick={() => void act(inv.id, () => invitationApi.reject(inv.id), "Access request rejected")}>
-                      Reject
-                    </ActionBtn>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Reject reason (required)</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={rejectDraft[inv.id] ?? ""}
+                          onChange={(e) => setRejectDraft({ ...rejectDraft, [inv.id]: e.target.value })}
+                          placeholder="Why is this rejected?"
+                          className="w-56 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
+                        />
+                        <ActionBtn icon={X} tone="danger" disabled={busy || !(rejectDraft[inv.id] ?? "").trim()}
+                          onClick={() => void act(inv.id, () => invitationApi.reject(inv.id, (rejectDraft[inv.id] ?? "").trim()), "Access request rejected")}>
+                          Reject
+                        </ActionBtn>
+                      </div>
+                    </div>
                   )}
+                </div>
+              )}
+
+              {/* RM(提交者) 可把被拒申请直接重新提交 */}
+              {canCreate && inv.status === "rejected" && (
+                <div className="mt-3">
+                  <ActionBtn icon={Send} tone="neutral" disabled={busy} onClick={() => void resubmit(inv.id)}>
+                    Resubmit for review
+                  </ActionBtn>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {queueInvitations.length > PAGE_SIZE && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/40 pt-3">
+          <p className="text-[11px] text-muted-foreground">
+            Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, queueInvitations.length)} of {queueInvitations.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={safePage <= 1}
+              className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3 w-3" /> Prev
+            </button>
+            <span className="rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-[11px] font-semibold text-foreground">
+              Page {safePage} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              disabled={safePage >= pageCount}
+              className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-40"
+            >
+              Next <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

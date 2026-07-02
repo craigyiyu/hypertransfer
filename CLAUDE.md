@@ -116,7 +116,10 @@ VirtualAsset/
 │   │   ├── lib/travel-rule.ts    #   ★Travel Rule 数据模型/状态机/provider adapter mock（接 Hex Trust/Sumsub/Notabene/Sygna/TRP 从这扩展）
 │   │   ├── lib/hex-safe.ts       #   ★Hex Safe deposit status/确认数/vault 余额/交易日志 mock API+webhook 模型
 │   │   ├── lib/treasury-ops.ts   #   ★后台运营 mock：OTC 兑换/脱锚清算/对账/澳门访问隔离/托管证据
-│   │   ├── lib/demo-auth.ts      #   ★本地 demo session（Use Demo Account）
+│   │   ├── lib/demo-auth.ts      #   ★本地 demo session（Use Demo Account / DEMO_STAFF_TOKEN 工作人员 demo 会话）
+│   │   ├── lib/currency.ts       #   ★入金费用模型 DEPOSIT_FEE_MODEL（gas 客户承担）+ HKD 汇率(demo) + computeDepositFees/estimatedReceived
+│   │   ├── pages/DemoHome.tsx    #   ★Demo 首页 hub（路由 /）：客户端(→/welcome) + 工作人员端(→/ops) 两个入口卡
+│   │   ├── pages/StaffLogin.tsx  #   ★工作人员登录页（路由 /ops）：Okta SSO(demo,免 2FA) 主入口 + 邮箱密码次入口
 │   │   └── pages/CasinoOpsPortal.tsx # ★澳门赌场工作人员后台运营站点（路由 /casino-ops，旧 /treasury-controls 为别名）
 │   ├── docs/                     # ★HyperTransfer app 流程图：app-flow.{svg,png,md} + gen_flow.py（品牌化矢量，客户可发）
 │   ├── backend/                  # ★真实认证后端 FastAPI：send-otp / register / confirm-totp / login(start+verify 两步) / me / logout + CORS
@@ -302,6 +305,19 @@ draft
 - **⑥SMTP / 迁移**：`send_email` 已 env-gated（`SMTP_HOST` 配则真发，否则 console）；旧 `hypertransfer_auth.db` 旧 schema 在 init_db 自动迁移（phone-PK→user_id + 全部新表 + `.bak`，已在副本验证）。
 - 验证：后端 TestClient 31/31 + 活动服务器 curl 全链路 deposit→refund；前端 `tsc` + `vite build` 全绿。
 
+### 4.4e 邀请流打磨 + 入金费用模型 + Okta 员工登录 + Demo 首页 + demo 便利（2026-06-30）
+
+> 分支 `feat/invite-flow-and-demo-login`（PR #10）。这批是**演示体验层**打磨：把邀请审批收敛成 3 态、入金加费用/汇率/凭证、工作人员端改 Okta demo、加 Demo 首页 hub，并把全链路做成"自动填码 + 一键过"的可重复 demo。**所有 demo 便利均 gated on 后端 `HT_DEMO_BYPASS_2FA` + 非 production，生产不受影响。**
+
+- **入金费用模型（`lib/currency.ts` `DEPOSIT_FEE_MODEL`，demo 值）**：**Gas 费由客户承担并从到账金额扣除**（口径较早前"Hex Trust 承担 / 免 gas"**已反转**为用户自付）。`MainDeposit` 确认前展示**汇率（HKD 估值，demo）+ 费用明细**（仅 gas `0.03 USDT`，不展示 wallet screening fee），`estimatedReceived = deposit − gas`；**Step 1 验证款按实际到账金额计入总计划金额**，真实用户可能少于/多于 1 USDT，Step 2 只提示/模拟发送 `max(total − actual_step1, 0)` 的剩余主入金；若 `actual_step1 >= total`，不要求二次转，成功页显示实际到账合计并保留 Planned Amount 提醒。Step 2 顶部金额框为只读剩余待转金额，verified receiving address 只展示不提供 copy/edit。后端 `/api/deposits/{id}/main` 仍记录计划总金额用于 Travel Rule/后台，demo settlement 与成功页记录实际到账合计；`DepositSuccess` credited 用 `estimatedReceived`，并显示 **txHash（区块浏览器链接，`lib/compliance.ts` `blockExplorerTxUrl`：tron→tronscan / ethereum→etherscan）+ Reference ID + 结算「in progress · pending marker」**（录 Marker 前 pending）。**全额容错** `handleFullAmountDetected`：客户直接把全额打进 1 USDT 验证地址也不卡流程。
+- **邀请流（`InvitationReviewPanel.tsx` + 后端 `server.py`）**：审批 **3 态收敛** `submitted / approved / rejected`（去掉 `issued`，**批准即自动签发** `approve_invitation`）；**拒绝必填原因**（存 `details_json.rejectReason`）；RM 可 **resubmit**（`invitationApi.resubmit`）；批准后**转 RM 交付卡**（持久展示**邀请链接 + 二维码 `inv.qrPngBase64` + 链接时效状态** `Valid · Xh Ym left`/`Link expired`，过期可 resend）。**RM 表单字段简化**：`Member ID`（白标，**禁用「Win ID」**）+ `First Name` + `Last Name` + `Email`（去 Age/Phone/Passport），`patronName = First + " " + Last`，Created 到秒。**邀请链接 TTL 72h→6h**（`INVITE_TTL`）。
+- **工作人员端登录 = Okta SSO（demo，免 2FA）**：`/ops`（`StaffLogin.tsx`）主按钮「Sign in with Okta」→ `finish(DEMO_STAFF_TOKEN, DEMO_STAFF_USER)` 直接进 `/casino-ops`（admin 全权限；后端 `user_from_token` 识别 `DEMO_STAFF_SESSION_TOKEN`→`demo-staff-id`→admin 角色），邮箱+密码为次要入口。生产需真实接 Okta OIDC。
+- **Demo 首页 hub（`DemoHome.tsx`，路由 `/`）**：客户端入口 → `/welcome`、工作人员端入口 → `/ops` 两张卡（`App.tsx` 把原 Landing 移到 `/welcome`）。卡片动画**只做 y-slide、不做 opacity**（规避 framer-motion 在自动化下 RAF 节流卡在 opacity:0）。
+- **Demo 便利（可重复跑）**：Email/SMS OTP 发送后自动填码 + 2FA（首登 `Setup2FA` / 登录 `Verify2FA` / 忘密 `ForgotPassword` / 员工 `StaffLogin`）自动填 6 位 + 点击必过；已存在用户重复注册也显示成功；邀请可重复跑（后端 `register_invite` + `invitation_is_redeemable` demo 放宽）。**各页带回后端 `demo` flag** 才显示自动填提示。
+- **入金 skip 门槛修复**：`NewDeposit` / `DepositAddress` 的「skip & continue」原用 `import.meta.env.DEV`（线上 build=false → 线上 demo 点不了），改为**后端驱动条件**（网络未配置 / `selectedNetwork==="demo"`），**线上 demo 也能跑**。
+- **seed**：`seed_demo.py` **不再预置** `newvip@demo.local` 测试邀请（邀请队列演示时由 RM 表单现场提交，保留 reset-by-id 幂等清理）。
+- 验证：`corepack pnpm run check`（tsc）✅ + **Chrome MCP 真机点测全链路通过**。已知限制：Okta 未真接；汇率/gas 为 demo 值（真实待 Hex Trust 汇率口径）。
+
 ### 4.5 Hex Safe REST API 接入要点
 
 - **Base URL**：`https://api.hexsafe.hextrust.com`
@@ -339,6 +355,8 @@ Password: Operator#2026!
 - `operator.example` 是文档保留域名（RFC 2606），不是真实邮箱
 - 该账号**仅**作为 demo 登录流程的硬编码占位（见 `src/components/pad-deposit-app.tsx`）
 - 正式版必须接 Okta OIDC + MFA（推荐 Passkey / WebAuthn / FIDO2，不用 SMS OTP）
+- **HyperTransfer 工作人员端登录（`/ops`）= Okta SSO demo（免 2FA）**：点「Sign in with Okta」直接进 `/casino-ops`（admin 全权限，`DEMO_STAFF_TOKEN`）；生产接真实 Okta OIDC（见 §4.4e）。
+- **HyperTransfer demo 便利（2026-06-30，全 gated on 后端 `HT_DEMO_BYPASS_2FA` + 非 production）**：全链路（邀请→Email OTP→注册→2FA→登录→忘密）**自动填码 + 点击必过**、已存在用户重复注册也成功、邀请可重复跑。**生产环境这些便利全部关闭**（见 §4.4e）。
 
 ## 5. 第一版范围边界
 
@@ -455,8 +473,10 @@ Password: Operator#2026!
 | KYC | `https://h5.hypercypto.com/kyc` |
 | Dashboard | `https://h5.hypercypto.com/dashboard` |
 | 新建入金 | `https://h5.hypercypto.com/new-deposit` |
-| Refund demo | `https://h5.hypercypto.com/refund` |
+| Withdrawal demo（兼容旧路由） | `https://h5.hypercypto.com/refund` |
 | 赌场工作人员后台 | `https://h5.hypercypto.com/casino-ops` |
+
+> ⏳ **随 PR #10（`feat/invite-flow-and-demo-login`）合并 `main` 后**：`/` 变为 **Demo 首页 hub**（客户端 → `/welcome`、工作人员端 → `/ops`）；新增 `/ops` **工作人员 Okta 登录页**。合并部署后需重新核这两条并补进上表。
 
 ## 8.7 项目级待办清单（每日维护）
 
@@ -513,7 +533,9 @@ Password: Operator#2026!
 
 ---
 
-*最后更新：2026-06-29（周一·退款重构 + 入金流 bug 修复）（§4.4d 退款前端补 2026-06-29 重构：退款页**不再以单笔入金为中心/不再写死金额**→ 选已验证原钱包 + 自由金额(可多可少)+ 可选原因；金额客户端不设上限(员工端 vault 余额 + 管理层审批兜底,对应 process v1 §C "Sufficient Fund in Vault?");**退款入口加到 Dashboard**(KYC approved + 有 verified wallet 才可点);`createRefundRequest` 对 demo 占位网络 `"demo"` 豁免 Phase 1 网络白名单 → 修掉"Demo: skip & continue"后退款报错(Bug1)。另修 `TravelRule.tsx` 完成后跳回 1 USDT 验证页(按 testPaymentConfirmed/depositAddress 阶段返回 /main-deposit,Bug2)。改 `RefundProcess.tsx`/`Dashboard.tsx`/`refund-process.ts`/`TravelRule.tsx`;验证 tsc + build 全绿,并经 **Chrome 插件真机点测通过**(退款自由金额 5,000 USDT 真实建单 RF-… + TravelRule 提交后回 /main-deposit 不再弹回 1 USDT 页)。**同日补(provider 口径固化)：§4.4d 新增「★三道合规闸门执行方」= KYC·Sumsub(6mo,超期重做) / Wallet KYT·走 Hex Safe API(需调研端点,现 `screen_source_wallet` mock) / Sufficient Fund·人工登录 Hex Trust 后台核对;§4.4d Wallet Screening mock 口径收窄到 Hex Safe API;casino-ops `RefundQueuePanel` 已为每道闸门标注 provider;AGENTS.md 业务规则 + TODO.md(②真实 Wallet KYT 收窄到 Hex Safe API)同步。** 详见 `AGENTS.md` 2026-06-29 release note。早前历史见下。）*
+*最后更新：2026-07-02（周四·Main Deposit 剩余金额输入框修正 + 费用/地址展示收尾）（补 `AGENTS.md` 2026-07-01 release note：MainDeposit 将 Expected Deposit Amount 作为计划金额，Step 1 按实际到账金额计算剩余；新增 demo 按钮模拟用户误转 100 USDT；Step 2 顶部金额框改为只读剩余待转金额（例如计划 1,001、Step 1 实到 100 → 输入框显示 901），summary/按钮与输入框保持一致；fees 只显示 Network gas fee，不再显示 wallet screening；Step 2 verified receiving address 只展示，不提供 copy/edit；若 Step 1 实到金额覆盖计划金额则不要求二次转，成功页显示实际到账额并保留 Planned Amount；Deposit Success 底部 `Return to Dashboard` 与 `Request Withdrawal` 都已移除，只保留 `Make Another Deposit`。验证 `corepack pnpm run check` ✅、`corepack pnpm run build` ✅（仅 chunk warning）、`python3 -m py_compile hypertransfer-main/backend/server.py` ✅，Chrome Playwright 验证 1,001/100 → 只读输入框 901、summary `Remaining to send USDT 901.00`、按钮 `Continue with 901 USDT`、无 `Wallet screening`、地址卡按钮数量 0 且 console 无 error/warn；另验证 50/100 → 无二次转、成功页 Planned 50 / Amount Sent 100。早前历史见下。）*
+*历史：2026-06-30（周二·邀请流打磨 + demo login 批 / 分支 `feat/invite-flow-and-demo-login` · PR #10）（新增 §4.4e：① **入金费用模型**（`lib/currency.ts`）——**Gas 费客户承担并从到账扣除（口径反转，早前"免 gas"作废）**、确认前 HKD 汇率(demo)+ 费用明细、完成页 txHash 区块浏览器链接 + Reference + 结算 pending marker、全额容错；② **邀请流**——审批 3 态收敛(submitted/approved/rejected，批准即签发)、拒绝必填原因、RM resubmit + 交付卡(链接+二维码+时效)、字段简化(Member ID/First+Last/Email，禁「Win ID」)、链接 TTL 72h→6h；③ **工作人员端 `/ops` 改 Okta SSO demo**(免 2FA，`DEMO_STAFF_TOKEN`→admin)；④ **Demo 首页 hub `DemoHome.tsx`(路由 `/`)**——客户端→`/welcome` + 工作人员→`/ops`；⑤ **全套 demo 便利**(自动填码 + 2FA 一键过 + 重复注册成功，全 gated on `HT_DEMO_BYPASS_2FA` + 非 production)；⑥ 入金 skip 门槛改后端驱动(修线上 demo)；⑦ 删后台 boundary 横幅；⑧ seed 不再预置测试邀请。§3 目录树补 `DemoHome/StaffLogin/currency.ts`；§4.6 补 Okta 员工登录 + demo 便利；§8.6 标注 `/`→hub、`/ops` 随 PR #10 上线待核。验证 tsc ✅ + **Chrome MCP 真机点测全链路通过**。详见 `AGENTS.md` 2026-06-30 release note。早前历史见下。）*
+*历史：2026-06-29（周一·退款重构 + 入金流 bug 修复）（§4.4d 退款前端补 2026-06-29 重构：退款页**不再以单笔入金为中心/不再写死金额**→ 选已验证原钱包 + 自由金额(可多可少)+ 可选原因；金额客户端不设上限(员工端 vault 余额 + 管理层审批兜底,对应 process v1 §C "Sufficient Fund in Vault?");**退款入口加到 Dashboard**(KYC approved + 有 verified wallet 才可点);`createRefundRequest` 对 demo 占位网络 `"demo"` 豁免 Phase 1 网络白名单 → 修掉"Demo: skip & continue"后退款报错(Bug1)。另修 `TravelRule.tsx` 完成后跳回 1 USDT 验证页(按 testPaymentConfirmed/depositAddress 阶段返回 /main-deposit,Bug2)。改 `RefundProcess.tsx`/`Dashboard.tsx`/`refund-process.ts`/`TravelRule.tsx`;验证 tsc + build 全绿,并经 **Chrome 插件真机点测通过**(退款自由金额 5,000 USDT 真实建单 RF-… + TravelRule 提交后回 /main-deposit 不再弹回 1 USDT 页)。**同日补(provider 口径固化)：§4.4d 新增「★三道合规闸门执行方」= KYC·Sumsub(6mo,超期重做) / Wallet KYT·走 Hex Safe API(需调研端点,现 `screen_source_wallet` mock) / Sufficient Fund·人工登录 Hex Trust 后台核对;§4.4d Wallet Screening mock 口径收窄到 Hex Safe API;casino-ops `RefundQueuePanel` 已为每道闸门标注 provider;AGENTS.md 业务规则 + TODO.md(②真实 Wallet KYT 收窄到 Hex Safe API)同步。** 详见 `AGENTS.md` 2026-06-29 release note。早前历史见下。）*
 *历史：2026-06-28（周日）（Hex Safe sandbox 实接：`§4.4c` 改"已实接"——客户端 `hexsafe_client.py`(发址/到账/提现/min_confirmations) + 后端 `/api/hexsafe/*`(RBAC+审计+提现幂等) + casino-ops `HexSafeLivePanel`，到账=轮询(无 webhook 注册 API)；`§4.4` provider 表 TR 行改 **TR=Sumsub**；新增 Sumsub Travel Rule 后端 `/api/sumsub/travel-rule/*`(账户未激活 TR→403，需 Cockpit 激活，见 memory `tr-provider-sumsub`)；退款后端落地 process v1 合规红线(`verified_wallets`+`refund_requests`+`/api/refunds*`，只退已验证原钱包)。详见 `AGENTS.md` 2026-06-28 release note + `HANDOFF.md` + `TODO.md`。按用户要求直接提交推送 main 并清理历史残枝。早前历史见下。）*
 *历史：2026-06-22（周一）（新增 §3 `TODO.md` 与 §8.7「项目级待办清单（每日维护）」，并据今日客户会 + Hex Trust 会议纪要生成项目根 `TODO.md`；`ClientMeetings/` 新增两份 2026-06-22 纪要：客户会 `2026-06-22-Crypto-Deposit-Refund-Process-and-Compliance-Architecture.md`、Hex Trust 会 `2026-06-22-Hex-Trust-Custody-Platform-Onboarding-and-Compliance.md`。退款方向 / 存款地址固定性 / 法币结算等口径冲突已在纪要与 TODO 标出，待产品+合规决策，未改产品代码。早前同步 AGENTS.md：§4.4c 明确 Hex Trust / Hex Safe 真实 API 尚未接入，当前为 mock adapter；补 Hex Trust API 会议需确认的 auth、address、webhook、transfer/refund、reconciliation、HT Markets API 问题；§8.5/§8.6 补线上 demo 登录与线上测试入口，2026-06-22 curl 核验 `/`、`/login`、`/kyc`、`/dashboard`、`/new-deposit`、`/refund`、`/casino-ops` 均 200）*
 *历史：2026-06-19（§3 补 `.github/workflows/` 顶级目录(hypertransfer-check CI 门禁 + hypertransfer-deploy-hk 自动部署)；§3 + §4.4b 记后端**生产可配置化**(CORS `HT_ALLOWED_ORIGINS` / 短信 `SMS_API_URL` / `HT_DB_PATH` 走环境变量,默认仍 demo 值,production 部署对 `*`/QA 会拒绝)。对应已推送 commit `afb216c`。AGENTS.md 已自带这些,无需改）*

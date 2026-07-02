@@ -117,6 +117,7 @@ export interface RegisterInviteResult {
   qr_png_base64: string;
   expires_at: number;
   expires_in: number;
+  demo?: boolean;   // demo: Setup2FA 据此自动填 6 位码(confirm-totp 接受任意 6 位)
 }
 
 export interface InvitationVerifyResult {
@@ -161,7 +162,7 @@ export const authApi = {
     email?: string;
     password: string;
     // PR③: next='done' 时（用户未启用 2FA）直接带回 token+user，无需第二步
-  }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser }>("/login/start", p),
+  }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser; demo?: boolean }>("/login/start", p),
 
   loginVerify: (challenge: string, code: string) =>
     api.post<{ ok: boolean; token: string; user: AuthUser }>("/login/verify", {
@@ -175,7 +176,7 @@ export const authApi = {
 
   // 忘记密码:发重置短信
   passwordSendOtp: (areaCode: string, phoneNumber: string) =>
-    api.post<{ ok: boolean; cooldown: number }>("/password/send-otp", {
+    api.post<{ ok: boolean; cooldown: number; demo?: boolean }>("/password/send-otp", {
       areaCode,
       phoneNumber,
     }),
@@ -218,6 +219,8 @@ export interface Invitation {
   updatedAt: number;
   token?: string;
   details?: Record<string, unknown> | null;
+  inviteLink?: string;      // 仅 issued: 可交付给客户的单次链接(RM 页展示/复制)
+  qrPngBase64?: string;     // 仅 issued: 邀请链接二维码(data URI, RM 页展示/扫码)
 }
 
 export const invitationApi = {
@@ -238,8 +241,9 @@ export const invitationApi = {
   // RM 查自己提交的申请(看审批进度)
   mine: () => api.get<{ ok: boolean; invitations: Invitation[] }>("/invitations/mine"),
 
+  // 审批通过即自动签发 QR+link 并发邮件(决策: 去掉单独 issue 步骤/状态), 故返回 inviteLink/qr。
   approve: (id: string, note = "") =>
-    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/approve`, { note }),
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/approve`, { note }),
 
   reject: (id: string, note = "") =>
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/reject`, { note }),
@@ -247,15 +251,23 @@ export const invitationApi = {
   issue: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/issue`, {}),
 
-  // 对已 issued 的邀请重发邮件(后端重新签发 token + 72h, 旧链接失效)
+  // 对已 issued 的邀请重发邮件(后端重新签发 token + 6h, 旧链接失效)
   resend: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/resend`, {}),
+
+  // 对当前有效 issued 链接重新发送邮件(不旋转 token)
+  email: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/email`, {}),
+
+  // RM 把被拒申请直接重新提交(rejected → submitted, 清除拒绝原因)
+  resubmit: (id: string) =>
+    api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/resubmit`, {}),
 };
 
 export const emailApi = {
   // 邀请注册第一因子:仅对已 issued 邀请的 email 发码(后端防枚举)
   sendOtp: (email: string) =>
-    api.post<{ ok: boolean; cooldown: number }>("/email/send-otp", { email }),
+    api.post<{ ok: boolean; cooldown: number; demo?: boolean }>("/email/send-otp", { email }),
 };
 
 export const inviteAuthApi = {

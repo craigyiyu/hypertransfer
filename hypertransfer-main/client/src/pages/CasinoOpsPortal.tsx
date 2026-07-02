@@ -113,7 +113,7 @@ function OpsCard({
 // 两层 RBAC: RM 只看 Access Requests(且板块内只能提交+看自己进度); marketing 看 Access Requests 审批队列。
 const SECTIONS = [
   { key: "deposits", label: "Deposits", icon: Boxes, roles: ["compliance", "ops", "custodian"] },
-  { key: "refunds", label: "Refunds", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
+  { key: "refunds", label: "Withdrawals", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
   { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["rm", "marketing", "compliance"] },
   { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
   { key: "custody", label: "Custody (Hex Safe)", icon: RadioTower, roles: ["compliance", "ops", "custodian"] },
@@ -137,7 +137,7 @@ export default function CasinoOpsPortal() {
   }, [visibleSections, activeSection]);
   const { state, updateState } = useDemo();
   const [sumsubHealth, setSumsubHealth] = useState<SumsubHealth | null>(null);
-  const [sumsubStatus, setSumsubStatus] = useState("Checking Sumsub provider...");
+  const [sumsubStatus, setSumsubStatus] = useState("Checking verification provider...");
   const depositAmount = parseFloat(state.mainDepositAmount) || 0;
   const otcFee = depositAmount > 0 ? calculateOtcFee(depositAmount) : 0;
   const netUsd = Math.max(0, depositAmount - otcFee);
@@ -158,8 +158,8 @@ export default function CasinoOpsPortal() {
         setSumsubHealth(res.data);
         setSumsubStatus(
           res.data.configured
-            ? `Configured for ${res.data.environment}; ready to request Sumsub SDK tokens.`
-            : "Backend adapter is installed, but Sumsub credentials are not configured.",
+            ? `Configured for ${res.data.environment}; ready to request provider SDK tokens.`
+            : "Backend adapter is installed, but provider credentials are not configured.",
         );
       })
       .catch((err) => {
@@ -171,7 +171,7 @@ export default function CasinoOpsPortal() {
   }, []);
 
   const testSumsubConnection = async () => {
-    setSumsubStatus("Testing Sumsub signed API call...");
+    setSumsubStatus("Testing signed provider API call...");
     try {
       const res = await sumsubApi.connectionTest({
         levelName: sumsubHealth?.kycLevelName,
@@ -179,16 +179,16 @@ export default function CasinoOpsPortal() {
       });
       setSumsubStatus(
         res.data.connected
-          ? `Connected. Sumsub returned an SDK token for ${res.data.userId}.`
-          : "Sumsub responded, but did not return an SDK token.",
+          ? `Connected. Provider returned an SDK token for ${res.data.userId}.`
+          : "Provider responded, but did not return an SDK token.",
       );
-      toast.success("Sumsub connection test completed", {
+      toast.success("Provider connection test completed", {
         description: `${res.data.environment} / ${res.data.levelName}`,
       });
     } catch (err) {
       const message = apiError(err);
       setSumsubStatus(message);
-      toast.error("Sumsub connection test failed", { description: message });
+      toast.error("Provider connection test failed", { description: message });
     }
   };
 
@@ -216,21 +216,21 @@ export default function CasinoOpsPortal() {
     if (!refundRequest) return;
     const next = submitRefundForApproval(refundRequest);
     updateState({ refundRequest: next });
-    toast.success("Refund queued for approval", { description: next.id });
+    toast.success("Withdrawal queued for approval", { description: next.id });
   };
 
   const approveRefund = () => {
     if (!refundRequest) return;
     const next = approveRefundRequest(refundRequest, "Treasury Approver");
     updateState({ refundRequest: next });
-    toast.success("Refund approved", { description: next.approval.requiredRole });
+    toast.success("Withdrawal approved", { description: next.approval.requiredRole });
   };
 
   const broadcastRefund = () => {
     if (!refundRequest) return;
     const next = broadcastRefundPayout(refundRequest);
     updateState({ refundRequest: next });
-    toast.success("Refund payout completed", { description: next.payout.transferId });
+    toast.success("Withdrawal payout completed", { description: next.payout.transferId });
   };
 
   return (
@@ -469,8 +469,8 @@ export default function CasinoOpsPortal() {
             <>
         <div className="grid gap-5 lg:grid-cols-2">
           <OpsCard
-            eyebrow="Refund / payout"
-            title="Customer refund queue"
+            eyebrow="Withdrawal / payout"
+            title="Customer withdrawal queue"
             icon={<Undo2 className="h-5 w-5" />}
           >
             {refundRequest ? (
@@ -496,7 +496,7 @@ export default function CasinoOpsPortal() {
                   </div>
                 </div>
                 <div className="rounded-lg bg-secondary/20 px-3 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Refund destination</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Withdrawal destination</p>
                   <p className="mt-1 truncate font-mono text-xs text-gold">
                     {refundRequest.destinationAddress || "Waiting for customer address"}
                   </p>
@@ -537,13 +537,13 @@ export default function CasinoOpsPortal() {
               </div>
             ) : (
               <div className="rounded-lg bg-secondary/20 px-3 py-4 text-sm text-muted-foreground">
-                No active refund request. Customer refund cases appear here after a completed deposit and refund-wallet submission.
+                No active withdrawal request. Customer withdrawal cases appear here after a completed deposit and verified-wallet submission.
               </div>
             )}
           </OpsCard>
 
           <OpsCard
-            eyebrow="Sumsub provider"
+            eyebrow="Verification provider"
             title="KYC, KYT and Travel Rule adapter"
             icon={<PlugZap className="h-5 w-5" />}
           >
@@ -572,7 +572,7 @@ export default function CasinoOpsPortal() {
                 {sumsubStatus}
               </p>
               <div className="flex flex-wrap gap-2">
-                {["KYC WebSDK", "AML", "Device Intelligence", "Questionnaire", "Travel Rule", "Crypto Monitoring"].map((item) => (
+                {["KYC SDK", "AML", "Device Intelligence", "Questionnaire", "Travel Rule", "Crypto Monitoring"].map((item) => (
                   <StatusPill key={item} tone="neutral">{item}</StatusPill>
                 ))}
               </div>
@@ -581,7 +581,7 @@ export default function CasinoOpsPortal() {
                 disabled={!sumsubHealth?.configured}
                 className="rounded-lg bg-gold px-3 py-2 text-xs font-semibold text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
               >
-                Test Sumsub Connection
+                Test Provider Connection
               </button>
             </div>
           </OpsCard>
@@ -710,25 +710,6 @@ export default function CasinoOpsPortal() {
             </>
           )}
 
-        <section className="rounded-lg border border-border/60 bg-card/80 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <UserCog className="h-5 w-5 text-gold" />
-              <div>
-                <p className="text-sm font-semibold text-foreground">Staff portal boundary</p>
-                <p className="text-xs text-muted-foreground">
-                  This site is for casino treasury, compliance, finance, and audit teams. Customer-facing HyperTransfer pages do not expose these controls.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="rounded-lg bg-gold px-4 py-2 text-xs font-semibold text-background"
-            >
-              Open Customer Dashboard
-            </button>
-          </div>
-        </section>
         </main>
       </div>
     </div>

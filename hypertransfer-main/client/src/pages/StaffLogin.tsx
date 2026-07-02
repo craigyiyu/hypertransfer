@@ -10,6 +10,7 @@ import { ShieldCheck, Loader2, LogIn, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi, apiError, isStaffUser, type AuthUser } from "@/lib/api";
+import { DEMO_STAFF_TOKEN, DEMO_STAFF_USER } from "@/lib/demo-auth";
 
 export default function StaffLogin() {
   const [, navigate] = useLocation();
@@ -19,6 +20,7 @@ export default function StaffLogin() {
   const [password, setPassword] = useState("");
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
+  const [demo, setDemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const finish = (token: string, user: AuthUser) => {
@@ -42,6 +44,8 @@ export default function StaffLogin() {
         return;
       }
       setChallenge(data.challenge || "");
+      // demo: 自动填 2FA 码(login/verify 接受任意 6 位), 点 Verify 即通过。
+      if (data.demo) { setDemo(true); setCode("000000"); }
       setStep("2fa");
     } catch (e) {
       toast.error(apiError(e));
@@ -84,6 +88,23 @@ export default function StaffLogin() {
         <div className="rounded-2xl border border-border/60 bg-card/80 p-6 shadow-sm sm:p-7">
           {step === "cred" ? (
             <div className="space-y-4">
+              {/* 工作人员端主登录 = Okta SSO(免 2FA)。demo: 不真实接 Okta, 直接进后台(admin 全权限)。 */}
+              <button
+                onClick={() => finish(DEMO_STAFF_TOKEN, DEMO_STAFF_USER)}
+                className="w-full btn-gold rounded-xl py-3.5 text-sm font-semibold flex items-center justify-center gap-2"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Sign in with Okta
+              </button>
+              <p className="text-center text-[10px] text-muted-foreground/60">
+                Single sign-on · no 2FA · demo (Okta not wired)
+              </p>
+
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
+                <div className="relative flex justify-center"><span className="bg-card px-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">or work email</span></div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-foreground">Work email</label>
                 <input
@@ -105,10 +126,10 @@ export default function StaffLogin() {
               <button
                 onClick={() => void submitCred()}
                 disabled={!email.includes("@") || password.length < 1 || submitting}
-                className="w-full btn-gold rounded-xl py-3.5 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="w-full rounded-xl py-3 text-xs font-semibold border border-border/60 text-muted-foreground hover:border-gold/30 hover:text-gold transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                Continue
+                Continue with work email
               </button>
             </div>
           ) : (
@@ -126,6 +147,11 @@ export default function StaffLogin() {
                 className={`${inputCls} text-center tracking-[0.5em] text-lg`}
                 autoFocus
               />
+              {demo && (
+                <p className="text-center text-[11px] text-gold/70">
+                  Demo: code auto-filled — just click Verify (any 6 digits pass).
+                </p>
+              )}
               <button
                 onClick={() => void submit2fa()}
                 disabled={code.length !== 6 || submitting}

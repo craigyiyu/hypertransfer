@@ -89,7 +89,7 @@ export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
 export const REFUND_PROCESS_STEPS = [
   {
     title: "Customer request",
-    detail: "Customer opens a refund request and enters the amount to return (it can differ from any single deposit).",
+    detail: "Customer opens a withdrawal request and enters the amount to return (it can differ from any single deposit).",
   },
   {
     title: "Verified wallet selection",
@@ -105,7 +105,7 @@ export const REFUND_PROCESS_STEPS = [
   },
   {
     title: "Hex Safe payout",
-    detail: "Custody adapter submits, signs, broadcasts, and tracks the refund to the original wallet.",
+    detail: "Custody adapter submits, signs, broadcasts, and tracks the withdrawal to the original wallet.",
   },
 ] as const;
 
@@ -121,7 +121,7 @@ export function createRefundRequest(input: {
   // (见 NewDeposit.demoContinue / formatNetworkRail), 不是真链, 仅对它豁免网络白名单校验。
   const isDemoNetwork = input.network === "demo";
   if (!isSupportedPhaseOneAsset(input.asset) || (!isDemoNetwork && !isPhaseOneNetwork(input.asset, input.network))) {
-    throw new Error("Refunds are limited to supported Phase 1 stablecoin assets and networks.");
+    throw new Error("Withdrawals are limited to supported Phase 1 stablecoin assets and networks.");
   }
 
   const now = new Date();
@@ -156,8 +156,8 @@ export function createRefundRequest(input: {
       requiredConfirmations: getRequiredConfirmations(input.network),
     },
     auditTrail: [
-      "Refund request created against original deposit record",
-      "Refund destination must be customer-confirmed before payout approval",
+      "Withdrawal request created against original deposit record",
+      "Withdrawal destination must be customer-confirmed before payout approval",
       "Original asset and network are preserved unless treasury approves an exception",
     ],
   };
@@ -165,7 +165,7 @@ export function createRefundRequest(input: {
 
 export function validateRefundDestination(address: string, network: string) {
   if (!address.trim()) {
-    return { valid: false, error: "Refund wallet address is required." };
+    return { valid: false, error: "Withdrawal wallet address is required." };
   }
 
   if (network === "tron") {
@@ -182,7 +182,7 @@ export function validateRefundDestination(address: string, network: string) {
       : { valid: false, error: "Enter a valid ERC-20 address beginning with 0x." };
   }
 
-  return { valid: false, error: "Unsupported refund network." };
+  return { valid: false, error: "Unsupported withdrawal network." };
 }
 
 export function screenRefundDestination(address: string): RefundKytResult {
@@ -234,7 +234,7 @@ export function submitRefundDestination(
       ...request,
       status: "manual_review",
       updatedAt,
-      auditTrail: [...request.auditTrail, validation.error || "Refund address validation failed"],
+      auditTrail: [...request.auditTrail, validation.error || "Withdrawal address validation failed"],
     };
   }
 
@@ -255,7 +255,7 @@ export function submitRefundDestination(
     updatedAt,
     auditTrail: [
       ...request.auditTrail,
-      "Customer submitted a refund destination through the authenticated flow",
+      "Customer submitted a withdrawal destination through the authenticated flow",
       `${kytResult.provider} returned ${kytResult.decision} (${kytResult.reference})`,
     ],
   };
@@ -271,7 +271,7 @@ export function submitRefundForApproval(request: RefundRequest): RefundRequest {
       ...request.approval,
       status: "pending",
     },
-    auditTrail: [...request.auditTrail, "Refund submitted for treasury and compliance approval"],
+    auditTrail: [...request.auditTrail, "Withdrawal submitted for treasury and compliance approval"],
   };
 }
 
@@ -290,7 +290,7 @@ export function approveRefundRequest(
       approvers: [...request.approval.approvers, approver],
       approvedAt: updatedAt,
     },
-    auditTrail: [...request.auditTrail, `${approver} approved refund payout`],
+    auditTrail: [...request.auditTrail, `${approver} approved withdrawal payout`],
   };
 }
 
@@ -315,7 +315,7 @@ export function broadcastRefundPayout(request: RefundRequest): RefundRequest {
     auditTrail: [
       ...request.auditTrail,
       `Hex Safe custody adapter created transfer ${transferId}`,
-      `Refund broadcast and completed with txHash ${txHash}`,
+      `Withdrawal broadcast and completed with txHash ${txHash}`,
     ],
   };
 }

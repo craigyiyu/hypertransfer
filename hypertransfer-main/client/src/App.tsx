@@ -12,6 +12,7 @@ import DemoModeToggle from "./components/DemoModeToggle";
 import { I18nProvider } from "./contexts/I18nContext";
 import type { ComponentType } from "react";
 import Landing from "./pages/Landing";
+import DemoHome from "./pages/DemoHome";
 import Invite from "./pages/Invite";
 import Setup2FA from "./pages/Setup2FA";
 import Login from "./pages/Login";
@@ -56,7 +57,9 @@ function Router() {
   return (
     <Switch>
       {/* 公共 / 认证流程页 */}
-      <Route path="/" component={Landing} />
+      {/* Demo 首页: 客户端 + 工作人员端两个入口。真实客户首页在 /welcome(Landing)。 */}
+      <Route path="/" component={DemoHome} />
+      <Route path="/welcome" component={Landing} />
       {/* 邀请制: 旧自助注册路由重定向到登录(注册仅走 /invite 邀请落地) */}
       <Route path="/register"><Redirect to="/login" /></Route>
       <Route path="/invite" component={Invite} />

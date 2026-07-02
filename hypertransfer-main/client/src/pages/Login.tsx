@@ -75,6 +75,7 @@ export default function Login() {
       sessionStorage.setItem(LOGIN_CHALLENGE_KEY, JSON.stringify({
         challenge: data.challenge,
         label: identifier,
+        demo: data.demo,
       }));
       navigate("/verify-2fa");
     } catch (e) {

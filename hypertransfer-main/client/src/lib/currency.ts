@@ -118,6 +118,38 @@ export function formatBothCurrencies(amount: number | string, asset: string = "U
 }
 
 /**
+ * Deposit fee model (operator SOP). DEMO 值 —— 真实值待接 Hex Trust / Sumsub。
+ * - networkGasFeeUsdt: 链上网络 Gas 费, **目前用户承担**(从到账额扣除); 后端保留计算逻辑,
+ *   以备未来政策调整(如改由 Hex Trust 垫付)。
+ */
+export const DEPOSIT_FEE_MODEL = {
+  networkGasFeeUsdt: 0.03,
+};
+
+export interface DepositFeeLine {
+  key: string;
+  label: string;
+  unit: "USDT" | "USD";
+  amount: number;
+  hkd: number;
+  deducted?: boolean;   // 从到账额扣除(网络 Gas 费)
+  note?: string;
+}
+
+/** 确认前展示的费用明细。 */
+export function computeDepositFees(): DepositFeeLine[] {
+  const { networkGasFeeUsdt } = DEPOSIT_FEE_MODEL;
+  return [
+    { key: "gas", label: "Network gas fee (borne by customer)", unit: "USDT", amount: networkGasFeeUsdt, hkd: convertToHKD(networkGasFeeUsdt, "USDT"), deducted: true },
+  ];
+}
+
+/** 预估到账金额 = 存入额 − 网络 Gas 费(用户承担)。 */
+export function estimatedReceived(depositAmount: number): number {
+  return Math.max(0, depositAmount - DEPOSIT_FEE_MODEL.networkGasFeeUsdt);
+}
+
+/**
  * Network fee estimates (in USDT)
  * These are approximate values; real values would come from the blockchain
  */

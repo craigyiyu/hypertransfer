@@ -44,12 +44,24 @@ export interface SumsubConnectionTest {
 export type SumsubKycStatusValue = "not_started" | "pending" | "approved" | "rejected";
 
 export interface SumsubKycStartPayload {
+  firstName?: string;
+  lastName?: string;
+  middleName?: string;
   nationality: string;
   dob: string;
+  taxResidence?: string;
+  phone?: string;
   idType: string;
   idNumber: string;
+  documentCountry?: string;
+  documentExpiry?: string;
   address?: string;
   city?: string;
+  postalCode?: string;
+  addressCountry?: string;
+  occupation?: string;
+  sourceOfFunds?: string;
+  consentAccepted?: boolean;
   levelName?: string;
   ttlInSecs?: number;
   apiOnly?: boolean;
@@ -161,9 +173,9 @@ export function loadSumsubWebSdk(scriptUrl = DEFAULT_SCRIPT_URL): Promise<Sumsub
     if (existing) {
       existing.addEventListener("load", () => {
         if (window.snsWebSdk) resolve(window.snsWebSdk);
-        else reject(new Error("Sumsub WebSDK script loaded without snsWebSdk global."));
+        else reject(new Error("Verification provider SDK script loaded without SDK global."));
       });
-      existing.addEventListener("error", () => reject(new Error("Failed to load Sumsub WebSDK script.")));
+      existing.addEventListener("error", () => reject(new Error("Failed to load verification provider SDK script.")));
       return;
     }
 
@@ -173,9 +185,9 @@ export function loadSumsubWebSdk(scriptUrl = DEFAULT_SCRIPT_URL): Promise<Sumsub
     script.dataset.sumsubWebsdk = "true";
     script.onload = () => {
       if (window.snsWebSdk) resolve(window.snsWebSdk);
-      else reject(new Error("Sumsub WebSDK script loaded without snsWebSdk global."));
+      else reject(new Error("Verification provider SDK script loaded without SDK global."));
     };
-    script.onerror = () => reject(new Error("Failed to load Sumsub WebSDK script."));
+    script.onerror = () => reject(new Error("Failed to load verification provider SDK script."));
     document.head.appendChild(script);
   });
 }

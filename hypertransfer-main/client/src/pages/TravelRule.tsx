@@ -3,9 +3,10 @@
  * Triggered before Hex Safe address issuance when threshold or policy requires it.
  * HyperTransfer owns this gate even when the external messaging provider changes.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { DEMO_AUTOFILL_EVENT } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,13 +26,23 @@ import {
 import { sumsubApi } from "@/lib/sumsub";
 import { toast } from "sonner";
 
-// 客户端网络代号 → Sumsub cryptoParams.cryptoChain（Phase 1 仅稳定币 rail）
+// 客户端网络代号 → provider cryptoParams.cryptoChain（Phase 1 仅稳定币 rail）
 function networkToCryptoChain(network: string): string {
   const n = (network || "").toLowerCase();
   if (n.includes("tron")) return "TRON";
   if (n.includes("eth")) return "ETH";
   return network.toUpperCase();
 }
+
+const TRAVEL_RULE_DEMO_VALUES = {
+  address: "One Central, Macau",
+  city: "Macau",
+  country: "hk",
+  sourceOfFunds: "employment",
+  originatorVasp: "Customer self-hosted wallet",
+  beneficiaryVasp: "WML Logistics via Hex Trust / Hex Safe",
+  provider: "Internal record only",
+};
 
 export default function TravelRule() {
   const [, navigate] = useLocation();
@@ -48,6 +59,27 @@ export default function TravelRule() {
   const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
 
   const canSubmit = address && city && country && sourceOfFunds && originatorVasp && beneficiaryVasp && provider;
+
+  useEffect(() => {
+    const applyTravelRuleDemo = () => {
+      setAddress(TRAVEL_RULE_DEMO_VALUES.address);
+      setCity(TRAVEL_RULE_DEMO_VALUES.city);
+      setCountry(TRAVEL_RULE_DEMO_VALUES.country);
+      setSourceOfFunds(TRAVEL_RULE_DEMO_VALUES.sourceOfFunds);
+      setOriginatorVasp(TRAVEL_RULE_DEMO_VALUES.originatorVasp);
+      setBeneficiaryVasp(TRAVEL_RULE_DEMO_VALUES.beneficiaryVasp);
+      setProvider(TRAVEL_RULE_DEMO_VALUES.provider);
+      updateState({
+        travelRuleInfo: {
+          ...state.travelRuleInfo,
+          ...TRAVEL_RULE_DEMO_VALUES,
+        },
+      });
+    };
+
+    window.addEventListener(DEMO_AUTOFILL_EVENT, applyTravelRuleDemo);
+    return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyTravelRuleDemo);
+  }, [state.travelRuleInfo, updateState]);
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -71,7 +103,7 @@ export default function TravelRule() {
       travelRuleRecord: baseRecord,
     });
 
-    // 口径: TR 走 Sumsub。优先调真实 Sumsub Travel Rule;若账户未启用 TR 模块
+    // 口径: TR 走 provider adapter。优先调真实 Travel Rule;若账户未启用 TR 模块
     // (provider_not_enabled) 或后端报错, 回退到本地 demo adapter 并如实提示, 保证 demo 不中断。
     let status = baseRecord.status;
     let providerReference = baseRecord.providerReference;
@@ -92,14 +124,14 @@ export default function TravelRule() {
       });
       if (data.status === "provider_not_enabled") {
         usedFallback = true;
-        fallbackNote = "Sumsub Travel Rule module not enabled on the account; used demo adapter.";
+        fallbackNote = "Travel Rule provider module is not enabled on the account; used demo adapter.";
       } else {
         status = data.status;
         providerReference = data.submittedTxnId || data.txnId;
       }
     } catch {
       usedFallback = true;
-      fallbackNote = "Sumsub Travel Rule call failed; used demo adapter.";
+      fallbackNote = "Travel Rule provider call failed; used demo adapter.";
     }
 
     if (usedFallback) {
@@ -171,7 +203,7 @@ export default function TravelRule() {
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            HyperTransfer collects and gates Travel Rule data before requesting a Hex Safe deposit address. Hex Trust has Sumsub-powered Travel Rule capability, but this gate remains controlled by WML / HyperTransfer for the current Hong Kong Hex Trust Limited setup.
+            HyperTransfer collects and gates Travel Rule data before requesting a Hex Safe deposit address. This gate remains controlled by WML / HyperTransfer for the current Hong Kong Hex Trust Limited setup.
           </p>
         </div>
 
@@ -311,7 +343,7 @@ export default function TravelRule() {
           disabled={!canSubmit || submitting}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          {submitting ? "Submitting to Sumsub Travel Rule..." : "Accept Gate & Request Hex Safe Address"}
+          {submitting ? "Submitting Travel Rule data..." : "Accept Gate & Request Hex Safe Address"}
         </button>
       </div>
     </Shell>
