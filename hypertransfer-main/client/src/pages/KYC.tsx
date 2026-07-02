@@ -76,17 +76,38 @@ function CountrySelect({
   );
 }
 
-type RequirementKind = "Required" | "Optional" | "May be required";
+function MandatoryMark() {
+  return (
+    <span className="text-gold font-semibold" aria-label="mandatory field">
+      *
+    </span>
+  );
+}
+
+function SectionTitle({
+  icon: Icon,
+  children,
+}: {
+  icon: typeof FileText;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 pt-1 text-base font-semibold text-foreground">
+      <Icon className="w-[18px] h-[18px] text-gold" />
+      <span>{children}</span>
+    </div>
+  );
+}
 
 function RequirementCard({
   icon: Icon,
   title,
-  requirement,
+  required = false,
   children,
 }: {
   icon: typeof FileText;
   title: string;
-  requirement: RequirementKind;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -95,7 +116,7 @@ function RequirementCard({
       <div className="text-left">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-foreground">{title}</p>
-          <RequirementTag kind={requirement} />
+          {required && <MandatoryMark />}
         </div>
         <p className="text-[10px] text-muted-foreground leading-relaxed">{children}</p>
       </div>
@@ -103,33 +124,17 @@ function RequirementCard({
   );
 }
 
-function RequirementTag({ kind }: { kind: RequirementKind }) {
-  const isRequired = kind === "Required";
-  return (
-    <span
-      className={[
-        "rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
-        isRequired
-          ? "border-gold/40 bg-gold/10 text-gold"
-          : "border-border/70 bg-secondary/30 text-muted-foreground",
-      ].join(" ")}
-    >
-      {kind}
-    </span>
-  );
-}
-
 function FieldLabel({
   children,
-  requirement = "Required",
+  required = true,
 }: {
   children: ReactNode;
-  requirement?: RequirementKind;
+  required?: boolean;
 }) {
   return (
     <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
       <span>{children}</span>
-      <RequirementTag kind={requirement} />
+      {required && <MandatoryMark />}
     </Label>
   );
 }
@@ -454,25 +459,23 @@ export default function KYC() {
   }
 
   return (
-    <Shell showBack backTo="/setup-2fa" title="Identity Verification" subtitle="Required for regulatory compliance (KYC)">
+    <Shell showBack backTo="/setup-2fa" title="Identity Verification" subtitle="For regulatory compliance (KYC)">
       <div className="space-y-5">
         {/* Info banner */}
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            We are required to verify your identity before processing any crypto deposits. KYC approval is valid for 6 months and will need to be renewed after expiry.
+            We verify your identity before processing crypto deposits.
           </p>
         </div>
 
         {/* Personal Info */}
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <User className="w-3 h-3" /> Applicant data
-          </Label>
+          <SectionTitle icon={User}>Applicant data</SectionTitle>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <FieldLabel>Legal First Name</FieldLabel>
+              <FieldLabel>First Name</FieldLabel>
               <Input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -481,7 +484,7 @@ export default function KYC() {
               />
             </div>
             <div className="space-y-2">
-              <FieldLabel>Legal Last Name</FieldLabel>
+              <FieldLabel>Last Name</FieldLabel>
               <Input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
@@ -492,11 +495,11 @@ export default function KYC() {
           </div>
 
           <div className="space-y-2">
-            <FieldLabel requirement="Optional">Middle Name</FieldLabel>
+            <FieldLabel required={false}>Middle Name</FieldLabel>
             <Input
               value={middleName}
               onChange={(e) => setMiddleName(e.target.value)}
-              placeholder="Optional"
+              placeholder="If applicable"
               className="bg-input border-border h-11 rounded-xl text-sm"
             />
           </div>
@@ -523,7 +526,7 @@ export default function KYC() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <FieldLabel requirement="May be required">Tax Residence</FieldLabel>
+            <FieldLabel required={false}>Tax Residence</FieldLabel>
             <CountrySelect value={taxResidence} onValueChange={setTaxResidence} />
           </div>
           <div className="space-y-2">
@@ -539,9 +542,7 @@ export default function KYC() {
 
         {/* ID Type & Number */}
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <FileText className="w-3 h-3" /> Identity document
-          </Label>
+          <SectionTitle icon={FileText}>Identity document</SectionTitle>
 
           <div className="space-y-2">
             <FieldLabel>ID Document Type</FieldLabel>
@@ -574,7 +575,7 @@ export default function KYC() {
               <CountrySelect value={documentCountry} onValueChange={setDocumentCountry} />
             </div>
             <div className="space-y-2">
-              <FieldLabel requirement="May be required">Expiry Date</FieldLabel>
+              <FieldLabel required={false}>Expiry Date</FieldLabel>
               <Input
                 type="text"
                 inputMode="numeric"
@@ -590,12 +591,10 @@ export default function KYC() {
 
         {/* Address / questionnaire data */}
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Home className="w-3 h-3" /> Residential address
-          </Label>
+          <SectionTitle icon={Home}>Residential address</SectionTitle>
 
           <div className="space-y-2">
-            <FieldLabel requirement="May be required">Residential Address</FieldLabel>
+            <FieldLabel required={false}>Residential Address</FieldLabel>
             <Textarea
               value={residentialAddress}
               onChange={(e) => setResidentialAddress(e.target.value)}
@@ -606,7 +605,7 @@ export default function KYC() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <FieldLabel requirement="May be required">City</FieldLabel>
+              <FieldLabel required={false}>City</FieldLabel>
               <Input
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
@@ -615,29 +614,27 @@ export default function KYC() {
               />
             </div>
             <div className="space-y-2">
-              <FieldLabel requirement="Optional">Postal Code</FieldLabel>
+              <FieldLabel required={false}>Postal Code</FieldLabel>
               <Input
                 value={postalCode}
                 onChange={(e) => setPostalCode(e.target.value)}
-                placeholder="Optional"
+                placeholder="If applicable"
                 className="bg-input border-border h-11 rounded-xl text-sm"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <FieldLabel requirement="May be required">Address Country / Region</FieldLabel>
+            <FieldLabel required={false}>Address Country / Region</FieldLabel>
             <CountrySelect value={addressCountry} onValueChange={setAddressCountry} />
           </div>
         </div>
 
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <ClipboardList className="w-3 h-3" /> Compliance questionnaire
-          </Label>
+          <SectionTitle icon={ClipboardList}>Compliance questionnaire</SectionTitle>
 
           <div className="space-y-2">
-            <FieldLabel requirement="May be required">Occupation / Industry</FieldLabel>
+            <FieldLabel required={false}>Occupation / Industry</FieldLabel>
             <Input
               value={occupation}
               onChange={(e) => setOccupation(e.target.value)}
@@ -647,7 +644,7 @@ export default function KYC() {
           </div>
 
           <div className="space-y-2">
-            <FieldLabel requirement="May be required">Source of Funds</FieldLabel>
+            <FieldLabel required={false}>Source of Funds</FieldLabel>
             <Textarea
               value={sourceOfFunds}
               onChange={(e) => setSourceOfFunds(e.target.value)}
@@ -659,27 +656,25 @@ export default function KYC() {
 
         {/* Customer-facing upload preparation summary */}
         <div className="space-y-3">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <FileText className="w-3 h-3" /> What you'll need
-          </Label>
+          <SectionTitle icon={FileText}>What you'll need</SectionTitle>
 
-          <RequirementCard icon={FileText} title="ID document photos" requirement="Required">
+          <RequirementCard icon={FileText} title="ID document photos" required>
             Passport, ID card, driver's license, or residence permit. Use original color photos with all corners visible and readable text. If both sides contain information, prepare front and back photos.
           </RequirementCard>
 
-          <RequirementCard icon={Camera} title="Selfie / liveness check" requirement="Required">
+          <RequirementCard icon={Camera} title="Selfie / liveness check" required>
             Be ready for a live selfie, face scan, short video, or selfie with document so the provider can match you with the identity document.
           </RequirementCard>
 
-          <RequirementCard icon={Home} title="Proof of address" requirement="May be required">
+          <RequirementCard icon={Home} title="Proof of address">
             Prepare a recent utility bill, bank statement, or official address document that matches the residential address entered above.
           </RequirementCard>
 
-          <RequirementCard icon={Smartphone} title="Phone and email verification" requirement="Required">
+          <RequirementCard icon={Smartphone} title="Phone and email verification" required>
             The provider may check your mobile number and account email for risk, blocklist, or verification status.
           </RequirementCard>
 
-          <RequirementCard icon={ClipboardList} title="Compliance questionnaire" requirement="May be required">
+          <RequirementCard icon={ClipboardList} title="Compliance questionnaire">
             Additional questions may cover occupation, source of funds, tax residence, and the purpose of using HyperTransfer.
           </RequirementCard>
         </div>
@@ -691,14 +686,14 @@ export default function KYC() {
             className="mt-0.5"
           />
           <span className="text-[11px] leading-relaxed text-muted-foreground">
-            I confirm the required information is accurate and consent to identity verification, document checks, phone/email risk checks, liveness/selfie matching, and compliance screening for HyperTransfer KYC. <span className="text-gold">Required</span>
+            I confirm the information is accurate and consent to identity verification, document checks, phone/email risk checks, liveness/selfie matching, and compliance screening for HyperTransfer KYC. <MandatoryMark />
           </span>
         </label>
 
         <div className="rounded-xl border border-gold/20 bg-gold/5 p-3">
-          <p className="text-[10px] uppercase tracking-wider text-gold/80">Demo note</p>
+          <p className="text-[10px] uppercase tracking-wider text-gold/80">Form note</p>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Required items block submission. Optional items never block submission. May-be-required items are shown so the patron knows what verification or compliance review may ask for later; document photos and selfie/liveness are not uploaded from this page.
+            Fields marked with * are mandatory. Additional information may be requested later during review; document photos and selfie/liveness are not uploaded from this page.
           </p>
         </div>
 

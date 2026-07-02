@@ -34,6 +34,18 @@ const FALLBACK_SETTLEMENT = {
   receiptRef: "",
 };
 
+const formatQueueDate = (value?: number | string) => {
+  if (!value) return "—";
+  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 export default function DepositQueuePanel() {
   const { user } = useAuth();
   const { state, updateState } = useDemo();
@@ -70,6 +82,7 @@ export default function DepositQueuePanel() {
   const demoTravelRuleStatus = demoRecord?.travelRuleStatus || state.travelRuleStatus;
   const demoScreeningStatus = demoRecord?.screeningStatus || (state.screeningPassed ? "pass" : "demo pass");
   const demoVerifyStatus = demoRecord?.verifyStatus || (state.testPaymentConfirmed ? "confirmed" : "pending");
+  const demoSessionDate = demoRecord?.updatedAt || demoRecord?.markerIssuedAt || demoMainTx?.date;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,13 +164,13 @@ export default function DepositQueuePanel() {
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
       <PanelHeader
         icon={Boxes}
-        eyebrow="Deposit Queue — Live /api/deposits"
-        title="Source-wallet KYT · 1 USDT verify · Marker settlement"
+        eyebrow="Deposit Queue — staff tasks"
+        title="Review each deposit session and record marker settlement"
         onRefresh={() => void load()}
         refreshing={loading}
       />
       <p className="mb-3 text-[11px] text-muted-foreground">
-        Your roles: {(user?.roles ?? []).join(", ") || "—"} · Marker reference is the casino-side settlement proof shown to the customer.
+        Your roles: {(user?.roles ?? []).join(", ") || "—"} · For each session, confirm KYT / Travel Rule / 1 USDT verification, then enter the required marker reference.
       </p>
 
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
@@ -171,12 +184,17 @@ export default function DepositQueuePanel() {
         {showDemoDeposit && (
           <div className="rounded-lg border border-gold/30 bg-gold/5 p-4 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-mono text-xs font-semibold text-foreground">{demoReferenceId}</span>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deposit session</p>
+                <span className="font-mono text-xs font-semibold text-foreground">{demoReferenceId}</span>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Session date · {formatQueueDate(demoSessionDate)}</p>
+              </div>
               <Pill tone={localSettlement.markerRef ? "success" : "warning"}>
                 {localSettlement.markerRef ? "settled" : "pending marker"}
               </Pill>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Session date">{formatQueueDate(demoSessionDate)}</Field>
               <Field label="Asset / network">{demoAsset} · {formatNetworkRail(demoNetwork)}</Field>
               <Field label="Amount">{demoAmount}</Field>
               <Field label="Source wallet KYT">{demoScreeningStatus}</Field>
@@ -190,13 +208,14 @@ export default function DepositQueuePanel() {
             <div className="mt-3 flex flex-wrap items-end gap-2">
               {canMarker ? (
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Marker ref</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-gold">Marker ref *</span>
                   <div className="flex items-center gap-1.5">
                     <input
                       value={markerDraft.__demo ?? localSettlement.markerRef ?? ""}
                       onChange={(e) => setMarkerDraft({ ...markerDraft, __demo: e.target.value })}
                       placeholder="External marker reference"
-                      className="w-44 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-xs font-mono"
+                      aria-label="Required marker reference"
+                      className="w-52 rounded-lg border border-gold/50 bg-background px-3 py-2 text-xs font-mono text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-gold focus:ring-1 focus:ring-gold/30"
                     />
                     <ActionBtn
                       icon={Tag}
@@ -219,10 +238,15 @@ export default function DepositQueuePanel() {
           return (
             <div key={d.id} className="rounded-lg border border-border/50 bg-secondary/20 p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-foreground">{d.id}</span>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Deposit session</p>
+                  <span className="font-mono text-xs font-semibold text-foreground">{d.id}</span>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Session date · {formatQueueDate(d.createdAt)}</p>
+                </div>
                 <Pill tone={statusTone(displayStatus)}>{displayStatus}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="Session date">{formatQueueDate(d.createdAt)}</Field>
                 <Field label="Asset / network">{d.asset} · {d.network}</Field>
                 <Field label="Amount">{d.amountDecimal || "—"}</Field>
                 <Field label="Source wallet KYT">{d.screeningStatus || "—"}</Field>
@@ -238,13 +262,14 @@ export default function DepositQueuePanel() {
               <div className="mt-3 flex flex-wrap items-end gap-2">
                 {canMarker && (
                   <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Marker ref</span>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-gold">Marker ref *</span>
                     <div className="flex items-center gap-1.5">
                     <input
                       value={markerDraft[d.id] ?? d.markerRef ?? ""}
                       onChange={(e) => setMarkerDraft({ ...markerDraft, [d.id]: e.target.value })}
                       placeholder="External marker reference"
-                      className="w-32 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-xs font-mono"
+                      aria-label="Required marker reference"
+                      className="w-52 rounded-lg border border-gold/50 bg-background px-3 py-2 text-xs font-mono text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-gold focus:ring-1 focus:ring-gold/30"
                     />
                     <ActionBtn
                       icon={Tag}

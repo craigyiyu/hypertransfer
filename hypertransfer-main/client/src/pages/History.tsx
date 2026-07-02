@@ -38,16 +38,16 @@ interface SessionGroup {
 }
 
 const statusLabels: Record<HistoryStatus, string> = {
-  pending: "Pending",
-  deposit_completed: "Deposit Completed",
+  pending: "WIP",
+  deposit_completed: "Transferred",
   settled: "Settled",
   failed: "Failed",
 };
 
 const filterLabels: Record<HistoryFilter, string> = {
   all: "All",
-  pending: "Pending",
-  deposit_completed: "Deposit Completed",
+  pending: "WIP",
+  deposit_completed: "Transferred",
   settled: "Settled",
 };
 

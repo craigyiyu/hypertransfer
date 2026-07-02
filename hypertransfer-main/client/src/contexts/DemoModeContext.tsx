@@ -25,7 +25,7 @@ const DEMO_DATA = {
   country: "Hong Kong",
   sourceOfFunds: "Employment Income",
   originatorVasp: "Customer self-hosted wallet",
-  beneficiaryVasp: "WML Logistics via Hex Trust / Hex Safe",
+  beneficiaryVasp: "HyperTransfer custody deposit account",
   occupationIndustry: "Finance",
   amount: "10000",
   twoFACode: "123456",

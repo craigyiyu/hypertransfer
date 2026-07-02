@@ -23,7 +23,7 @@ import {
 import { depositApi } from "@/lib/api";
 import { writeDemoDepositSettlement } from "@/lib/demo-deposit-settlement";
 
-type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming" | "main_confirmed";
+type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming";
 
 const VERIFICATION_TRANSFER_AMOUNT = 1;
 
@@ -221,12 +221,12 @@ export default function MainDeposit() {
     }
     setTimeout(() => {
       setConfirmations(requiredConfirmations);
-      setPhase("main_confirmed");
       recordDepositCompletion({
         totalTransferredAmount: detectedVerificationAmount + remainingTransferAmount,
         mainTransferAmount: remainingTransferAmount,
         addMainTransaction: true,
       });
+      navigate("/deposit-success");
     }, 3400 + requiredConfirmations * 650);
   };
 
@@ -242,13 +242,13 @@ export default function MainDeposit() {
     toast.success("No second transfer required", {
       description: `${displayVerificationAmount} ${state.selectedAsset} has already been detected.`,
     });
-    setPhase("main_confirmed");
     recordDepositCompletion({
       totalTransferredAmount: detectedVerificationAmount,
       mainTransferAmount: 0,
       addMainTransaction: false,
       txHash: detectedVerificationTxHash || state.verificationTxHash,
     });
+    navigate("/deposit-success");
   };
 
   const proceedToMainDeposit = () => {
@@ -282,7 +282,7 @@ export default function MainDeposit() {
           <div className="px-2 py-1 rounded-md bg-gold/10 text-gold text-[10px] font-medium">
             <span>{formatNetworkRail(state.selectedNetwork)}</span> rail
           </div>
-          {(phase === "main_input" || phase === "main_monitoring" || phase === "main_confirming" || phase === "main_confirmed") && (
+          {(phase === "main_input" || phase === "main_monitoring" || phase === "main_confirming") && (
             <>
               <span>&middot;</span>
               <div className="flex items-center gap-1 text-success">
@@ -668,44 +668,6 @@ export default function MainDeposit() {
               Step 1 actual: {displayVerificationAmount} {state.selectedAsset} · Remaining transfer: {displayRemainingAmount} {state.selectedAsset} · Planned: {displayAmount} {state.selectedAsset}
             </p>
           </motion.div>
-        )}
-
-        {/* Main deposit confirmed */}
-        {phase === "main_confirmed" && (
-          <>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="card-gold rounded-xl p-6 flex flex-col items-center text-center"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 200 }}
-                className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-4"
-              >
-                <CheckCircle2 className="w-8 h-8 text-success" />
-              </motion.div>
-              <p className="text-lg font-bold text-success">Deposit Confirmed</p>
-              <p className="text-2xl font-bold text-foreground mt-2">
-                {displayProjectedTransferredAmount} <span className="text-gold">{state.selectedAsset}</span>
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                ≈ {formatHKD(convertToHKD(projectedTransferredAmount, state.selectedAsset))}
-              </p>
-              <p className="text-xs text-muted-foreground mt-3">
-                Your deposit has been received and is being processed. Funds will be credited after settlement.
-              </p>
-            </motion.div>
-
-            <button
-              onClick={() => navigate("/deposit-success")}
-              className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
-            >
-              Continue
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </>
         )}
       </div>
     </Shell>

@@ -230,6 +230,48 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-07-02 PDF 修改意见全量收口 + Travel Rule Sumsub 核对
+
+- **日期 / 范围**：2026-07-02。HyperTransfer 客户端 KYC / Travel Rule / Dashboard / Deposit flow + 工作人员后台 Deposits。隔离本地测试 URL：`http://127.0.0.1:3123/kyc`、`/travel-rule`、`/dashboard`、`/deposit-success`、`/casino-ops`（前端 `3123` 代理后端 `8123`，测试 DB `/tmp/hypertransfer-test-8123.db`）。
+- **客户端入口变化**：客户仍从 `/kyc`、`/new-deposit`、`/travel-rule`、`/main-deposit`、`/deposit-success`、`/dashboard` 进入；Dashboard 不再提供 withdrawal 入口，也不再显示 History quick link，Recent Activity 自身承担最近交易展开查看。
+- **客户端功能 / 行为变化**：
+  - **KYC**：承接并收口 `2026-07-02 KYC 必填星号与字段说明收口`；必填字段与材料清单使用星号 `*`，底部备注 `Fields marked with * are mandatory.`，页面不再出现 `Optional` / `May be required` / `REQUIRED` badge、`Legal First/Last Name`、KYC 6 个月有效期提示；section title 全局使用更突出的标题层级。
+  - **Travel Rule**：客户页移除 `Beneficiary Route` 与 `Provider Strategy` 两个输入；`Originating VASP / Wallet Provider` 改为下拉选择；CTA 从长按钮改为 `Next`；页面文案不出现 Hex / Wynn；hidden data 仍固定写入 `HyperTransfer custody deposit account` 与 `Sumsub Travel Rule adapter`，避免旧 session state 污染提交记录。
+  - **Travel Rule provider guard**：提交前先读取 `/api/sumsub/config`。若 Sumsub 未配置，直接走本地 demo adapter，不再制造一个预期失败的 provider 调用；若配置存在但模块未开通或调用失败，继续走既有 fallback 并给 toast 说明。
+  - **Main Deposit**：删除主入金确认后的中间 `Deposit Confirmed` 页面；主入金确认完成后直接记录 completion 并进入 `/deposit-success`。
+  - **Dashboard**：Account Status approved 文案改为 `Verified`（不再显示 `Deposit enabled`）；Start Deposit 按钮改为金色文字 + 金色边框；删除 `Deposit Overview`、`Withdraw Funds`；Recent Activity 折叠态只显示 amount、transfer date、状态（WIP / Transferred / Settled / Rejected），点击交易行才展开 Reference ID 与 tx hash。
+  - **History**：保留 `/history` 兼容路由，但状态 label 同步为 `WIP` / `Transferred` / `Settled`，与 Dashboard 口径一致。
+- **工作人员后台变化**：
+  - `DepositQueuePanel.tsx` 将 Deposits 队列标题改成 staff task 口径：逐个 review deposit session 并录入 marker settlement；每个 session 卡片显示 `Session date`，marker 输入框改为金色边框并标注 `Marker ref *`。
+  - `CasinoOpsPortal.tsx` 的 active deposit case 明确提示 staff task，摘要区增加 Session date；后台仍只保留 `Deposits / Withdrawals / Access Requests / Staff Admin` 四个工作区。
+- **业务规则 / 合规口径**：
+  - 已按用户提醒核对 Sumsub 官方 Travel Rule 文档：Sumsub 的 Travel Rule transaction 需要 originator / beneficiary 信息、资产与链标识；API 示例中 counterparty 类型、姓名/全名、钱包地址等为 required；counterparty VASP `institutionInfo.internalId` 是 optional 但 strongly recommended。因此产品决策为：**客户页不暴露 Beneficiary Route / Provider Strategy，但系统仍保留并固定提交 counterparty/beneficiary 路由信息**，避免把合规必需数据从模型中删掉。
+  - 参考：Sumsub `How to submit Travel Rule transactions via API`、`Transaction types`、`Travel Rule settings`。
+- **关键代码文件**：`hypertransfer-main/client/src/pages/{KYC,TravelRule,Dashboard,History,MainDeposit,CasinoOpsPortal}.tsx`、`hypertransfer-main/client/src/components/DepositQueuePanel.tsx`、`hypertransfer-main/client/src/contexts/{DemoContext,DemoModeContext}.tsx`。
+- **验证**：
+  - `cd hypertransfer-main && corepack pnpm run check` ✅。
+  - `cd hypertransfer-main && corepack pnpm run build` ✅（仅 Vite chunk-size warning）。
+  - Chrome Playwright（system Chrome）隔离服务完整验证：KYC 页面无旧文案、section title `16px` > label `12px`；KYC demo approve → Dashboard verified → New Deposit 1,002 USDT → Wallet Screening → Travel Rule → Main Deposit Step 1/2 → Deposit Success；确认无 `Deposit Confirmed` 中间页、Deposit Success 无 `Return to Dashboard` / `Request Withdrawal`；Header 回 Dashboard 后 Recent Activity 可展开 Reference ID 与 tx hash。
+  - Chrome Playwright staff 验证 `/casino-ops`：仅四个工作区；deposit session、session date、`Marker ref *` 必填输入可见；保存 `MK-PW-1002-001` 后 session 进入 settled；客户链路与 staff 链路均无业务 API 4xx/5xx、无 console error/warn（忽略 favicon）。
+  - 截图留存：`/tmp/hypertransfer-qa-kyc.png`、`/tmp/hypertransfer-qa-travel-rule.png`、`/tmp/hypertransfer-qa-dashboard.png`、`/tmp/hypertransfer-qa-casino-ops.png`。
+- **已知限制 / mock 边界**：Sumsub Travel Rule 在本地未配置 secrets 时走 demo adapter；Travel Rule 真实协议、counterparty matching、VASP directory / institution internalId 仍需生产 Sumsub/Cockpit 配置和真实 provider account 验证。
+
+### 2026-07-02 KYC 必填星号与字段说明收口
+
+- **日期 / 范围**：2026-07-02。HyperTransfer 客户端 KYC 页面。本地测试 URL：`http://localhost:3000/kyc`。
+- **客户端入口变化**：无新增路由；客户仍从 `/kyc` 进入 Identity Verification。
+- **客户端功能 / 行为变化**：
+  - `KYC.tsx` 将字段与材料清单的 `REQUIRED` badge 改为星号 `*`，并在页面底部统一备注 `Fields marked with * are mandatory.`。
+  - 删除页面可见的 `Optional`、`May be required`、`REQUIRED` badge 文案；非必填字段不再显示状态标签，placeholder 改为 `If applicable`。
+  - `Legal First Name` / `Legal Last Name` 改为 `First Name` / `Last Name`。
+  - 顶部提示 box 删除 `KYC approval is valid for 6 months...` 续期说明，只保留处理 crypto deposits 前需要身份核验的提示。
+  - `Applicant data`、`Identity document`、`Residential address`、`Compliance questionnaire`、`What you'll need` 等 section title 统一使用更大的分区标题样式（`text-base`、更大金色图标、统一间距），使所有区域标题都明显高于字段内容层级。
+- **工作人员后台变化**：无。
+- **业务规则 / 合规口径**：仅调整客户页展示口径；KYC 6 个月有效期规则仍保留在业务规则与后端状态逻辑中，只是不再出现在该提示 box。
+- **关键代码文件**：`hypertransfer-main/client/src/pages/KYC.tsx`。
+- **验证**：`corepack pnpm run check` ✅；`corepack pnpm run build` ✅（仅 Vite chunk-size warning）；Browser 验证移动端 `393x852` 与桌面 `1280x720` 的 `/kyc` 页面均无旧 `REQUIRED` / `Optional` / `May be required` / `Legal First` / `Legal Last` 文案，section title 加粗放大，星号必填标记可见；填写 First Name 交互成功；滚动到底部确认 mandatory 备注可见；console 无 error/warn。
+- **已知限制 / mock 边界**：本次不改变 Sumsub/后端 KYC provider、KYC 有效期、提交必填校验与材料上传边界；document photos 与 selfie/liveness 仍只是客户准备清单，不在此页上传。
+
 ### 2026-07-01 KYC 页面完整字段 + 邀请交付增强 + History 空态 + Deposit Success marker 同步 + Withdrawal 术语收尾
 
 - **日期 / 范围**：2026-07-01。HyperTransfer 客户端 + 工作人员后台。本地测试 URL：`http://localhost:3000/dashboard`、`/kyc`、`/history`、`/refund`、`/new-deposit`、`/deposit-success`、`/casino-ops`。
@@ -996,4 +1038,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-07-02（Casino Ops 后台简化 + Main Deposit/Marker settlement + 首页版本号收尾），在 `2026-07-01 KYC 页面完整字段 + 邀请交付增强 + History 空态 + Deposit Success marker 同步 + Withdrawal 术语收尾` release note 中补充：`CasinoOpsPortal.tsx` 侧栏移除 `Custody (Hex Safe)` 与 `Treasury & Compliance`，Deposits 页删除 `HT Markets OTC` 与 `Depeg Response` 旧 demo 卡片；active deposit case 保留，作为当前员工正在处理的客户入金摘要，驱动 WTA settlement/marker 控件。MainDeposit 将 Expected Deposit Amount 作为计划金额，Step 1 按实际到账金额计算剩余；Step 2 顶部金额框只读显示剩余待转金额；fees 只显示 Network gas fee；Step 2 verified receiving address 只展示不提供 copy/edit；若 Step 1 实到金额覆盖计划金额则不要求二次转。补充 marker 口径：txHash 只作为链上交易凭证，客户 History 三态为 Pending / Deposit Completed / Settled，staff 录入 marker reference 后才进入 Settled 并在 History 详情显示 marker reference。首页底部显示 `v<package version>+<git short sha>` 以便和 Git 版本对齐。验证 `corepack pnpm run check` ✅、`corepack pnpm run build` ✅（仅 chunk warning）、`python3 -m py_compile hypertransfer-main/backend/server.py` ✅，Browser 复验 `/casino-ops` 仅显示 `Deposits / Withdrawals / Access Requests / Staff Admin` 四个侧栏入口，无 `Custody (Hex Safe)` / `Treasury & Compliance` / `HT Markets OTC` / `Depeg Response`，active deposit case 与 WTA settlement 仍存在且 console 无 error/warn；Chrome Playwright 验证 1,001/100 → 只读输入框 901、无 wallet screening、地址卡按钮数量 0；另验证 50/100 → 无二次转、成功页 Planned 50 / Amount Sent 100；Browser 验证保存 `MK-HIST-SETTLED-001` 后后台卡片变 settled，客户 `/history` 显示 `Settled` + Marker Reference，`/deposit-success` 显示 `Settled · MK-HIST-SETTLED-001`。CLAUDE.md 文末同步。
+最后更新：2026-07-02（PDF 修改意见全量收口 + Travel Rule Sumsub 核对），新增 `2026-07-02 PDF 修改意见全量收口 + Travel Rule Sumsub 核对` release note：KYC 必填星号/底部 mandatory note/section title/Legal 与 Optional 文案收口；Travel Rule 按 Sumsub 官方文档核对后移除客户页 Beneficiary Route 与 Provider Strategy，但保留系统固定 counterparty route/provider adapter，并增加 provider config guard；MainDeposit 删除 `Deposit Confirmed` 中间页；Dashboard 删除 Deposit Overview / Withdraw Funds / History quick link，Recent Activity 改 amount/date/status + 点击展开详情；History 状态同步 WIP / Transferred / Settled；Casino Ops deposit queue 强化 session date、staff task 与 `Marker ref *`。验证 `corepack pnpm run check` ✅、`corepack pnpm run build` ✅（仅 chunk warning），Chrome Playwright 隔离服务完整跑通 KYC→Dashboard→Deposit→Travel Rule→MainDeposit→DepositSuccess→Dashboard 详情展开与 `/casino-ops` marker settled，业务 API 与 console 均无错误。CLAUDE.md 文末同步。

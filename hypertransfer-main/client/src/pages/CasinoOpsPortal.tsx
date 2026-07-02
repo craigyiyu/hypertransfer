@@ -111,6 +111,14 @@ export default function CasinoOpsPortal() {
     () => state.transactions.find((tx) => tx.type === "main"),
     [state.transactions],
   );
+  const activeSessionDate = latestMainTx?.date
+    ? new Date(latestMainTx.date).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
 
   return (
     <div className="min-h-[100svh] bg-background text-foreground">
@@ -199,10 +207,17 @@ export default function CasinoOpsPortal() {
               <p className="mt-1 text-sm text-muted-foreground">
                 {depositAmount > 0
                   ? `Estimated value ${getHKDEquivalent(depositAmount, state.selectedAsset)}`
-                  : "Shows the customer deposit currently being handled by staff. Complete a deposit session to populate settlement controls."}
+                  : "Complete a customer deposit session to populate the staff settlement tasks below."}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Staff task: review session gates, then enter the required marker reference in the deposit queue.
               </p>
             </div>
-            <div className="grid min-w-[320px] grid-cols-3 gap-3">
+            <div className="grid min-w-[320px] grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-lg bg-secondary/25 px-3 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Session date</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{activeSessionDate}</p>
+              </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Asset</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{state.selectedAsset || "USDT"}</p>

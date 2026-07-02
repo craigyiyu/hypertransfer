@@ -1,5 +1,5 @@
 /**
- * Dashboard — Main account hub. Shows account status, deposit overview, and recent activity.
+ * Dashboard — Main account hub. Shows account status and recent transfer activity.
  * Design: Dark canvas, gold accents, single-column layout.
  */
 import { useLocation } from "wouter";
@@ -7,55 +7,31 @@ import { useDemo } from "@/contexts/DemoContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight,
   Clock,
   CheckCircle2,
   AlertCircle,
-  History,
   User,
   HelpCircle,
   Lock,
-  Undo2,
+  ChevronDown,
 } from "lucide-react";
 import { formatAssetAmount } from "@/lib/currency";
-import { refundApi, type VerifiedWallet } from "@/lib/api";
 import SessionRecovery from "@/components/SessionRecovery";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { formatNetworkRail } from "@/lib/compliance";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
-  const [verifiedWallets, setVerifiedWallets] = useState<VerifiedWallet[]>([]);
+  const [expandedTxId, setExpandedTxId] = useState("");
 
-  // 拉取本人已验证原钱包(后端真实); 失败/为空 → 回退 demo 信号(本会话已完成入金的来源钱包)。
-  useEffect(() => {
-    let alive = true;
-    refundApi
-      .wallets()
-      .then(({ data }) => {
-        if (alive) setVerifiedWallets(data.wallets || []);
-      })
-      .catch(() => {
-        if (alive) setVerifiedWallets([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const kycApproved = state.kyc.status === "approved";
-  // 退款门槛(process v1 §C): KYC 通过 + 至少一个已验证原钱包(后端 verified_wallets, 或 demo: 本会话已完成入金)。
-  const hasVerifiedWallet = verifiedWallets.length > 0 || (state.mainDepositConfirmed && Boolean(state.sourceWallet));
-  const canRefund = kycApproved && hasVerifiedWallet;
-  
   const accountStatus = (() => {
     switch (state.kyc.status) {
       case "approved":
         return {
           label: "Verified",
-          title: "Deposits enabled",
-          description: "Your account is verified and ready for crypto deposits.",
+          description: "Your identity verification is complete.",
           icon: CheckCircle2,
           color: "text-success",
           bg: "bg-success/10",
@@ -64,9 +40,8 @@ export default function Dashboard() {
         };
       case "pending":
         return {
-          label: "Under Review",
-          title: "KYC is being reviewed",
-          description: "Your documents are under review. Deposits will unlock once approved.",
+          label: "Under review",
+          description: "Your documents are being reviewed.",
           icon: Clock,
           color: "text-warning",
           bg: "bg-warning/10",
@@ -75,9 +50,8 @@ export default function Dashboard() {
         };
       case "rejected":
         return {
-          label: "Action Required",
-          title: "KYC needs attention",
-          description: "Please update your verification information to continue.",
+          label: "Rejected",
+          description: "Please update your verification information.",
           icon: AlertCircle,
           color: "text-destructive",
           bg: "bg-destructive/10",
@@ -86,8 +60,7 @@ export default function Dashboard() {
         };
       default:
         return {
-          label: "On Hold",
-          title: "KYC verification required",
+          label: "Not verified",
           description: "Complete identity verification before making a deposit.",
           icon: Lock,
           color: "text-destructive",
@@ -100,7 +73,27 @@ export default function Dashboard() {
   const AccountStatusIcon = accountStatus.icon;
 
   const pendingTx = state.transactions.filter((t) => t.status === "pending").length;
-  const confirmedTx = state.transactions.filter((t) => t.status === "confirmed" || t.status === "cleared").length;
+  const isSettlementSettled = Boolean(state.depositSettlement?.markerRef || state.depositSettlement?.status === "settled");
+  const formatTransferDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  const transferStatusLabel = (tx: (typeof state.transactions)[number]) => {
+    if (tx.status === "failed") return "Rejected";
+    if (tx.status === "pending") return "WIP";
+    if (tx.type === "main" && isSettlementSettled) return "Settled";
+    return "Transferred";
+  };
+  const transferStatusClass = (label: string) => {
+    if (label === "Settled" || label === "Transferred") return "text-success";
+    if (label === "Rejected") return "text-destructive";
+    return "text-warning";
+  };
+  const referenceIdFromTx = (txHash: string) =>
+    txHash ? `HT-${txHash.slice(2, 12).toUpperCase()}` : "WIP";
 
   // Find incomplete sessions for recovery
   const incompleteSessions = state.transactions
@@ -157,8 +150,8 @@ export default function Dashboard() {
                   {accountStatus.label}
                 </span>
               </div>
-              <h2 className="text-base font-semibold text-foreground mt-1">
-                {accountStatus.title}
+              <h2 className={`text-base font-semibold mt-1 ${accountStatus.color}`}>
+                {accountStatus.label}
               </h2>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 {accountStatus.description}
@@ -167,70 +160,10 @@ export default function Dashboard() {
           </div>
           <button
             onClick={() => navigate(accountStatus.path)}
-            className="w-full rounded-xl py-3 text-xs font-semibold border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all"
+            className="w-full rounded-xl border border-gold/50 bg-gold/5 py-3 text-xs font-semibold text-gold transition-all hover:bg-gold/10 hover:border-gold"
           >
             {accountStatus.action}
           </button>
-        </motion.div>
-
-        {/* Deposit overview */}
-        <motion.button
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          onClick={() => navigate("/history")}
-          className="w-full card-gold rounded-xl p-4 text-left hover:border-gold/30 transition-all"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <ArrowUpRight className="w-3.5 h-3.5 text-gold" />
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposit Overview</span>
-              </div>
-              <p className="text-sm font-semibold text-foreground">
-                {confirmedTx} completed
-                {pendingTx > 0 && <span className="text-warning"> · {pendingTx} pending</span>}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {pendingTx > 0 ? "You have an active deposit session." : "No active deposit session."}
-              </p>
-            </div>
-            <div className="w-9 h-9 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
-              <History className="w-4 h-4 text-gold" />
-            </div>
-          </div>
-        </motion.button>
-
-        {/* Withdrawal / Return funds */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="card-gold rounded-xl p-4"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <Undo2 className="w-3.5 h-3.5 text-gold" />
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Withdraw Funds</span>
-              </div>
-              <p className="text-sm font-semibold text-foreground">Request a withdrawal</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                {canRefund
-                  ? "Return any amount to a wallet you previously verified."
-                  : kycApproved
-                  ? "Verify a wallet by completing a deposit's 1 USDT check first."
-                  : "Finish KYC and verify a wallet before requesting a withdrawal."}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/refund")}
-              disabled={!canRefund}
-              className="shrink-0 rounded-xl px-4 py-2.5 text-xs font-semibold border border-gold/40 text-gold hover:bg-gold/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-            >
-              Request
-            </button>
-          </div>
         </motion.div>
 
         {/* Pending alert */}
@@ -242,7 +175,7 @@ export default function Dashboard() {
           >
             <AlertCircle className="w-4 h-4 text-warning shrink-0" />
             <p className="text-xs text-muted-foreground">
-              You have <span className="text-warning font-medium">{pendingTx} pending</span> transaction{pendingTx > 1 ? "s" : ""} awaiting confirmation.
+              You have <span className="text-warning font-medium">{pendingTx} WIP</span> transfer{pendingTx > 1 ? "s" : ""} awaiting confirmation.
             </p>
           </motion.div>
         )}
@@ -251,14 +184,6 @@ export default function Dashboard() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-foreground">Recent Activity</h2>
-            {state.transactions.length > 0 && (
-              <button
-                onClick={() => navigate("/history")}
-                className="text-xs text-gold hover:text-gold-bright transition-colors flex items-center gap-1"
-              >
-                View All <History className="w-3 h-3" />
-              </button>
-            )}
           </div>
 
           {state.transactions.length === 0 ? (
@@ -272,57 +197,70 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-2">
               {state.transactions.slice(0, 3).map((tx) => (
-                <div
+                <button
                   key={tx.id}
-                  className="card-gold rounded-xl px-4 py-3 flex items-center gap-3"
+                  onClick={() => setExpandedTxId(expandedTxId === tx.id ? "" : tx.id)}
+                  className="w-full card-gold rounded-xl px-4 py-3 text-left transition-all hover:border-gold/30"
                 >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    tx.status === "confirmed" || tx.status === "cleared"
-                      ? "bg-success/10"
-                      : tx.status === "failed"
-                      ? "bg-destructive/10"
-                      : "bg-warning/10"
-                  }`}>
-                    {tx.status === "confirmed" || tx.status === "cleared" ? (
-                      <CheckCircle2 className="w-4 h-4 text-success" />
-                    ) : tx.status === "failed" ? (
-                      <AlertCircle className="w-4 h-4 text-destructive" />
-                    ) : (
-                      <Clock className="w-4 h-4 text-warning" />
-                    )}
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      transferStatusLabel(tx) === "Settled" || transferStatusLabel(tx) === "Transferred"
+                        ? "bg-success/10"
+                        : transferStatusLabel(tx) === "Rejected"
+                        ? "bg-destructive/10"
+                        : "bg-warning/10"
+                    }`}>
+                      {transferStatusLabel(tx) === "Settled" || transferStatusLabel(tx) === "Transferred" ? (
+                        <CheckCircle2 className="w-4 h-4 text-success" />
+                      ) : transferStatusLabel(tx) === "Rejected" ? (
+                        <AlertCircle className="w-4 h-4 text-destructive" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-warning" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground">
+                        {formatAssetAmount(tx.amount, tx.type === "test" ? 2 : 0)} {tx.asset}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Transfer date · {formatTransferDate(tx.date)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className={`text-[10px] font-semibold ${transferStatusClass(transferStatusLabel(tx))}`}>
+                        {transferStatusLabel(tx)}
+                      </span>
+                      <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expandedTxId === tx.id ? "rotate-180" : ""}`} />
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">
-                      {tx.type === "test" ? "Test Deposit" : "Deposit"} &middot; {formatAssetAmount(tx.amount, tx.type === "test" ? 2 : 0)} {tx.asset}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground font-mono truncate">
-                      {tx.txHash}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] font-medium capitalize ${
-                    tx.status === "confirmed" || tx.status === "cleared"
-                      ? "text-success"
-                      : tx.status === "failed"
-                      ? "text-destructive"
-                      : "text-warning"
-                  }`}>
-                    {tx.status}
-                  </span>
-                </div>
+                  {expandedTxId === tx.id && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border/30 pt-3 text-[11px]">
+                      <div>
+                        <p className="text-muted-foreground/60">Transfer type</p>
+                        <p className="font-medium text-foreground">{tx.type === "test" ? "Verification" : "Main deposit"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground/60">Network</p>
+                        <p className="font-medium text-foreground">{formatNetworkRail(tx.network)}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-muted-foreground/60">Reference ID</p>
+                        <p className="font-mono text-gold">{referenceIdFromTx(tx.txHash)}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-muted-foreground/60">Transaction hash</p>
+                        <p className="truncate font-mono text-gold">{tx.txHash || "WIP"}</p>
+                      </div>
+                    </div>
+                  )}
+                </button>
               ))}
             </div>
           )}
         </div>
 
         {/* Quick links */}
-        <div className="grid grid-cols-3 gap-2 pt-2">
-          <button
-            onClick={() => navigate("/history")}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border/50 hover:border-gold/20 transition-all text-muted-foreground hover:text-gold"
-          >
-            <History className="w-4 h-4" />
-            <span className="text-[10px]">History</span>
-          </button>
+        <div className="grid grid-cols-2 gap-2 pt-2">
           <button
             onClick={() => navigate("/support")}
             className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border/50 hover:border-gold/20 transition-all text-muted-foreground hover:text-gold"

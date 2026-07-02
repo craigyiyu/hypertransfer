@@ -11,9 +11,8 @@ import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Scale, Info, ShieldCheck } from "lucide-react";
+import { Scale, Info } from "lucide-react";
 import {
-  TRAVEL_RULE_PROVIDER_OPTIONS,
   TRAVEL_RULE_THRESHOLD_USD,
   requiresTravelRule,
 } from "@/lib/compliance";
@@ -34,14 +33,28 @@ function networkToCryptoChain(network: string): string {
   return network.toUpperCase();
 }
 
+const SYSTEM_BENEFICIARY_ROUTE = "HyperTransfer custody deposit account";
+const SYSTEM_PROVIDER_STRATEGY = "Sumsub Travel Rule adapter";
+
+const WALLET_PROVIDER_OPTIONS = [
+  "Customer self-hosted wallet",
+  "Binance",
+  "Coinbase",
+  "OKX",
+  "Crypto.com",
+  "Kraken",
+  "Other VASP",
+  "Unknown VASP",
+];
+
 const TRAVEL_RULE_DEMO_VALUES = {
   address: "One Central, Macau",
   city: "Macau",
-  country: "hk",
+  country: "mo",
   sourceOfFunds: "employment",
   originatorVasp: "Customer self-hosted wallet",
-  beneficiaryVasp: "WML Logistics via Hex Trust / Hex Safe",
-  provider: "Internal record only",
+  beneficiaryVasp: SYSTEM_BENEFICIARY_ROUTE,
+  provider: SYSTEM_PROVIDER_STRATEGY,
 };
 
 export default function TravelRule() {
@@ -51,14 +64,14 @@ export default function TravelRule() {
   const [city, setCity] = useState(state.travelRuleInfo.city);
   const [country, setCountry] = useState(state.travelRuleInfo.country);
   const [sourceOfFunds, setSourceOfFunds] = useState(state.travelRuleInfo.sourceOfFunds);
-  const [originatorVasp, setOriginatorVasp] = useState(state.travelRuleInfo.originatorVasp);
-  const [beneficiaryVasp, setBeneficiaryVasp] = useState(state.travelRuleInfo.beneficiaryVasp);
-  const [provider, setProvider] = useState(state.travelRuleInfo.provider);
+  const [originatorVasp, setOriginatorVasp] = useState(state.travelRuleInfo.originatorVasp || TRAVEL_RULE_DEMO_VALUES.originatorVasp);
+  const beneficiaryVasp = SYSTEM_BENEFICIARY_ROUTE;
+  const provider = SYSTEM_PROVIDER_STRATEGY;
   const [submitting, setSubmitting] = useState(false);
   const plannedAmount = parseFloat(state.mainDepositAmount) || 0;
   const travelRuleRequired = requiresTravelRule(state.selectedAsset, plannedAmount);
 
-  const canSubmit = address && city && country && sourceOfFunds && originatorVasp && beneficiaryVasp && provider;
+  const canSubmit = address && city && country && sourceOfFunds && originatorVasp;
 
   useEffect(() => {
     const applyTravelRuleDemo = () => {
@@ -67,8 +80,6 @@ export default function TravelRule() {
       setCountry(TRAVEL_RULE_DEMO_VALUES.country);
       setSourceOfFunds(TRAVEL_RULE_DEMO_VALUES.sourceOfFunds);
       setOriginatorVasp(TRAVEL_RULE_DEMO_VALUES.originatorVasp);
-      setBeneficiaryVasp(TRAVEL_RULE_DEMO_VALUES.beneficiaryVasp);
-      setProvider(TRAVEL_RULE_DEMO_VALUES.provider);
       updateState({
         travelRuleInfo: {
           ...state.travelRuleInfo,
@@ -111,27 +122,40 @@ export default function TravelRule() {
     let usedFallback = false;
     let fallbackNote = "";
 
+    let providerConfigured = false;
     try {
-      const { data } = await sumsubApi.travelRuleSubmit({
-        direction: "out",
-        amount: plannedAmount,
-        currencyCode: state.selectedAsset,
-        cryptoChain: networkToCryptoChain(state.selectedNetwork),
-        originatorWallet: state.sourceWallet,
-        counterpartyName: beneficiaryVasp,
-        counterpartyWallet: state.depositAddress || "",
-        counterpartyVasp: beneficiaryVasp,
-      });
-      if (data.status === "provider_not_enabled") {
-        usedFallback = true;
-        fallbackNote = "Travel Rule provider module is not enabled on the account; used demo adapter.";
-      } else {
-        status = data.status;
-        providerReference = data.submittedTxnId || data.txnId;
-      }
+      const { data } = await sumsubApi.config();
+      providerConfigured = data.configured;
     } catch {
+      providerConfigured = false;
+    }
+
+    if (providerConfigured) {
+      try {
+        const { data } = await sumsubApi.travelRuleSubmit({
+          direction: "out",
+          amount: plannedAmount,
+          currencyCode: state.selectedAsset,
+          cryptoChain: networkToCryptoChain(state.selectedNetwork),
+          originatorWallet: state.sourceWallet,
+          counterpartyName: beneficiaryVasp,
+          counterpartyWallet: state.depositAddress || "",
+          counterpartyVasp: beneficiaryVasp,
+        });
+        if (data.status === "provider_not_enabled") {
+          usedFallback = true;
+          fallbackNote = "Travel Rule provider module is not enabled on the account; used demo adapter.";
+        } else {
+          status = data.status;
+          providerReference = data.submittedTxnId || data.txnId;
+        }
+      } catch {
+        usedFallback = true;
+        fallbackNote = "Travel Rule provider call failed; used demo adapter.";
+      }
+    } else {
       usedFallback = true;
-      fallbackNote = "Travel Rule provider call failed; used demo adapter.";
+      fallbackNote = "Travel Rule provider is not configured; used demo adapter.";
     }
 
     if (usedFallback) {
@@ -184,7 +208,7 @@ export default function TravelRule() {
       showBack
       backTo="/wallet-screening"
       title="Travel Rule Information"
-      subtitle={travelRuleRequired ? "Required before custody address issuance" : "Optional audit record for this deposit session"}
+      subtitle={travelRuleRequired ? "Required before custody address issuance" : "Audit record for this deposit session"}
     >
       <div className="space-y-5">
         <div className="card-gold rounded-xl px-4 py-3">
@@ -203,7 +227,7 @@ export default function TravelRule() {
         <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
           <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            HyperTransfer collects and gates Travel Rule data before requesting a Hex Safe deposit address. This gate remains controlled by WML / HyperTransfer for the current Hong Kong Hex Trust Limited setup.
+            HyperTransfer collects Travel Rule data before issuing a custody deposit address. Sumsub requires counterparty information for Travel Rule checks; system routing is configured by HyperTransfer.
           </p>
         </div>
 
@@ -264,6 +288,7 @@ export default function TravelRule() {
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 <SelectItem value="hk">Hong Kong</SelectItem>
+                <SelectItem value="mo">Macau</SelectItem>
                 <SelectItem value="cn">China</SelectItem>
                 <SelectItem value="sg">Singapore</SelectItem>
                 <SelectItem value="jp">Japan</SelectItem>
@@ -275,38 +300,12 @@ export default function TravelRule() {
 
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground">Originating VASP / Wallet Provider</Label>
-          <Input
-            value={originatorVasp}
-            onChange={(e) => setOriginatorVasp(e.target.value)}
-            placeholder="e.g. Binance, Coinbase, private wallet"
-            className="bg-input border-border h-11 rounded-xl text-sm"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Beneficiary Route</Label>
-          <Input
-            value={beneficiaryVasp}
-            onChange={(e) => setBeneficiaryVasp(e.target.value)}
-            placeholder="WML Logistics via Hex Trust / Hex Safe"
-            className="bg-input border-border h-11 rounded-xl text-sm"
-          />
-          <p className="text-[10px] text-muted-foreground/60">
-            This should be system-configured in production, not typed by an operator.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            Provider Strategy
-            <ShieldCheck className="w-3 h-3 text-muted-foreground/50" />
-          </Label>
-          <Select value={provider} onValueChange={setProvider}>
+          <Select value={originatorVasp} onValueChange={setOriginatorVasp}>
             <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-              <SelectValue placeholder="Select provider route" />
+              <SelectValue placeholder="Select wallet provider" />
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
-              {TRAVEL_RULE_PROVIDER_OPTIONS.map((item) => (
+              {WALLET_PROVIDER_OPTIONS.map((item) => (
                 <SelectItem key={item} value={item}>
                   {item}
                 </SelectItem>
@@ -343,7 +342,7 @@ export default function TravelRule() {
           disabled={!canSubmit || submitting}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          {submitting ? "Submitting Travel Rule data..." : "Accept Gate & Request Hex Safe Address"}
+          {submitting ? "Submitting..." : "Next"}
         </button>
       </div>
     </Shell>
