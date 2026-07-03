@@ -1,256 +1,601 @@
 /**
- * NewDeposit — Start a new deposit session. Select asset and network.
- * Each deposit is treated as a session containing test + main deposit.
+ * NewDeposit — Start a USDT deposit session and verify the source wallet in one flow.
+ * Phase 1 only accepts USDT; wallet KYT and Travel Rule gates clear before address issuance.
  */
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { DEMO_AUTOFILL_EVENT } from "@/contexts/DemoModeContext";
 import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { motion } from "framer-motion";
-import { Check, AlertTriangle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  Loader2,
+  Scale,
+  Search,
+  Shield,
+  XCircle,
+} from "lucide-react";
 import {
   TRAVEL_RULE_THRESHOLD_USD,
-  ACTIVE_PHASE_ONE_ASSETS,
   formatNetworkRail,
   requiresTravelRule,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
 import { depositApi, type HexSafeNetwork } from "@/lib/api";
+import {
+  canPassTravelRuleGate,
+  createTravelRuleRecord,
+  mockTravelRuleProvider,
+} from "@/lib/travel-rule";
+import { sumsubApi } from "@/lib/sumsub";
+import { toast } from "sonner";
 
-// USDC 项保留备 Phase 2；当前仅显示 ACTIVE_PHASE_ONE_ASSETS（最终流程 v1：仅 USDT）。
-const ASSETS = [
-  { id: "USDT", name: "Tether", symbol: "USDT", color: "#26A17B" },
-  { id: "USDC", name: "USD Coin", symbol: "USDC", color: "#2775CA" },
+type ScreeningState = "idle" | "scanning" | "passed" | "failed";
+
+const SELECTED_ASSET = "USDT";
+const SYSTEM_BENEFICIARY_ROUTE = "HyperTransfer custody deposit account";
+const SYSTEM_PROVIDER_STRATEGY = "Sumsub Travel Rule adapter";
+
+const WALLET_PROVIDER_OPTIONS = [
+  "Customer self-hosted wallet",
+  "Binance",
+  "Coinbase",
+  "OKX",
+  "Crypto.com",
+  "Kraken",
+  "Other VASP",
+  "Unknown VASP",
 ];
-const ACTIVE_ASSETS = ASSETS.filter((asset) =>
-  (ACTIVE_PHASE_ONE_ASSETS as readonly string[]).includes(asset.id),
-);
+
+const TRAVEL_RULE_DEMO_VALUES = {
+  address: "One Central, Macau",
+  city: "Macau",
+  country: "mo",
+  sourceOfFunds: "employment",
+  originatorVasp: "Customer self-hosted wallet",
+  beneficiaryVasp: SYSTEM_BENEFICIARY_ROUTE,
+  provider: SYSTEM_PROVIDER_STRATEGY,
+};
+
+function networkToCryptoChain(network: string): string {
+  const n = (network || "").toLowerCase();
+  if (n.includes("tron")) return "TRON";
+  if (n.includes("eth")) return "ETH";
+  return network.toUpperCase();
+}
+
+function formatAmountInput(value: string) {
+  const normalized = value.replace(/,/g, "");
+  if (normalized === "") return "";
+  if (!/^\d*\.?\d{0,6}$/.test(normalized)) return null;
+  const [whole, decimal] = normalized.split(".");
+  const formattedWhole = Number(whole || "0").toLocaleString("en-US");
+  return decimal !== undefined ? `${formattedWhole}.${decimal}` : formattedWhole;
+}
 
 export default function NewDeposit() {
   const [, navigate] = useLocation();
-  const { updateState, resetSession } = useDemo();
-  const [selectedAsset, setSelectedAsset] = useState("USDT");
+  const { state, updateState, resetSession } = useDemo();
   const [selectedChainId, setSelectedChainId] = useState("");
   const [networks, setNetworks] = useState<HexSafeNetwork[]>([]);
   const [netLoading, setNetLoading] = useState(true);
   const [netConfigured, setNetConfigured] = useState(false);
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(state.mainDepositAmount ? Number(state.mainDepositAmount).toLocaleString("en-US") : "");
+  const [walletAddress, setWalletAddress] = useState(state.sourceWallet);
+  const [screening, setScreening] = useState<ScreeningState>(state.screeningPassed ? "passed" : "idle");
+  const [trAddress, setTrAddress] = useState(state.travelRuleInfo.address);
+  const [trCity, setTrCity] = useState(state.travelRuleInfo.city);
+  const [trCountry, setTrCountry] = useState(state.travelRuleInfo.country);
+  const [sourceOfFunds, setSourceOfFunds] = useState(state.travelRuleInfo.sourceOfFunds);
+  const [originatorVasp, setOriginatorVasp] = useState(
+    state.travelRuleInfo.originatorVasp || TRAVEL_RULE_DEMO_VALUES.originatorVasp,
+  );
+  const [submittingTravelRule, setSubmittingTravelRule] = useState(false);
 
-  // 网络选项真实取自 Hex Safe(supported_chains); 未配置/取不到 → 空, 不回退硬编码。
   useEffect(() => {
     let alive = true;
     depositApi.networks()
       .then(({ data }) => {
         if (!alive) return;
-        setNetworks(data.networks ?? []);
+        const nextNetworks = data.networks ?? [];
+        setNetworks(nextNetworks);
         setNetConfigured(Boolean(data.configured));
+        if (nextNetworks[0]) {
+          setSelectedChainId(nextNetworks[0].chainId);
+        }
       })
-      .catch(() => { if (alive) { setNetworks([]); setNetConfigured(false); } })
-      .finally(() => { if (alive) setNetLoading(false); });
-    return () => { alive = false; };
+      .catch(() => {
+        if (alive) {
+          setNetworks([]);
+          setNetConfigured(false);
+        }
+      })
+      .finally(() => {
+        if (alive) setNetLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const selectedNet = networks.find((n) => n.chainId === selectedChainId);
+  useEffect(() => {
+    const applyDemoValues = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, string>>).detail || {};
+      const formattedAmount = formatAmountInput(detail.amount || "10000");
+      if (formattedAmount) setAmount(formattedAmount);
+      setWalletAddress(detail.walletAddress || "0x742d35Cc6634C0532925a3b844Bc9e7595f8bEb0");
+      setTrAddress(detail.residentialAddress || TRAVEL_RULE_DEMO_VALUES.address);
+      setTrCity(detail.city || TRAVEL_RULE_DEMO_VALUES.city);
+      setTrCountry(TRAVEL_RULE_DEMO_VALUES.country);
+      setSourceOfFunds(TRAVEL_RULE_DEMO_VALUES.sourceOfFunds);
+      setOriginatorVasp(detail.originatorVasp || TRAVEL_RULE_DEMO_VALUES.originatorVasp);
+    };
+
+    window.addEventListener(DEMO_AUTOFILL_EVENT, applyDemoValues);
+    return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyDemoValues);
+  }, []);
+
+  const selectedNet = networks.find((n) => n.chainId === selectedChainId) ?? networks[0];
   const selectedNetwork = selectedNet?.rail ?? "";
   const plannedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
-  const travelRuleRequired = requiresTravelRule(selectedAsset, plannedAmount);
+  const travelRuleRequired = requiresTravelRule(SELECTED_ASSET, plannedAmount);
   const useDemoNetwork = !netLoading && networks.length === 0;
-  const canContinue = plannedAmount > 0 && (Boolean(selectedChainId) || useDemoNetwork);
+  const effectiveNetwork = selectedNetwork || (useDemoNetwork ? "demo" : "");
+  const canScreen =
+    plannedAmount > 0 &&
+    walletAddress.trim().length > 0 &&
+    !netLoading &&
+    (Boolean(selectedNet) || useDemoNetwork);
+  const canSubmitTravelRule = Boolean(trAddress && trCity && trCountry && sourceOfFunds && originatorVasp);
+  const travelRuleGatePassed = canPassTravelRuleGate(state.travelRuleStatus, travelRuleRequired);
 
-  const handleContinue = async () => {
-    resetSession();
+  const handleAmountChange = (value: string) => {
+    const formatted = formatAmountInput(value);
+    if (formatted !== null) setAmount(formatted);
+  };
+
+  const handleScreen = async () => {
+    if (!canScreen) return;
     const cleanAmount = amount.replace(/,/g, "");
-    const nextNetwork = selectedNetwork || (useDemoNetwork ? "demo" : "");
+    const sourceWallet = walletAddress.trim();
+    const nextNetwork = effectiveNetwork;
+
+    resetSession();
+    setScreening("scanning");
     updateState({
-      selectedAsset,
+      selectedAsset: SELECTED_ASSET,
       selectedNetwork: nextNetwork,
       selectedMinConfirmations: selectedNet?.minConfirmations ?? null,
       mainDepositAmount: cleanAmount,
+      sourceWallet,
+      depositRequestId: "",
+      screeningPassed: false,
+      travelRuleComplete: false,
+      travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
     });
-    // Demo rail keeps the walkthrough moving when Hex Safe networks are not configured.
-    if (nextNetwork === "demo") {
-      updateState({ depositRequestId: "" });
-    } else {
-      // 在后端建入金编排单(②KYC 闸门锚点 + ③真实发址)。失败(未部署/未登录/未过 KYC)→ 纯 demo 继续。
+
+    let requestId = "";
+    if (nextNetwork !== "demo") {
       try {
         const { data } = await depositApi.create({
           network: nextNetwork,
-          asset: selectedAsset,
+          asset: SELECTED_ASSET,
           amountDecimal: cleanAmount,
         });
-        updateState({ depositRequestId: data.requestId });
+        requestId = data.requestId;
+        updateState({ depositRequestId: requestId });
       } catch {
-        updateState({ depositRequestId: "" });
+        requestId = "";
       }
     }
-    navigate("/wallet-screening");
+
+    let decision: "pass" | "fail" = sourceWallet.toLowerCase().startsWith("bad") ? "fail" : "pass";
+    if (requestId) {
+      try {
+        const { data } = await depositApi.screen(requestId, sourceWallet);
+        decision = data.screeningStatus === "pass" ? "pass" : "fail";
+      } catch {
+        /* 后端不可用 → 回退 mock decision */
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (decision === "pass") {
+      setScreening("passed");
+      updateState({
+        screeningPassed: true,
+        travelRuleComplete: !travelRuleRequired,
+        travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+      });
+    } else {
+      setScreening("failed");
+      updateState({ screeningPassed: false });
+    }
   };
 
-  const handleAmountChange = (value: string) => {
-    const normalized = value.replace(/,/g, "");
-    if (normalized === "") {
-      setAmount("");
-      return;
+  const handleRetryWallet = () => {
+    setScreening("idle");
+    updateState({
+      screeningPassed: false,
+      travelRuleComplete: false,
+      travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+    });
+  };
+
+  const handleTravelRuleSubmit = async () => {
+    if (!canSubmitTravelRule || submittingTravelRule) return;
+    setSubmittingTravelRule(true);
+    const baseRecord = createTravelRuleRecord({
+      patronName: state.patronName,
+      sourceWallet: walletAddress.trim(),
+      address: trAddress,
+      city: trCity,
+      country: trCountry,
+      sourceOfFunds,
+      originatorVasp,
+      beneficiaryVasp: SYSTEM_BENEFICIARY_ROUTE,
+      provider: SYSTEM_PROVIDER_STRATEGY,
+      asset: SELECTED_ASSET,
+      network: effectiveNetwork,
+      amount: plannedAmount,
+    });
+
+    updateState({
+      travelRuleStatus: baseRecord.required ? "travel_rule_submitted" : "not_required",
+      travelRuleRecord: baseRecord,
+    });
+
+    let status = baseRecord.status;
+    let providerReference = baseRecord.providerReference;
+    let rejectionReason = baseRecord.rejectionReason ?? "";
+    let usedFallback = false;
+    let fallbackNote = "";
+
+    const demoRail = effectiveNetwork === "demo" || !netConfigured;
+    let providerConfigured = false;
+    if (!demoRail) {
+      try {
+        const { data } = await sumsubApi.config();
+        providerConfigured = data.configured;
+      } catch {
+        providerConfigured = false;
+      }
     }
-    if (/^\d*\.?\d{0,6}$/.test(normalized)) {
-      const [whole, decimal] = normalized.split(".");
-      const formattedWhole = Number(whole || "0").toLocaleString("en-US");
-      setAmount(decimal !== undefined ? `${formattedWhole}.${decimal}` : formattedWhole);
+
+    if (demoRail) {
+      usedFallback = true;
+      fallbackNote = "Local demo rail uses the Travel Rule demo adapter.";
+    } else if (providerConfigured) {
+      try {
+        const { data } = await sumsubApi.travelRuleSubmit({
+          direction: "out",
+          amount: plannedAmount,
+          currencyCode: SELECTED_ASSET,
+          cryptoChain: networkToCryptoChain(effectiveNetwork),
+          originatorWallet: walletAddress.trim(),
+          counterpartyName: SYSTEM_BENEFICIARY_ROUTE,
+          counterpartyWallet: state.depositAddress || "",
+          counterpartyVasp: SYSTEM_BENEFICIARY_ROUTE,
+        });
+        if (data.status === "provider_not_enabled") {
+          usedFallback = true;
+          fallbackNote = "Travel Rule provider module is not enabled on the account; used demo adapter.";
+        } else {
+          status = data.status;
+          providerReference = data.submittedTxnId || data.txnId;
+        }
+      } catch {
+        usedFallback = true;
+        fallbackNote = "Travel Rule provider call failed; used demo adapter.";
+      }
+    } else {
+      usedFallback = true;
+      fallbackNote = "Travel Rule provider is not configured; used demo adapter.";
     }
+
+    if (usedFallback) {
+      const providerRecord = await mockTravelRuleProvider.submit(baseRecord);
+      status = providerRecord.status;
+      providerReference = providerRecord.providerReference;
+      rejectionReason = providerRecord.rejectionReason ?? "";
+    }
+
+    const canPass = canPassTravelRuleGate(status, baseRecord.required);
+    updateState({
+      travelRuleComplete: canPass,
+      travelRuleStatus: status,
+      travelRuleRecord: { ...baseRecord, status, providerReference, rejectionReason },
+      travelRuleInfo: {
+        address: trAddress,
+        city: trCity,
+        country: trCountry,
+        sourceOfFunds,
+        originatorVasp,
+        beneficiaryVasp: SYSTEM_BENEFICIARY_ROUTE,
+        provider: SYSTEM_PROVIDER_STRATEGY,
+        providerReference,
+      },
+    });
+
+    setSubmittingTravelRule(false);
+    if (usedFallback) {
+      toast.message("Travel Rule (demo adapter)", { description: fallbackNote });
+    }
+    if (canPass) {
+      toast.success("Travel Rule gate accepted", { description: providerReference });
+      navigate("/deposit-address");
+    } else {
+      toast.error(status === "manual_review" ? "Manual review required" : "Travel Rule rejected", {
+        description: rejectionReason || "Please contact HyperTransfer support.",
+      });
+    }
+  };
+
+  const proceedAfterWalletApproval = () => {
+    if (travelRuleRequired && !travelRuleGatePassed) return;
+    navigate("/deposit-address");
   };
 
   return (
-    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="Select asset and network for this transfer">
-      <div className="space-y-6">
-        {/* Asset Selection */}
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Select Asset</p>
-          <div className="grid grid-cols-2 gap-2">
-            {ACTIVE_ASSETS.map((asset) => (
-              <button
-                key={asset.id}
-                onClick={() => {
-                  setSelectedAsset(asset.id);
-                  setSelectedChainId("");
-                }}
-                className={`rounded-xl p-3 flex items-center gap-3 border transition-all duration-200 ${
-                  selectedAsset === asset.id
-                    ? "border-gold/50 bg-gold/5"
-                    : "border-border hover:border-border/80"
-                }`}
-              >
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                  style={{ backgroundColor: asset.color }}
-                >
-                  {asset.symbol.charAt(0)}
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-medium text-foreground">{asset.symbol}</p>
-                  <p className="text-[10px] text-muted-foreground">{asset.name}</p>
-                </div>
-                {selectedAsset === asset.id && (
-                  <Check className="w-4 h-4 text-gold ml-auto" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Network Selection — 真实来自 Hex Safe supported_chains(确认数为 Hex Safe 实际值) */}
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Network · provisioned by Hex Safe</p>
-          {netLoading ? (
-            <div className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3 text-xs text-muted-foreground">
-              Loading supported networks from Hex Safe…
-            </div>
-          ) : networks.length === 0 ? (
-            <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Deposit networks are provisioned by the custody provider (Hex Safe).{" "}
-                {netConfigured
-                  ? "No eligible network is currently available."
-                  : "Demo will continue with an internal network placeholder."}
+    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="USDT deposit setup">
+      <div className="space-y-5">
+        <div className="card-gold rounded-xl p-4 space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Accepted asset</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-base font-semibold text-foreground">USDT only</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Phase 1 deposits only accept USDT. Deposit rails are provisioned by the custody provider.
               </p>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {networks.map((net) => (
-                <button
-                  key={net.chainId}
-                  onClick={() => setSelectedChainId(net.chainId)}
-                  className={`w-full rounded-xl px-4 py-3 flex items-center justify-between border transition-all duration-200 ${
-                    selectedChainId === net.chainId
-                      ? "border-gold/50 bg-gold/5"
-                      : "border-border hover:border-border/80"
-                  }`}
-                >
-                  <div className="text-left">
-                    <p className="text-sm text-foreground">{formatNetworkRail(net.rail)} &middot; {net.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {net.minConfirmations != null ? `${net.minConfirmations} confirmations` : "confirmations per chain"} &middot; USDT token only
-                    </p>
-                    <p className="text-[10px] text-gold/70 mt-0.5">Chain ID {net.chainId} &middot; live from Hex Safe</p>
-                  </div>
-                  {selectedChainId === net.chainId && (
-                    <Check className="w-4 h-4 text-gold" />
-                  )}
-                </button>
-              ))}
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#26A17B] text-sm font-bold text-white">
+              U
             </div>
-          )}
+          </div>
+          <p className="text-[10px] text-gold/70">
+            Network: {netLoading ? "loading..." : formatNetworkRail(effectiveNetwork || "demo")}
+            {!netLoading && !netConfigured && " · demo rail"}
+          </p>
         </div>
 
-        {/* Expected amount */}
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Expected Deposit Amount</Label>
+          <Label className="text-xs text-muted-foreground">Deposit Amount</Label>
           <div className="relative">
             <Input
               inputMode="decimal"
               value={amount}
               onChange={(e) => handleAmountChange(e.target.value)}
               placeholder="0.00"
+              disabled={screening !== "idle"}
               className="bg-input border-border h-12 rounded-xl text-base font-semibold pr-16"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gold font-medium">
-              {selectedAsset}
+              USDT
             </span>
           </div>
           {plannedAmount > 0 && (
             <p className="text-xs text-muted-foreground">
-              ≈ {getHKDEquivalent(plannedAmount, selectedAsset)}
+              ≈ {getHKDEquivalent(plannedAmount, SELECTED_ASSET)}
             </p>
           )}
         </div>
 
-        {/* Travel Rule notice */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className={`rounded-xl px-4 py-3 flex items-start gap-3 border ${
-            travelRuleRequired
-              ? "bg-warning/10 border-warning/30"
-              : "bg-secondary/20 border-border/40"
-          }`}
-        >
-          <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${travelRuleRequired ? "text-warning" : "text-gold"}`} />
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {travelRuleRequired ? (
-              <>
-                <span className="text-warning font-medium">Travel Rule required:</span> This deposit is at or above USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()}. Compliance details must be accepted before Hex Safe address issuance.
-              </>
-            ) : (
-              <>
-                <span className="text-gold font-medium">Travel Rule adapter ready:</span> This session can proceed without Travel Rule unless policy changes, but the audit record is still kept by HyperTransfer.
-              </>
-            )}
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Search className="w-3 h-3" /> Source Wallet Address
+          </Label>
+          <Input
+            value={walletAddress}
+            onChange={(e) => setWalletAddress(e.target.value)}
+            placeholder="Enter the wallet address you will send from"
+            disabled={screening !== "idle"}
+            className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl font-mono text-xs"
+          />
+          <p className="text-[10px] text-muted-foreground/60">
+            This is the wallet you will use to send USDT. We verify it before issuing a deposit address.
           </p>
-        </motion.div>
+        </div>
 
-        {/* Network warning */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="card-wine rounded-xl px-4 py-3 flex items-start gap-3"
-        >
-          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <span className="text-warning font-medium">Important:</span> Phase 1 is limited to Hex Trust recommended stablecoin routes. Unsupported networks stop before address issuance unless a manual exception is approved.
-          </p>
-        </motion.div>
+        <AnimatePresence mode="wait">
+          {screening === "scanning" && (
+            <motion.div
+              key="scanning"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="card-gold rounded-xl p-5 flex flex-col items-center text-center"
+            >
+              <Loader2 className="w-8 h-8 text-gold animate-spin mb-3" />
+              <p className="text-sm font-medium text-foreground">Screening Wallet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Checking sanctions, risk score, and transaction history...
+              </p>
+            </motion.div>
+          )}
+
+          {screening === "passed" && (
+            <motion.div
+              key="passed"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="card-gold rounded-xl p-5 flex flex-col items-center text-center border-success/30"
+            >
+              <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-3">
+                <Shield className="w-6 h-6 text-success" />
+              </div>
+              <p className="text-sm font-semibold text-success">Wallet Approved</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your wallet has passed source-wallet KYT.
+                {travelRuleRequired ? " Complete Travel Rule information below before address issuance." : " You may proceed to receive a deposit address."}
+              </p>
+              <div className="mt-3 px-3 py-1.5 rounded-lg bg-input">
+                <code className="font-mono text-[10px] text-muted-foreground break-all">
+                  {walletAddress}
+                </code>
+              </div>
+            </motion.div>
+          )}
+
+          {screening === "failed" && (
+            <motion.div
+              key="failed"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="card-gold rounded-xl p-5 flex flex-col items-center text-center border-destructive/30"
+            >
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-3">
+                <XCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <p className="text-sm font-semibold text-destructive">Screening Failed</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                This wallet did not pass compliance screening. Use a different wallet or contact support.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {screening === "passed" && travelRuleRequired && !travelRuleGatePassed && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-5"
+          >
+            <div className="card-gold rounded-xl px-4 py-3">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Travel Rule</p>
+              <p className="text-sm font-semibold text-foreground mt-1">
+                {plannedAmount.toLocaleString()} USDT on {formatNetworkRail(effectiveNetwork)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                ≈ {getHKDEquivalent(plannedAmount, SELECTED_ASSET)}
+              </p>
+            </div>
+
+            <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
+              <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                This deposit is at or above USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()}. HyperTransfer collects the required originator information before issuing a custody deposit address.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Residential Address</Label>
+              <Input
+                value={trAddress}
+                onChange={(e) => setTrAddress(e.target.value)}
+                placeholder="Street address"
+                className="bg-input border-border h-11 rounded-xl text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">City</Label>
+                <Input
+                  value={trCity}
+                  onChange={(e) => setTrCity(e.target.value)}
+                  placeholder="City"
+                  className="bg-input border-border h-11 rounded-xl text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Country</Label>
+                <Select value={trCountry} onValueChange={setTrCountry}>
+                  <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border">
+                    <SelectItem value="hk">Hong Kong</SelectItem>
+                    <SelectItem value="mo">Macau</SelectItem>
+                    <SelectItem value="cn">China</SelectItem>
+                    <SelectItem value="sg">Singapore</SelectItem>
+                    <SelectItem value="jp">Japan</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Originating VASP / Wallet Provider</Label>
+              <Select value={originatorVasp} onValueChange={setOriginatorVasp}>
+                <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                  <SelectValue placeholder="Select wallet provider" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  {WALLET_PROVIDER_OPTIONS.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                Source of Funds
+                <Info className="w-3 h-3 text-muted-foreground/50" />
+              </Label>
+              <Select value={sourceOfFunds} onValueChange={setSourceOfFunds}>
+                <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                  <SelectValue placeholder="Select source of funds" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  <SelectItem value="employment">Employment Income</SelectItem>
+                  <SelectItem value="business">Business Revenue</SelectItem>
+                  <SelectItem value="investment">Investment Returns</SelectItem>
+                  <SelectItem value="savings">Personal Savings</SelectItem>
+                  <SelectItem value="inheritance">Inheritance</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       <div className="mt-8">
-        <button
-          onClick={handleContinue}
-          disabled={!canContinue}
-          className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          Continue to Wallet Screening
-        </button>
+        {screening === "idle" && (
+          <button
+            onClick={handleScreen}
+            disabled={!canScreen}
+            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Submit for Screening
+          </button>
+        )}
+        {screening === "passed" && travelRuleRequired && !travelRuleGatePassed && (
+          <button
+            onClick={handleTravelRuleSubmit}
+            disabled={!canSubmitTravelRule || submittingTravelRule}
+            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {submittingTravelRule ? "Submitting..." : "Submit Travel Rule Info"}
+          </button>
+        )}
+        {screening === "passed" && (!travelRuleRequired || travelRuleGatePassed) && (
+          <button
+            onClick={proceedAfterWalletApproval}
+            className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            Get Deposit Address
+            <CheckCircle2 className="w-4 h-4" />
+          </button>
+        )}
+        {screening === "failed" && (
+          <button
+            onClick={handleRetryWallet}
+            className="w-full rounded-xl py-4 text-sm font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all duration-200"
+          >
+            Try a Different Wallet
+          </button>
+        )}
       </div>
     </Shell>
   );

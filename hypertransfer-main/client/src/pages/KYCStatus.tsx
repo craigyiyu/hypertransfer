@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import Shell from '@/components/Shell';
 import { useDemo } from '@/contexts/DemoContext';
-import { useI18n } from '@/contexts/I18nContext';
 import { apiError } from '@/lib/api';
 import {
   formatKYCStatus,
@@ -32,10 +31,9 @@ const iconMap = {
 export default function KYCStatus() {
   const { state, updateState } = useDemo();
   const [, setLocation] = useLocation();
-  const { t } = useI18n();
   const [isChecking, setIsChecking] = useState(false);
   const [providerStatus, setProviderStatus] = useState<SumsubKycStatus | null>(null);
-  const [providerMessage, setProviderMessage] = useState('Checking verification provider status...');
+  const [providerMessage, setProviderMessage] = useState('Checking verification status...');
 
   const kycState = state.kyc;
   const eligibility = getKYCEligibility(kycState);
@@ -60,15 +58,15 @@ export default function KYCStatus() {
       },
     });
     if (!result.configured) {
-      setProviderMessage('Verification provider is not configured yet.');
+      setProviderMessage('Verification is not available yet. Please contact support.');
       return;
     }
     if (result.status === 'approved') {
-      setProviderMessage('Verification approved by the provider.');
+      setProviderMessage('Verification approved.');
     } else if (result.status === 'rejected') {
       setProviderMessage(result.rejectionReason || 'Verification was not approved.');
     } else if (result.status === 'pending') {
-      setProviderMessage('Verification is still under provider review.');
+      setProviderMessage('Automated checks usually complete in under a minute. You will be notified once verification is done.');
     } else {
       setProviderMessage('No KYC submission has been started for this account.');
     }
@@ -133,7 +131,7 @@ export default function KYCStatus() {
             </div>
 
             <h1 className="text-3xl font-bold text-white mb-2">
-              {t('kycStatus.title')}
+              Identity Verification
             </h1>
             <p className="text-lg font-semibold text-gold-400 mb-4">
               {formatKYCStatus(kycState.status)}
@@ -141,11 +139,6 @@ export default function KYCStatus() {
             <p className="text-slate-400 text-sm">
               {eligibility.blockerMessage}
             </p>
-            {providerStatus && (
-              <p className="mt-2 text-xs text-slate-500">
-                Verification profile: {providerStatus.applicantId || 'not created'} · {providerStatus.reviewStatus || 'no review yet'}
-              </p>
-            )}
           </div>
 
           {/* Status-Specific Content */}
@@ -157,10 +150,10 @@ export default function KYCStatus() {
                   <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">
-                      {t('kycStatus.approved.title')}
+                      Verification Complete
                     </h3>
                     <p className="text-slate-300 text-sm">
-                      {t('kycStatus.approved.description')}
+                      Your identity verification is complete. You can now continue with deposits.
                     </p>
                   </div>
                 </div>
@@ -174,19 +167,16 @@ export default function KYCStatus() {
                   <Clock className="w-6 h-6 text-yellow-500 flex-shrink-0 mt-1 animate-spin" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">
-                      {t('kycStatus.pending.title')}
+                      Review in Progress
                     </h3>
                     <p className="text-slate-300 text-sm mb-3">
-                      {t('kycStatus.pending.description')}
+                      Your information has been submitted and is being reviewed.
                     </p>
-                    <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-300 mb-4">
-                      <p className="font-medium text-white mb-1">
-                        Provider Status
-                      </p>
-                      <p>{providerMessage || getEstimatedReviewTime()}</p>
-                    </div>
+                    <p className="rounded-lg bg-slate-800/50 p-3 text-sm text-slate-300 mb-4">
+                      {providerMessage || getEstimatedReviewTime()}
+                    </p>
                     <p className="text-xs text-slate-400">
-                      {t('kycStatus.pending.submittedAt')}:{' '}
+                      Submitted:{' '}
                       {kycState.submittedAt
                         ? new Date(kycState.submittedAt).toLocaleDateString()
                         : 'N/A'}
@@ -203,16 +193,16 @@ export default function KYCStatus() {
                   <XCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">
-                      {t('kycStatus.rejected.title')}
+                      Verification Not Approved
                     </h3>
                     <p className="text-slate-300 text-sm mb-4">
-                      {t('kycStatus.rejected.description')}
+                      We could not approve the submitted information. Please review the reason and submit again.
                     </p>
 
                     {kycState.rejectionReason && (
                       <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
                         <p className="text-xs text-slate-400 font-medium mb-1">
-                          {t('kycStatus.rejected.reason')}
+                          Reason
                         </p>
                         <p className="text-sm text-slate-300">
                           {kycState.rejectionReason}
@@ -222,7 +212,7 @@ export default function KYCStatus() {
 
                     <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
                       <p className="text-xs text-blue-300 font-medium mb-1">
-                        {t('kycStatus.rejected.nextSteps')}
+                        Next steps
                       </p>
                       <ul className="text-sm text-blue-300 space-y-1 list-disc list-inside">
                         <li>Review the rejection reason</li>
@@ -242,10 +232,10 @@ export default function KYCStatus() {
                   <AlertCircle className="w-6 h-6 text-slate-400 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">
-                      {t('kycStatus.notStarted.title')}
+                      Verification Required
                     </h3>
                     <p className="text-slate-300 text-sm">
-                      {t('kycStatus.notStarted.description')}
+                      Complete identity verification before creating a deposit.
                     </p>
                   </div>
                 </div>
@@ -255,7 +245,7 @@ export default function KYCStatus() {
             {/* Requirements Card */}
             <Card className="border-slate-700/50 bg-slate-800/30 p-6">
               <h3 className="font-semibold text-white mb-4">
-                {t('kycStatus.requirements.title')}
+                Supporting Documents
               </h3>
               <ul className="space-y-3">
                 <li className="flex items-center gap-3 text-sm text-slate-300">
@@ -280,7 +270,7 @@ export default function KYCStatus() {
                   onClick={handleProceedToDeposit}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
                 >
-                  {t('kycStatus.approved.button')}
+                  Back to Dashboard
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               )}
@@ -291,7 +281,7 @@ export default function KYCStatus() {
                   disabled={isChecking}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg"
                 >
-                  {isChecking ? 'Checking verification status...' : t('kycStatus.pending.checkButton')}
+                  {isChecking ? 'Checking verification status...' : 'Check Status'}
                 </Button>
               )}
 
@@ -310,7 +300,7 @@ export default function KYCStatus() {
                   onClick={handleRetryKYC}
                   className="w-full bg-gold-500 hover:bg-gold-600 text-black font-semibold py-3 rounded-lg disabled:opacity-50"
                 >
-                  {t('kycStatus.rejected.retryButton')}
+                  Retry Verification
                 </Button>
               )}
 
@@ -319,7 +309,7 @@ export default function KYCStatus() {
                 variant="outline"
                 className="w-full border-slate-700 text-slate-300 hover:bg-slate-800/50 py-3 rounded-lg"
               >
-                {t('kycStatus.supportButton')}
+                Contact Support
               </Button>
             </div>
           </div>

@@ -230,6 +230,21 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-07-03 KYC 表单精简 + USDT 入金/钱包筛查/Travel Rule 合并
+
+- **日期 / 范围**：2026-07-03。HyperTransfer 客户端 Dashboard、KYC、KYC pending、New Deposit / Wallet Screening / Travel Rule 合并体验。本地测试 URL：隔离 QA 服务 `http://127.0.0.1:3000/dashboard`、`/kyc`、`/new-deposit`、`/deposit-address`（前端 3000 代理隔离后端 8123，测试 DB `/tmp/hypertransfer-qa-8123.db`）。
+- **客户端入口变化**：客户仍从 `/dashboard` 点击入金进入 `/new-deposit`；`/new-deposit` 现在承担 USDT amount、source wallet KYT、wallet pass 后 Travel Rule 输入。旧 `/wallet-screening` 与 `/travel-rule` 深链路会直接替换跳转回 `/new-deposit`，避免客户看到旧的分步页面。
+- **客户端功能 / 行为变化**：
+  - **Dashboard**：Account Status 卡删除右侧重复 `Verified` / `Not verified` badge；KYC 通过后主按钮文案改为 `New Deposit`；Recent Activity 空态删除 `Start a new deposit to begin`。
+  - **KYC**：删除顶部红色提示 box；`Applicant data` 改为 `Personal Details`；国家/地区下拉改为完整 ISO region 列表；手机号改为 country code 下拉 + phone input；Tax Residence 从客户主 KYC 表单移除（Sumsub 固定 KYC 字段非必填，若具体 verification level / questionnaire 要求再做 conditional field）；Occupation / Industry 与 Source of Funds 改为 dropdown，所在分区改为 `Financial Profile`；`What you'll need` 改 `Supporting Documents` 并删除重复的 phone/email verification 与 compliance questionnaire 材料卡。
+  - **KYC Pending / Status**：移除 verification profile、backend adapter、provider/webhook、demo auto-complete 等技术文案；Review Timeframe 改为客户可读 `Automated checks usually complete in under a minute. You will be notified once verification is done.`；`/kyc-status` 不再显示缺失的 `kycStatus.*` 翻译 key。
+  - **New Deposit 合并流**：Phase 1 固定 USDT，不再显示 `Select Asset`；同一页输入 deposit amount 与 source wallet address，提交后直接做 source-wallet KYT。wallet pass 后，若金额触发 Travel Rule，直接在同一页展开 Travel Rule 表单；未触发则直接进入 deposit address。
+- **工作人员后台变化**：无。
+- **业务规则 / 合规口径**：Tax Residence 不是 Sumsub KYC 的固定必填字段，而是 verification level / questionnaire 可配置项；本次客户主表单不展示，避免误导为强制项。Beneficiary/counterparty 与 provider strategy 仍由系统配置并在 provider payload 中保留，不让客户填写。
+- **关键代码文件**：`hypertransfer-main/client/src/pages/{Dashboard,KYC,KYCStatus,NewDeposit,DepositAddress,WalletScreening,TravelRule}.tsx`、`CLAUDE.md`、`AGENTS.md`。
+- **验证**：`corepack pnpm run check` ✅；`corepack pnpm run build` ✅（仅 Vite chunk-size warning）；`git diff --check` ✅。Chrome Playwright 验证：KYC 移动端/桌面无旧 top info、Tax Residence、Applicant data、What you'll need、Compliance questionnaire；KYC pending 仅保留客户可读 review timeframe；`/kyc-status` 无缺失翻译 key、无 provider/backend/webhook/demo 技术文案；KYC approved 后 Dashboard 只显示 1 个 `Verified`，CTA 为 `New Deposit`，Recent Activity 空态无旧副文案；`/new-deposit` 低于 TR 阈值时同页 wallet KYT pass 后直接 `Get Deposit Address`，高于 TR 阈值时同页展开 Travel Rule，提交后进入 `/deposit-address`；`/wallet-screening` 与 `/travel-rule` 均替换跳转 `/new-deposit`；业务 API 无 4xx/5xx，console 无 error/warn（忽略 Vite/React dev info 与 favicon）。截图：`/tmp/hypertransfer-qa-kyc-final-mobile-20260703.png`、`/tmp/hypertransfer-qa-kyc-final-desktop-20260703.png`、`/tmp/hypertransfer-qa-kyc-status-final-20260703.png`、`/tmp/hypertransfer-qa-dashboard-approved-after-kyc-20260703.png`、`/tmp/hypertransfer-qa-new-deposit-wallet-pass-low-20260703.png`、`/tmp/hypertransfer-qa-tr-submit-clean-20260703.png`。
+- **已知限制 / mock 边界**：真实 Sumsub level 若后续配置 Tax Residence / TIN 为 required，需要在 KYC questionnaire 中按 level capability 加回 conditional field。
+
 ### 2026-07-02 线上版本号 build metadata 修复
 
 - **日期 / 范围**：2026-07-02。HyperTransfer Demo 首页版本号显示与 Docker/GitHub Actions 部署链路。
@@ -1053,4 +1068,4 @@ Hex Trust API 会议口径：
 - 完成重要 TODO 或新增关键技术债。
 - 每次新版本 / 可测试批次完成后，必须更新上方 `Release Notes`，让用户能逐条确认入口、功能、文件、验证与已知限制。
 
-最后更新：2026-07-02（线上版本号 build metadata 修复），新增 `2026-07-02 线上版本号 build metadata 修复` release note：前端 Docker build 新增 `VITE_APP_VERSION` / `VITE_GIT_COMMIT` build args，compose 传入 build args，GitHub Actions 香港部署用 `GITHUB_SHA::7` 导出 `VITE_GIT_COMMIT`，手工 `deploy.sh` 用 `git rev-parse --short HEAD` 导出，修复 Demo hub 版本号显示 `v1.0.0+local` 的问题。验证 `VITE_GIT_COMMIT=versioncheck corepack pnpm run build` ✅（产物包含 `v1.0.0+versioncheck`）、`VITE_GIT_COMMIT=composecheck docker compose config` ✅、`corepack pnpm run check` ✅、`git diff --check` ✅。CLAUDE.md 文末同步。
+最后更新：2026-07-03（KYC 表单精简 + USDT 入金/钱包筛查/Travel Rule 合并），新增 `2026-07-03 KYC 表单精简 + USDT 入金/钱包筛查/Travel Rule 合并` release note：Dashboard 删除重复状态 badge 与空态副文案；KYC 删除顶部提示 box，`Applicant data` 改 `Personal Details`，国家列表补全，手机号拆为区号+号码，Tax Residence 从主表单移除并按 Sumsub level/questionnaire 条件项处理，Occupation/Source of Funds 改 dropdown，Supporting Documents 精简；KYC pending 去 provider/webhook/demo 技术文案；`/new-deposit` 合并 USDT amount、source wallet KYT 与 wallet pass 后 Travel Rule 输入。已完成 `check`、`build`、`git diff --check` 与 Chrome Playwright 页面/链路验证。CLAUDE.md 文末同步。

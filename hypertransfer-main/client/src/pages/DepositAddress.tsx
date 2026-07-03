@@ -53,10 +53,10 @@ export default function DepositAddress() {
   const nextGateRoute = !kycApproved
     ? "/kyc"
     : !state.screeningPassed
-    ? "/wallet-screening"
+    ? "/new-deposit"
     : travelRuleRequired && !travelRuleGatePassed
-    ? "/travel-rule"
-    : "/wallet-screening";
+    ? "/new-deposit"
+    : "/new-deposit";
 
   useEffect(() => {
     if (isDemoFlow && state.depositAddress) {
@@ -133,7 +133,7 @@ export default function DepositAddress() {
   ]);
 
   return (
-    <Shell showBack backTo="/wallet-screening" title="Deposit Verification" subtitle="Review the required first step">
+    <Shell showBack backTo="/new-deposit" title="Deposit Verification" subtitle="Review the required first step">
       <div className="space-y-6">
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -31,7 +31,6 @@ import {
   RotateCw,
   Camera,
   User,
-  Smartphone,
   Home,
   ClipboardList,
 } from "lucide-react";
@@ -39,15 +38,69 @@ import { motion, AnimatePresence } from "framer-motion";
 
 type KYCStep = "form" | "pending" | "approved";
 
-const COUNTRY_OPTIONS = [
-  { value: "hk", label: "Hong Kong" },
-  { value: "cn", label: "China" },
-  { value: "sg", label: "Singapore" },
-  { value: "jp", label: "Japan" },
-  { value: "kr", label: "South Korea" },
-  { value: "us", label: "United States" },
-  { value: "gb", label: "United Kingdom" },
-  { value: "au", label: "Australia" },
+const REGION_CODES = [
+  "AF", "AL", "DZ", "AD", "AO", "AG", "AR", "AM", "AU", "AT", "AZ", "BS", "BH", "BD", "BB", "BY",
+  "BE", "BZ", "BJ", "BT", "BO", "BA", "BW", "BR", "BN", "BG", "BF", "BI", "KH", "CM", "CA", "CV",
+  "CF", "TD", "CL", "CN", "CO", "KM", "CG", "CD", "CR", "CI", "HR", "CU", "CY", "CZ", "DK", "DJ",
+  "DM", "DO", "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FJ", "FI", "FR", "GA", "GM", "GE",
+  "DE", "GH", "GR", "GD", "GT", "GN", "GW", "GY", "HT", "HN", "HK", "HU", "IS", "IN", "ID", "IR",
+  "IQ", "IE", "IL", "IT", "JM", "JP", "JO", "KZ", "KE", "KI", "KW", "KG", "LA", "LV", "LB", "LS",
+  "LR", "LY", "LI", "LT", "LU", "MO", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MR", "MU", "MX",
+  "FM", "MD", "MC", "MN", "ME", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NZ", "NI", "NE", "NG",
+  "KP", "MK", "NO", "OM", "PK", "PW", "PA", "PG", "PY", "PE", "PH", "PL", "PT", "QA", "RO", "RU",
+  "RW", "KN", "LC", "VC", "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SK", "SI", "SB",
+  "SO", "ZA", "KR", "SS", "ES", "LK", "SD", "SR", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL",
+  "TG", "TO", "TT", "TN", "TR", "TM", "TV", "UG", "UA", "AE", "GB", "US", "UY", "UZ", "VU", "VA",
+  "VE", "VN", "YE", "ZM", "ZW", "OTHER",
+];
+
+const regionNames =
+  typeof Intl !== "undefined" && "DisplayNames" in Intl
+    ? new Intl.DisplayNames(["en"], { type: "region" })
+    : null;
+
+const COUNTRY_OPTIONS = REGION_CODES.map((code) => ({
+  value: code.toLowerCase(),
+  label: code === "OTHER" ? "Other" : regionNames?.of(code) || code,
+})).sort((a, b) => (a.value === "other" ? 1 : b.value === "other" ? -1 : a.label.localeCompare(b.label)));
+
+const DIAL_CODE_OPTIONS = [
+  { value: "+852", label: "Hong Kong +852" },
+  { value: "+853", label: "Macau +853" },
+  { value: "+86", label: "China +86" },
+  { value: "+65", label: "Singapore +65" },
+  { value: "+81", label: "Japan +81" },
+  { value: "+82", label: "South Korea +82" },
+  { value: "+1", label: "US / Canada +1" },
+  { value: "+44", label: "United Kingdom +44" },
+  { value: "+61", label: "Australia +61" },
+  { value: "+886", label: "Taiwan +886" },
+  { value: "+60", label: "Malaysia +60" },
+  { value: "+66", label: "Thailand +66" },
+  { value: "+63", label: "Philippines +63" },
+  { value: "+62", label: "Indonesia +62" },
+  { value: "+91", label: "India +91" },
+  { value: "+971", label: "United Arab Emirates +971" },
+];
+
+const OCCUPATION_OPTIONS = [
+  { value: "finance", label: "Finance" },
+  { value: "gaming_hospitality", label: "Gaming / Hospitality" },
+  { value: "technology", label: "Technology" },
+  { value: "real_estate", label: "Real Estate" },
+  { value: "professional_services", label: "Professional Services" },
+  { value: "business_owner", label: "Business Owner" },
+  { value: "retired", label: "Retired" },
+  { value: "other", label: "Other" },
+];
+
+const SOURCE_OF_FUNDS_OPTIONS = [
+  { value: "employment_income", label: "Employment Income" },
+  { value: "business_income", label: "Business Income" },
+  { value: "personal_savings", label: "Personal Savings" },
+  { value: "investment_proceeds", label: "Investment Proceeds" },
+  { value: "casino_winnings", label: "Casino Winnings" },
+  { value: "inheritance_gift", label: "Inheritance / Gift" },
   { value: "other", label: "Other" },
 ];
 
@@ -157,8 +210,8 @@ export default function KYC() {
   const [middleName, setMiddleName] = useState("");
   const [nationality, setNationality] = useState("");
   const [dob, setDob] = useState("");
-  const [taxResidence, setTaxResidence] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+852");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [idType, setIdType] = useState("");
   const [idNumber, setIdNumber] = useState("");
   const [documentCountry, setDocumentCountry] = useState("");
@@ -173,7 +226,7 @@ export default function KYC() {
   const [sumsubConfig, setSumsubConfig] = useState<SumsubConfig | null>(null);
   const [sumsubLoading, setSumsubLoading] = useState(true);
   const [sumsubSubmitting, setSumsubSubmitting] = useState(false);
-  const [sumsubMessage, setSumsubMessage] = useState("Checking verification provider configuration...");
+  const [sumsubMessage, setSumsubMessage] = useState("Checking verification availability...");
   const [applicantId, setApplicantId] = useState("");
 
   const canSubmit = Boolean(
@@ -181,7 +234,7 @@ export default function KYC() {
     && lastName.trim()
     && nationality
     && dob.length === 10
-    && phone.trim()
+    && phoneNumber.trim()
     && idType
     && idNumber.trim()
     && documentCountry
@@ -221,8 +274,8 @@ export default function KYC() {
         setSumsubConfig(res.data);
         setSumsubMessage(
           res.data.configured
-            ? `Verification provider is configured for ${res.data.environment}.`
-            : "Verification provider setup is pending in the backend.",
+            ? "Identity verification is available."
+            : "Identity verification setup is pending.",
         );
       })
       .catch((err) => {
@@ -245,8 +298,8 @@ export default function KYC() {
       setMiddleName("");
       setNationality("hk");
       setDob("1990-01-15");
-      setTaxResidence("hk");
-      setPhone(detail.phone || "+852 9876 5432");
+      setPhoneCountryCode("+852");
+      setPhoneNumber((detail.phone || "+852 9876 5432").replace(/^\+852\s*/, ""));
       setIdType("passport");
       setIdNumber(detail.idNumber || "A123456789");
       setDocumentCountry("hk");
@@ -255,8 +308,8 @@ export default function KYC() {
       setCity("Hong Kong");
       setPostalCode("000000");
       setAddressCountry("hk");
-      setOccupation(detail.occupationIndustry || "Finance");
-      setSourceOfFunds(detail.sourceOfFunds || "Employment income and savings");
+      setOccupation("finance");
+      setSourceOfFunds("employment_income");
       setConsentAccepted(true);
     };
 
@@ -271,11 +324,11 @@ export default function KYC() {
       return;
     }
     setSumsubSubmitting(true);
-    setSumsubMessage("Creating secure verification profile through the backend adapter...");
+    setSumsubMessage("Submitting your verification securely...");
     try {
       if (demoApproveAllowed) {
         setApplicantId(`demo-${Date.now().toString(36)}`);
-        setSumsubMessage("Verification profile created. Review status: pending.");
+        setSumsubMessage("Verification submitted. Review status: pending.");
         syncKycState("pending", undefined, Math.floor(Date.now() / 1000));
         return;
       }
@@ -286,8 +339,7 @@ export default function KYC() {
         middleName: middleName.trim(),
         nationality,
         dob,
-        taxResidence,
-        phone: phone.trim(),
+        phone: `${phoneCountryCode} ${phoneNumber.trim()}`,
         idType,
         idNumber: idNumber.trim(),
         documentCountry,
@@ -304,7 +356,7 @@ export default function KYC() {
       });
       setApplicantId(start.data.applicantId);
       setSumsubMessage(
-        `Verification profile created. Review status: ${start.data.reviewStatus || start.data.status}.`,
+        `Verification submitted. Review status: ${start.data.reviewStatus || start.data.status}.`,
       );
       syncKycState(start.data.status, start.data.rejectionReason, start.data.updatedAt);
     } catch (err) {
@@ -386,10 +438,6 @@ export default function KYC() {
             {/* Status */}
             <div className="space-y-2">
               <h2 className="text-xl font-bold text-warning">KYC Pending Review</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
-                Your verification profile has been created through HyperTransfer's secure backend adapter.
-                Review status will update automatically.
-              </p>
             </div>
 
             {/* Review timeframe */}
@@ -399,32 +447,9 @@ export default function KYC() {
                 <p className="text-sm font-semibold text-foreground">Review Timeframe</p>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Automated checks usually complete in <span className="text-gold font-semibold">under a minute</span>. If a case is escalated to manual review it may take a few minutes longer. You will be notified once your identity has been verified.
-              </p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">
-                Deposits are locked until verification is complete.
+                Automated checks usually complete in under a minute. You will be notified once verification is done.
               </p>
             </div>
-
-            <div className="card-gold rounded-xl px-4 py-3 w-full flex items-center gap-3">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-4 h-4 border-2 border-gold/30 border-t-gold rounded-full shrink-0"
-              />
-              <div className="flex-1 text-left">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Verification Status</p>
-                <p className="text-xs text-foreground">
-                  Waiting for provider result or webhook update{applicantId ? ` (${applicantId})` : ""}.
-                </p>
-              </div>
-            </div>
-
-            {demoApproveAllowed && (
-              <p className="text-[10px] text-muted-foreground/60 text-center">
-                Demo mode will complete verification automatically in about 5 seconds.
-              </p>
-            )}
           </motion.div>
         </AnimatePresence>
       </Shell>
@@ -461,17 +486,9 @@ export default function KYC() {
   return (
     <Shell showBack backTo="/setup-2fa" title="Identity Verification" subtitle="For regulatory compliance (KYC)">
       <div className="space-y-5">
-        {/* Info banner */}
-        <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            We verify your identity before processing crypto deposits.
-          </p>
-        </div>
-
         {/* Personal Info */}
         <div className="space-y-3">
-          <SectionTitle icon={User}>Applicant data</SectionTitle>
+          <SectionTitle icon={User}>Personal Details</SectionTitle>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -526,15 +543,26 @@ export default function KYC() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <FieldLabel required={false}>Tax Residence</FieldLabel>
-            <CountrySelect value={taxResidence} onValueChange={setTaxResidence} />
+            <FieldLabel>Country Code</FieldLabel>
+            <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                <SelectValue placeholder="Code" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border">
+                {DIAL_CODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <FieldLabel>Mobile Number</FieldLabel>
             <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+852 9876 5432"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="9876 5432"
               className="bg-input border-border h-11 rounded-xl text-sm"
             />
           </div>
@@ -631,32 +659,44 @@ export default function KYC() {
         </div>
 
         <div className="space-y-3">
-          <SectionTitle icon={ClipboardList}>Compliance questionnaire</SectionTitle>
+          <SectionTitle icon={ClipboardList}>Financial Profile</SectionTitle>
 
           <div className="space-y-2">
             <FieldLabel required={false}>Occupation / Industry</FieldLabel>
-            <Input
-              value={occupation}
-              onChange={(e) => setOccupation(e.target.value)}
-              placeholder="e.g. Finance, hospitality, technology"
-              className="bg-input border-border h-11 rounded-xl text-sm"
-            />
+            <Select value={occupation} onValueChange={setOccupation}>
+              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                <SelectValue placeholder="Select occupation / industry" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border">
+                {OCCUPATION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
             <FieldLabel required={false}>Source of Funds</FieldLabel>
-            <Textarea
-              value={sourceOfFunds}
-              onChange={(e) => setSourceOfFunds(e.target.value)}
-              placeholder="e.g. Employment income, savings, investment proceeds"
-              className="bg-input border-border min-h-20 rounded-xl text-sm"
-            />
+            <Select value={sourceOfFunds} onValueChange={setSourceOfFunds}>
+              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
+                <SelectValue placeholder="Select source of funds" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border">
+                {SOURCE_OF_FUNDS_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         {/* Customer-facing upload preparation summary */}
         <div className="space-y-3">
-          <SectionTitle icon={FileText}>What you'll need</SectionTitle>
+          <SectionTitle icon={FileText}>Supporting Documents</SectionTitle>
 
           <RequirementCard icon={FileText} title="ID document photos" required>
             Passport, ID card, driver's license, or residence permit. Use original color photos with all corners visible and readable text. If both sides contain information, prepare front and back photos.
@@ -668,14 +708,6 @@ export default function KYC() {
 
           <RequirementCard icon={Home} title="Proof of address">
             Prepare a recent utility bill, bank statement, or official address document that matches the residential address entered above.
-          </RequirementCard>
-
-          <RequirementCard icon={Smartphone} title="Phone and email verification" required>
-            The provider may check your mobile number and account email for risk, blocklist, or verification status.
-          </RequirementCard>
-
-          <RequirementCard icon={ClipboardList} title="Compliance questionnaire">
-            Additional questions may cover occupation, source of funds, tax residence, and the purpose of using HyperTransfer.
           </RequirementCard>
         </div>
 
