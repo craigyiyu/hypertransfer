@@ -351,6 +351,106 @@ NEW_SCHEMA_SQL = """
     CREATE INDEX IF NOT EXISTS idx_deposit_status ON deposit_requests(status);
 """
 
+# Host-led VIP admission + per-transfer compliance aggregates (2026-08-21 design).
+# Purely additive: this script is executed on every init_db run with
+# CREATE TABLE IF NOT EXISTS, so it never drops, renames, or mutates legacy
+# tables (invitations, payment_applications, deposit_requests, ...). The
+# original NEW_SCHEMA_SQL above is left untouched so migration tests can build
+# the exact branch-tip schema and prove the new tables are additive.
+ADMISSION_SCHEMA_SQL = """
+    -- Host enterprise profile (provisioned through the staff session boundary;
+    -- production Okta OIDC remains a provider boundary, not a browser mock).
+    CREATE TABLE IF NOT EXISTS host_profiles (
+        user_id         TEXT PRIMARY KEY,
+        employee_id     TEXT,
+        department      TEXT,
+        operating_team  TEXT,
+        location        TEXT,
+        phone           TEXT,
+        status          TEXT NOT NULL CHECK(status IN ('pending','active','disabled')),
+        acknowledged_at INTEGER,
+        updated_at      INTEGER NOT NULL
+    );
+    -- One VIP admission case per invitation. Host notes are never exposed to
+    -- the VIP or the leader.
+    CREATE TABLE IF NOT EXISTS vip_admission_cases (
+        id              TEXT PRIMARY KEY,
+        host_user_id    TEXT NOT NULL,
+        patron_email    TEXT NOT NULL,
+        member_reference TEXT,
+        service_purpose TEXT,
+        host_notes      TEXT,
+        preferred_language TEXT,
+        route           TEXT NOT NULL,
+        patron_user_id  TEXT,
+        status          TEXT NOT NULL,
+        leader_user_id  TEXT,
+        kyc_reason_code TEXT,
+        kyc_valid_until INTEGER,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_admission_case_host
+        ON vip_admission_cases(host_user_id);
+    CREATE INDEX IF NOT EXISTS idx_admission_case_patron_email
+        ON vip_admission_cases(patron_email);
+    CREATE INDEX IF NOT EXISTS idx_admission_case_status
+        ON vip_admission_cases(status);
+    -- Email-link and dynamic-QR presentations of the same open admission case.
+    -- Only the salted hash of a session token is stored (never the raw token).
+    CREATE TABLE IF NOT EXISTS admission_invitation_sessions (
+        id              TEXT PRIMARY KEY,
+        admission_case_id TEXT NOT NULL,
+        channel         TEXT NOT NULL CHECK(channel IN ('email','qr')),
+        token_hash      TEXT NOT NULL UNIQUE,
+        expires_at      INTEGER NOT NULL,
+        consumed_at     INTEGER,
+        revoked_at      INTEGER,
+        created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_invitation_session_case
+        ON admission_invitation_sessions(admission_case_id);
+    -- Payment intent: what the VIP intends, later confirmed by an immutable
+    -- fingerprint of the actual payment.
+    CREATE TABLE IF NOT EXISTS payment_intents (
+        id              TEXT PRIMARY KEY,
+        admission_case_id TEXT NOT NULL,
+        asset           TEXT NOT NULL,
+        network         TEXT NOT NULL,
+        intended_amount TEXT,
+        source_type     TEXT,
+        source_identifier TEXT,
+        counterparty_name TEXT,
+        status          TEXT NOT NULL,
+        fingerprint_json TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_intent_case
+        ON payment_intents(admission_case_id);
+    -- Every test (verification) and main transfer gets its own immutable
+    -- Transaction Travel Rule Pack. HKD 8,000 switches basic/enhanced field
+    -- depth; it never removes the pack. retention_until >= 5 years after
+    -- completion (Task 8).
+    CREATE TABLE IF NOT EXISTS transaction_compliance_packs (
+        id                 TEXT PRIMARY KEY,
+        payment_intent_id  TEXT NOT NULL,
+        transfer_leg       TEXT NOT NULL CHECK(transfer_leg IN ('verification','main')),
+        actual_amount      TEXT NOT NULL,
+        actual_hkd_amount  TEXT NOT NULL,
+        travel_rule_depth  TEXT NOT NULL CHECK(travel_rule_depth IN ('basic','enhanced')),
+        kyt_status         TEXT NOT NULL,
+        travel_rule_status TEXT NOT NULL,
+        notabene_reference TEXT,
+        immutable_snapshot_json TEXT NOT NULL,
+        retention_until    INTEGER,
+        created_at         INTEGER NOT NULL,
+        finalized_at       INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_compliance_pack_intent_leg
+        ON transaction_compliance_packs(payment_intent_id, transfer_leg);
+"""
+
 # otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
 # 注:仅当 OTP_IDENTIFIER 泛化(Email OTP)时才动它,那是 PR②-2 的事。
 
@@ -530,6 +630,8 @@ def init_db() -> None:
             migrate_users_to_user_id(conn)
         # 新库 / 已迁移库: 幂等建表(IF NOT EXISTS)。
         conn.executescript(NEW_SCHEMA_SQL)
+        # Host-led VIP admission + per-transfer compliance aggregates (additive).
+        conn.executescript(ADMISSION_SCHEMA_SQL)
         # 幂等补列: 旧的已迁移库(PR②-1 形态)缺 invited_by,在此补齐。
         user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "invited_by" not in user_cols:
