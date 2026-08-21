@@ -639,3 +639,88 @@ export const leaderApi = {
       reason,
     }),
 };
+
+// ---------- Payment intents + Transaction Compliance Packs (Task 7) ----------
+export interface PaymentIntent {
+  id: string;
+  admissionCaseId: string;
+  asset: string;
+  network: string;
+  intendedAmount: string | null;
+  sourceType: string | null;
+  sourceIdentifier: string;
+  counterpartyName: string;
+  sourceStatus: string | null;
+  status: string;
+  fingerprint: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TransactionCompliancePack {
+  id: string;
+  paymentIntentId: string;
+  transferLeg: "verification" | "main";
+  actualAmount: string;
+  actualHkdAmount: string;
+  travelRuleDepth: "basic" | "enhanced";
+  kytStatus: string;
+  travelRuleStatus: string;
+  notabeneReference: string;
+  custodyAddress: string;
+  txHash: string;
+  immutableSnapshotJson: string;
+  retentionUntil: number | null;
+  createdAt: number;
+  finalizedAt: number | null;
+}
+
+export const paymentApi = {
+  createIntent: (p: { asset: string; network: string; intendedAmount?: string }) =>
+    api.post<{ ok: boolean; intent: PaymentIntent }>("/payment-intents", p),
+  classifySource: (
+    id: string,
+    p: {
+      sourceType: "wallet" | "vasp";
+      sourceIdentifier: string;
+      jurisdiction?: string;
+      institutionName?: string;
+      accountReference?: string;
+    },
+  ) =>
+    api.post<{ ok: boolean; sourceStatus: string; detail: string; intent: PaymentIntent }>(
+      `/payment-intents/${id}/source-classification`,
+      p,
+    ),
+  confirmActual: (
+    id: string,
+    p: {
+      asset: string;
+      network: string;
+      actualAmount: string;
+      sourceType: string;
+      sourceIdentifier: string;
+      counterpartyId?: string;
+    },
+  ) =>
+    api.post<{
+      ok: boolean;
+      requiresRevalidation: boolean;
+      revalidationReason: string | null;
+      fingerprint: string;
+      intent: PaymentIntent;
+    }>(`/payment-intents/${id}/actual-confirmation`, p),
+  createPack: (
+    id: string,
+    p: { transferLeg: "verification" | "main"; actualAmount: string; actualHkdAmount?: string },
+  ) => api.post<{ ok: boolean; pack: TransactionCompliancePack }>(`/payment-intents/${id}/compliance-packs`, p),
+};
+
+export const transactionPackApi = {
+  screen: (id: string) =>
+    api.post<{ ok: boolean; pack: TransactionCompliancePack }>(`/transaction-compliance-packs/${id}/screen`, {}),
+  issueAddress: (id: string) =>
+    api.post<{ ok: boolean; pack: TransactionCompliancePack }>(`/transaction-compliance-packs/${id}/issue-address`, {}),
+  recordTransfer: (id: string, p: { txHash: string; status?: string }) =>
+    api.post<{ ok: boolean; pack: TransactionCompliancePack }>(`/transaction-compliance-packs/${id}/record-transfer`, p),
+};

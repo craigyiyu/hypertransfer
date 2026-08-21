@@ -1,7 +1,7 @@
-import { TRAVEL_RULE_THRESHOLD_USD, requiresTravelRule } from "@/lib/compliance";
+import { TRAVEL_RULE_THRESHOLD_USD } from "@/lib/compliance";
+import { travelRuleDepthForHkd, type TravelRuleDepth } from "@/lib/transaction-compliance";
 
 export type TravelRuleStatus =
-  | "not_required"
   | "travel_rule_required"
   | "travel_rule_submitted"
   | "travel_rule_accepted"
@@ -28,6 +28,8 @@ export interface TravelRuleRecord {
   amount: number;
   thresholdUsd: number;
   required: boolean;
+  /** HKD 8,000 switches basic/enhanced field depth; it never removes the pack. */
+  depth: TravelRuleDepth;
   provider: string;
   providerReference: string;
   status: TravelRuleStatus;
@@ -55,9 +57,11 @@ export function createTravelRuleRecord(input: {
   network: string;
   amount: number;
 }): TravelRuleRecord {
-  const required = requiresTravelRule(input.asset, input.amount);
+  // HKD 8,000 只切换 basic/enhanced 字段深度——Travel Rule 对每笔转账都要求。
+  const hkdEstimate = input.amount * 7.8; // demo 汇率, 仅用于字段深度展示
+  const depth = travelRuleDepthForHkd(hkdEstimate);
   const id = `TR-${Date.now().toString(36).toUpperCase()}`;
-  const status: TravelRuleStatus = required ? "travel_rule_required" : "not_required";
+  const status: TravelRuleStatus = "travel_rule_required";
 
   return {
     id,
@@ -84,12 +88,13 @@ export function createTravelRuleRecord(input: {
     network: input.network,
     amount: input.amount,
     thresholdUsd: TRAVEL_RULE_THRESHOLD_USD,
-    required,
+    required: true,
+    depth,
     provider: input.provider,
     providerReference: "",
     status,
     auditTrail: [
-      `Travel Rule evaluated: ${required ? "required" : "not required"}`,
+      `Travel Rule evaluated: ${depth} fields apply (HKD ${hkdEstimate.toFixed(0)} estimate)`,
       `Source of funds captured: ${input.sourceOfFunds}`,
       `Provider strategy selected: ${input.provider}`,
     ],
@@ -150,5 +155,6 @@ export const mockTravelRuleProvider: TravelRuleProviderAdapter = {
 };
 
 export function canPassTravelRuleGate(status: TravelRuleStatus, required: boolean) {
-  return !required || status === "travel_rule_accepted" || status === "not_required";
+  // 每笔转账都有 pack(required 恒真); 只有 provider 接受才放行。
+  return !required || status === "travel_rule_accepted";
 }

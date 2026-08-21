@@ -27,12 +27,13 @@ import {
   requiresTravelRule,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
-import { depositApi, type HexSafeNetwork } from "@/lib/api";
+import { depositApi, paymentApi, transactionPackApi, type HexSafeNetwork } from "@/lib/api";
 import {
   canPassTravelRuleGate,
   createTravelRuleRecord,
   mockTravelRuleProvider,
 } from "@/lib/travel-rule";
+import { depthExplanation, travelRuleDepthForHkd } from "@/lib/transaction-compliance";
 import { sumsubApi } from "@/lib/sumsub";
 import { toast } from "sonner";
 
@@ -177,7 +178,7 @@ export default function NewDeposit() {
       depositRequestId: "",
       screeningPassed: false,
       travelRuleComplete: false,
-      travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+      travelRuleStatus: "travel_rule_required",
     });
 
     let requestId = "";
@@ -211,8 +212,45 @@ export default function NewDeposit() {
       updateState({
         screeningPassed: true,
         travelRuleComplete: !travelRuleRequired,
-        travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+        travelRuleStatus: "travel_rule_required",
       });
+      // ⑦ Host-led admission: 后端 pack 流(创建 intent + 来源分类 + 实际确认 + verification pack)。
+      // 未绑定 admission case / 后端不可用时静默回退 legacy flow。
+      try {
+        const intentRes = await paymentApi.createIntent({
+          asset: SELECTED_ASSET,
+          network: effectiveNetwork,
+          intendedAmount: cleanAmount,
+        });
+        const intentId = intentRes.data.intent.id;
+        await paymentApi.classifySource(intentId, {
+          sourceType: "wallet",
+          sourceIdentifier: sourceWallet,
+          jurisdiction: "HK",
+        });
+        const confirm = await paymentApi.confirmActual(intentId, {
+          asset: SELECTED_ASSET,
+          network: effectiveNetwork,
+          actualAmount: cleanAmount,
+          sourceType: "wallet",
+          sourceIdentifier: sourceWallet,
+        });
+        // 验证款(1 USDT)是独立的 basic pack —— 即使主款跨阈值。
+        const packRes = await paymentApi.createPack(intentId, {
+          transferLeg: "verification",
+          actualAmount: "1",
+          actualHkdAmount: "8",
+        });
+        updateState({
+          paymentIntentId: intentId,
+          compliancePackId: packRes.data.pack.id,
+        });
+        if (confirm.data.requiresRevalidation) {
+          toast.info("The payment changed versus the pre-check — the compliance pack will be re-validated.");
+        }
+      } catch {
+        /* 未绑定 case 或后端不可用: 沿用 legacy demo flow */
+      }
     } else {
       setScreening("failed");
       updateState({ screeningPassed: false });
@@ -224,7 +262,7 @@ export default function NewDeposit() {
     updateState({
       screeningPassed: false,
       travelRuleComplete: false,
-      travelRuleStatus: travelRuleRequired ? "travel_rule_required" : "not_required",
+      travelRuleStatus: "travel_rule_required",
     });
   };
 
@@ -247,7 +285,7 @@ export default function NewDeposit() {
     });
 
     updateState({
-      travelRuleStatus: baseRecord.required ? "travel_rule_submitted" : "not_required",
+      travelRuleStatus: "travel_rule_submitted",
       travelRuleRecord: baseRecord,
     });
 
@@ -304,6 +342,26 @@ export default function NewDeposit() {
       status = providerRecord.status;
       providerReference = providerRecord.providerReference;
       rejectionReason = providerRecord.rejectionReason ?? "";
+    }
+
+    // ⑦ Host-led admission: 已有 compliance pack 时, 走 per-transfer pack 的 KYT + Travel Rule。
+    if (state.paymentIntentId && state.compliancePackId) {
+      try {
+        const { data } = await transactionPackApi.screen(state.compliancePackId);
+        const pack = data.pack;
+        if (pack.travelRuleStatus === "accepted") {
+          status = "travel_rule_accepted";
+          providerReference = pack.notabeneReference;
+        } else if (pack.travelRuleStatus === "manual_review") {
+          status = "manual_review";
+          rejectionReason = "The Travel Rule provider routed this transfer to manual review.";
+        } else {
+          status = "travel_rule_rejected";
+          rejectionReason = "The Travel Rule provider rejected this transfer.";
+        }
+      } catch {
+        /* 后端不可用 -> 保留 demo 结果 */
+      }
     }
 
     const canPass = canPassTravelRuleGate(status, baseRecord.required);
@@ -478,9 +536,19 @@ export default function NewDeposit() {
 
             <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
               <Scale className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                This deposit is at or above USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()}. HyperTransfer collects the required originator information before issuing a custody deposit address.
-              </p>
+              <div className="text-xs text-muted-foreground leading-relaxed">
+                <p>
+                  Every transfer — including the 1-unit verification transfer — carries its own
+                  Travel Rule record. The exact final amount decides the field depth:{' '}
+                  <span className="font-semibold text-foreground">
+                    {travelRuleDepthForHkd(plannedAmount * 7.8) === "enhanced" ? "Enhanced" : "Basic"}
+                  </span>{' '}
+                  (HKD 8,000 threshold).
+                </p>
+                <p className="mt-1">
+                  {depthExplanation(travelRuleDepthForHkd(plannedAmount * 7.8), plannedAmount * 7.8)}
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

@@ -20,7 +20,7 @@ import {
   createHexSafeStatus,
   createVaultBalance,
 } from "@/lib/hex-safe";
-import { depositApi } from "@/lib/api";
+import { depositApi, paymentApi, transactionPackApi } from "@/lib/api";
 import { writeDemoDepositSettlement } from "@/lib/demo-deposit-settlement";
 
 type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming";
@@ -184,6 +184,12 @@ export default function MainDeposit() {
       if (state.depositRequestId) {
         depositApi.confirmTest(state.depositRequestId, verifyTxHash).catch(() => {});
       }
+      // ⑦ Host-led admission: 验证款(1 USDT)的独立 basic pack 记录转账。
+      if (state.paymentIntentId && state.compliancePackId) {
+        transactionPackApi
+          .recordTransfer(state.compliancePackId, { txHash: verifyTxHash, status: "confirmed" })
+          .catch(() => {});
+      }
       addTransaction({
         id: "tx-test-" + Date.now(),
         type: "test",
@@ -196,6 +202,28 @@ export default function MainDeposit() {
         sessionId,
       });
     }, 1600 + requiredConfirmations * 650);
+  };
+
+  // ⑦ Host-led admission: 主款按实际金额创建独立 main pack(KYT+TR 通过后发址并记录转账)。
+  const recordMainPack = async (mainAmount: string) => {
+    if (!state.paymentIntentId) return;
+    try {
+      const mainHkd = Math.round((parseFloat(mainAmount) || 0) * 7.8);
+      const packRes = await paymentApi.createPack(state.paymentIntentId, {
+        transferLeg: "main",
+        actualAmount: mainAmount,
+        actualHkdAmount: String(mainHkd),
+      });
+      const mainPackId = packRes.data.pack.id;
+      await transactionPackApi.screen(mainPackId);
+      await transactionPackApi.issueAddress(mainPackId);
+      const txHash =
+        "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+      await transactionPackApi.recordTransfer(mainPackId, { txHash, status: "confirmed" });
+      updateState({ compliancePackId: mainPackId });
+    } catch {
+      /* 后端不可用/gate 未过 → 回退 legacy flow */
+    }
   };
 
   // Handle main deposit confirmation with Travel Rule check
@@ -212,6 +240,8 @@ export default function MainDeposit() {
     if (state.depositRequestId) {
       depositApi.main(state.depositRequestId, amount, state.travelRuleStatus).catch(() => {});
     }
+    // ⑦ Host-led admission: 主款(按实际金额)创建独立 main pack, screen + 发址 + 记录转账。
+    void recordMainPack(amount);
     setPhase("main_monitoring");
     setConfirmations(0);
 
@@ -239,6 +269,7 @@ export default function MainDeposit() {
     if (state.depositRequestId) {
       depositApi.main(state.depositRequestId, amount, state.travelRuleStatus).catch(() => {});
     }
+    void recordMainPack(amount);
     toast.success("No second transfer required", {
       description: `${displayVerificationAmount} ${state.selectedAsset} has already been detected.`,
     });

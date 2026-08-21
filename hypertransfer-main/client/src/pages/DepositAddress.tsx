@@ -11,7 +11,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-rea
 import { getHKDEquivalent } from "@/lib/currency";
 import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 import { canPassTravelRuleGate } from "@/lib/travel-rule";
-import { depositApi } from "@/lib/api";
+import { depositApi, transactionPackApi } from "@/lib/api";
 
 const DEMO_DEPOSIT_DEFAULTS = {
   asset: "USDT",
@@ -77,7 +77,16 @@ export default function DepositAddress() {
     (async () => {
       // 真实: 有后端入金单 → Hex Safe 签发(地址按 vault×链固定); 否则回退本地占位地址。
       let addr = "";
-      if (!isDemoFlow && state.depositRequestId) {
+      // ⑦ Host-led admission: 有 compliance pack 时从 pack 发托管地址(KYT+TR 双通过才可)。
+      if (state.compliancePackId) {
+        try {
+          const { data } = await transactionPackApi.issueAddress(state.compliancePackId);
+          addr = data.pack.custodyAddress;
+        } catch {
+          /* gate 未过/后端不可用 → 回退本地占位 */
+        }
+      }
+      if (!addr && !isDemoFlow && state.depositRequestId) {
         try {
           // 回填前端 TR gate 结果: ≥USD1k 的单后端需要 'travel_rule_accepted' 才放行发址。
           const { data } = await depositApi.issueAddress(state.depositRequestId, state.travelRuleStatus);

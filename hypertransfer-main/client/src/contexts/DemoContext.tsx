@@ -36,6 +36,8 @@ interface DemoState {
   sourceWallet: string;
   screeningPassed: boolean;
   depositRequestId: string;   // ③ 后端入金编排单 id(DR-...); 空=未走真实后端(纯 demo)
+  paymentIntentId: string;    // ⑦ payment intent id; 空=未走新 pack 流程
+  compliancePackId: string;   // ⑦ 当前 transfer leg 的 compliance pack id
   depositAddress: string;
   hexSafeStatus: HexSafeDepositStatus | null;
   vaultBalance: VaultBalance | null;
@@ -94,7 +96,7 @@ const defaultState: DemoState = {
     retryCount: 0,
   },
   travelRuleComplete: false,
-  travelRuleStatus: "not_required",
+  travelRuleStatus: "travel_rule_required",
   travelRuleRecord: null,
   travelRuleInfo: {
     address: "",
@@ -112,6 +114,8 @@ const defaultState: DemoState = {
   sourceWallet: "",
   screeningPassed: false,
   depositRequestId: "",
+  paymentIntentId: "",
+  compliancePackId: "",
   depositAddress: "",
   hexSafeStatus: null,
   vaultBalance: null,
@@ -245,7 +249,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       screeningPassed: false,
       depositRequestId: "",
       travelRuleComplete: false,
-      travelRuleStatus: "not_required",
+      travelRuleStatus: "travel_rule_required",
       travelRuleRecord: null,
       travelRuleInfo: {
         ...prev.travelRuleInfo,

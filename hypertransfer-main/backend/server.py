@@ -31,6 +31,7 @@ import urllib.request
 import urllib.error
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
@@ -51,7 +52,15 @@ from admission_provider_adapters import (
     verify_session_token,
 )
 from admission_rules import can_transition_admission, host_kyc_reason
-from transaction_compliance_rules import kyc_valid_until
+from notabene_adapter import ProviderUnavailable, resolve_notabene_provider
+from transaction_compliance_rules import (
+    MAIN_LEG,
+    VERIFICATION_LEG,
+    PaymentFingerprint,
+    kyc_valid_until,
+    payment_change_requires_revalidation,
+    travel_rule_depth,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 # DB 路径可由 HT_DB_PATH 覆盖(Docker 部署时指向挂载卷,本地不设则沿用原行为)
@@ -434,6 +443,7 @@ ADMISSION_SCHEMA_SQL = """
         source_type     TEXT,
         source_identifier TEXT,
         counterparty_name TEXT,
+        source_status   TEXT,
         status          TEXT NOT NULL,
         fingerprint_json TEXT,
         created_at      INTEGER NOT NULL,
@@ -455,6 +465,8 @@ ADMISSION_SCHEMA_SQL = """
         kyt_status         TEXT NOT NULL,
         travel_rule_status TEXT NOT NULL,
         notabene_reference TEXT,
+        custody_address    TEXT,
+        tx_hash            TEXT,
         immutable_snapshot_json TEXT NOT NULL,
         retention_until    INTEGER,
         created_at         INTEGER NOT NULL,
@@ -664,6 +676,17 @@ def init_db() -> None:
         if "kyc_document_expiries_json" not in admission_cols:
             conn.execute(
                 "ALTER TABLE vip_admission_cases ADD COLUMN kyc_document_expiries_json TEXT")
+        # Task 7: payment intent source outcome + pack custody/tx columns(既有库幂等补列)。
+        intent_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(payment_intents)").fetchall()}
+        if "source_status" not in intent_cols:
+            conn.execute("ALTER TABLE payment_intents ADD COLUMN source_status TEXT")
+        pack_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(transaction_compliance_packs)").fetchall()}
+        if "custody_address" not in pack_cols:
+            conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN custody_address TEXT")
+        if "tx_hash" not in pack_cols:
+            conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN tx_hash TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -4568,9 +4591,11 @@ def sync_case_kyc_from_provider(
 
 
 def admission_case_kyc_ok(case_id: str) -> bool:
-    """Case 级 KYC 闸门: 须 kyc_passed 且 kyc_valid_until 未过期。"""
+    """Case 级 KYC 闸门: KYC 已通过(kyc_passed 及其后续状态)且 kyc_valid_until 未过期。"""
     case = _admission_case_get_or_404(case_id)
-    if case["status"] != "kyc_passed":
+    if case["status"] not in (
+        "kyc_passed", "payment_precheck", "leader_pending", "service_enabled"
+    ):
         return False
     valid_until = case["kyc_valid_until"]
     if not valid_until:
@@ -4734,6 +4759,511 @@ def admission_case_leader_decision(
     )
     updated = _admission_case_get_or_404(case_id)
     return {"ok": True, "case": _leader_case_view(updated)}
+
+
+# --------------------------------------------------------------------------- #
+# Payment intents + Transaction Compliance Packs (2026-08-21)
+#   每次转账(含 1 单位验证款)都有独立不可变 pack; HKD 8,000 只切 basic/enhanced
+#   字段深度, 绝不是 Travel Rule 豁免。KYT + Travel Rule 双双通过才可发托管地址;
+#   production 缺 Notabene/Hex Safe 配置时 fail closed(503)。legacy
+#   payment_applications 仅为历史证据, 绝不授权新转账。
+# --------------------------------------------------------------------------- #
+DEMO_HKD_RATE = Decimal(os.environ.get("DEMO_HKD_RATE", "7.8"))
+RETENTION_YEARS = 5
+PACK_STATUS = ("draft", "actual_confirmed", "source_classified", "revalidation_required")
+
+
+def _fingerprint_from_json(raw: Optional[str]) -> Optional[PaymentFingerprint]:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return None
+    return PaymentFingerprint(
+        asset=str(data.get("asset") or ""),
+        network=str(data.get("network") or ""),
+        actual_amount=str(data.get("actualAmount") or ""),
+        source_type=str(data.get("sourceType") or ""),
+        source_identifier=str(data.get("sourceIdentifier") or ""),
+        counterparty_id=data.get("counterpartyId"),
+    )
+
+
+def _fingerprint_to_json(fp: PaymentFingerprint) -> str:
+    return json_dumps({
+        "asset": fp.asset,
+        "network": fp.network,
+        "actualAmount": fp.actual_amount,
+        "sourceType": fp.source_type,
+        "sourceIdentifier": fp.source_identifier,
+        "counterpartyId": fp.counterparty_id,
+    })
+
+
+def _intent_get_or_404(intent_id: str) -> sqlite3.Row:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM payment_intents WHERE id=?", (intent_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Payment intent not found")
+    return row
+
+
+def _intent_owned_or_404(row: sqlite3.Row, user_id: str) -> None:
+    with db() as conn:
+        case = conn.execute(
+            "SELECT * FROM vip_admission_cases WHERE id=?", (row["admission_case_id"],)
+        ).fetchone()
+    if not case or case["patron_user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Payment intent not found")
+
+
+def _pack_get_or_404(pack_id: str) -> sqlite3.Row:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM transaction_compliance_packs WHERE id=?", (pack_id,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Transaction compliance pack not found")
+    return row
+
+
+def _pack_owned_or_404(pack_id: str, user_id: str) -> sqlite3.Row:
+    pack = _pack_get_or_404(pack_id)
+    _intent_owned_or_404(_intent_get_or_404(pack["payment_intent_id"]), user_id)
+    return pack
+
+
+def _intent_public(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "admissionCaseId": row["admission_case_id"],
+        "asset": row["asset"],
+        "network": row["network"],
+        "intendedAmount": row["intended_amount"],
+        "sourceType": row["source_type"],
+        "sourceIdentifier": row["source_identifier"] or "",
+        "counterpartyName": row["counterparty_name"] or "",
+        "sourceStatus": row["source_status"],
+        "status": row["status"],
+        "fingerprint": _fingerprint_to_json(_fingerprint_from_json(row["fingerprint_json"]))
+        if row["fingerprint_json"] else None,
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+class _PackProviderView:
+    """Provider 边界最小视图(只暴露 id + actual_hkd_amount 属性, 不泄露其他列)。"""
+
+    def __init__(self, row: sqlite3.Row):
+        self.id = row["id"]
+        self.actual_hkd_amount = row["actual_hkd_amount"]
+
+
+def _pack_public(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "paymentIntentId": row["payment_intent_id"],
+        "transferLeg": row["transfer_leg"],
+        "actualAmount": row["actual_amount"],
+        "actualHkdAmount": row["actual_hkd_amount"],
+        "travelRuleDepth": row["travel_rule_depth"],
+        "kytStatus": row["kyt_status"],
+        "travelRuleStatus": row["travel_rule_status"],
+        "notabeneReference": row["notabene_reference"] or "",
+        "custodyAddress": row["custody_address"] or "",
+        "txHash": row["tx_hash"] or "",
+        "immutableSnapshotJson": row["immutable_snapshot_json"],
+        "retentionUntil": row["retention_until"],
+        "createdAt": row["created_at"],
+        "finalizedAt": row["finalized_at"],
+    }
+
+
+class PaymentIntentCreateIn(BaseModel):
+    asset: str
+    network: str
+    intendedAmount: Optional[str] = None
+
+
+class SourceClassificationIn(BaseModel):
+    sourceType: str  # wallet | vasp
+    sourceIdentifier: str
+    jurisdiction: Optional[str] = None
+    institutionName: Optional[str] = None
+    accountReference: Optional[str] = None
+    ownershipProofResult: Optional[str] = None
+
+
+class ActualConfirmationIn(BaseModel):
+    asset: str
+    network: str
+    actualAmount: str
+    sourceType: str
+    sourceIdentifier: str
+    counterpartyId: Optional[str] = None
+
+
+class CompliancePackCreateIn(BaseModel):
+    transferLeg: str
+    actualAmount: str
+    actualHkdAmount: Optional[str] = None
+
+
+class RecordTransferIn(BaseModel):
+    txHash: str
+    status: str = "confirmed"
+
+
+def _require_payment_eligibility(user_id: str) -> sqlite3.Row:
+    """支付前置: 已绑定 case + service_enabled + KYC 有效(未过期)。"""
+    with db() as conn:
+        case = conn.execute(
+            "SELECT * FROM vip_admission_cases WHERE patron_user_id=?", (user_id,)
+        ).fetchone()
+    if not case:
+        raise HTTPException(status_code=404, detail="No admission case bound to this account")
+    if case["status"] != "service_enabled":
+        raise HTTPException(
+            status_code=403,
+            detail="Service is not enabled for this admission case; the leader has not approved it",
+        )
+    if not admission_case_kyc_ok(case["id"]):
+        raise HTTPException(status_code=403, detail="KYC gate not passed; re-verification required")
+    return case
+
+
+def _classify_source_outcome(source_type: str, source_identifier: str) -> dict[str, str]:
+    """确定性 demo 来源分支: 自托管走钱包 KYT mock, VASP 走资格 mock。
+    生产接真实 KYT / VASP 目录时只换此实现。"""
+    if source_type == "vasp":
+        lowered = source_identifier.lower()
+        if "sanction" in lowered or "reject" in lowered:
+            return {"status": "fail", "detail": "VASP eligibility check failed"}
+        if "review" in lowered or "unknown" in lowered or "private" in lowered:
+            return {"status": "manual_review", "detail": "VASP requires manual review"}
+        return {"status": "pass", "detail": "VASP eligible for Travel Rule exchange"}
+    # wallet: 复用现有 server 端 KYT mock(pass/edd/fail 按地址关键字判定)。
+    outcome = screen_source_wallet(source_identifier, resolve_chain_id("tron"))
+    decision = outcome.get("decision")
+    if decision == "fail":
+        return {"status": "fail", "detail": outcome.get("detail") or "Source wallet KYT failed"}
+    if decision == "edd":
+        return {"status": "manual_review", "detail": "Source wallet requires enhanced due diligence"}
+    return {"status": "pass", "detail": "Source wallet KYT passed"}
+
+
+@app.post("/api/payment-intents")
+def payment_intent_create(
+    body: PaymentIntentCreateIn,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    case = _require_payment_eligibility(user["id"])
+    asset = (body.asset or "").upper()
+    network = (body.network or "").lower()
+    if asset not in ("USDT", "USDC") or network not in ("tron", "ethereum"):
+        raise HTTPException(status_code=400, detail="Unsupported asset or network for Phase 1")
+    intent_id = str(uuid.uuid4())
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO payment_intents(
+                   id, admission_case_id, asset, network, intended_amount,
+                   source_type, source_identifier, counterparty_name, source_status,
+                   status, fingerprint_json, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (intent_id, case["id"], asset, network, body.intendedAmount,
+             None, None, None, None, "draft", None, now, now),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "payment.intent.create", "payment_intent", intent_id,
+        {"intentId": intent_id, "caseId": case["id"], "asset": asset, "network": network,
+         "intendedAmountMasked": bool(body.intendedAmount)},
+    )
+    return {"ok": True, "intent": _intent_public(_intent_get_or_404(intent_id))}
+
+
+@app.post("/api/payment-intents/{intent_id}/source-classification")
+def payment_intent_source_classification(
+    intent_id: str,
+    body: SourceClassificationIn,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    row = _intent_get_or_404(intent_id)
+    _intent_owned_or_404(row, user["id"])
+    if body.sourceType not in ("wallet", "vasp"):
+        raise HTTPException(status_code=400, detail="sourceType must be 'wallet' or 'vasp'")
+    outcome = _classify_source_outcome(body.sourceType, body.sourceIdentifier.strip())
+    status = (
+        "source_classified" if outcome["status"] == "pass"
+        else "source_manual_review" if outcome["status"] == "manual_review"
+        else "source_failed"
+    )
+    with db() as conn:
+        conn.execute(
+            """UPDATE payment_intents
+               SET source_type=?, source_identifier=?, counterparty_name=?,
+                   source_status=?, status=?, updated_at=?
+               WHERE id=?""",
+            (body.sourceType, body.sourceIdentifier.strip(), body.institutionName or body.accountReference,
+             outcome["status"], status, int(time.time()), intent_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "payment.intent.source", "payment_intent", intent_id,
+        {"intentId": intent_id, "sourceType": body.sourceType, "outcome": outcome["status"],
+         "detail": outcome["detail"]},
+    )
+    return {"ok": True, "sourceStatus": outcome["status"], "detail": outcome["detail"],
+            "intent": _intent_public(_intent_get_or_404(intent_id))}
+
+
+@app.post("/api/payment-intents/{intent_id}/actual-confirmation")
+def payment_intent_actual_confirmation(
+    intent_id: str,
+    body: ActualConfirmationIn,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    row = _intent_get_or_404(intent_id)
+    _intent_owned_or_404(row, user["id"])
+    if row["source_status"] != "pass":
+        raise HTTPException(
+            status_code=409,
+            detail="Source classification must pass before confirming the actual payment",
+        )
+    fingerprint = PaymentFingerprint(
+        asset=body.asset.upper(), network=body.network.lower(),
+        actual_amount=body.actualAmount, source_type=body.sourceType,
+        source_identifier=body.sourceIdentifier, counterparty_id=body.counterpartyId,
+    )
+    previous = _fingerprint_from_json(row["fingerprint_json"])
+    if previous is None:
+        # 首次确认: 预检基线 = intended amount + 本次确认的来源字段(来源以本次为准)。
+        previous = PaymentFingerprint(
+            asset=row["asset"], network=row["network"],
+            actual_amount=row["intended_amount"] or body.actualAmount,
+            source_type=body.sourceType, source_identifier=body.sourceIdentifier,
+            counterparty_id=body.counterpartyId,
+        )
+    requires_revalidation = False
+    reason: Optional[str] = None
+    if payment_change_requires_revalidation(previous, fingerprint):
+        requires_revalidation = True
+        prev_amount = Decimal(previous.actual_amount or "0")
+        new_amount = Decimal(fingerprint.actual_amount or "0")
+        crossed = (prev_amount < Decimal("8000") <= new_amount) or (new_amount < Decimal("8000") <= prev_amount)
+        reason = "amount_crossed_threshold" if crossed else "fingerprint_changed"
+    status = "revalidation_required" if requires_revalidation else "actual_confirmed"
+    with db() as conn:
+        conn.execute(
+            """UPDATE payment_intents
+               SET fingerprint_json=?, status=?, updated_at=? WHERE id=?""",
+            (_fingerprint_to_json(fingerprint), status, int(time.time()), intent_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "payment.intent.actual", "payment_intent", intent_id,
+        {"intentId": intent_id, "requiresRevalidation": requires_revalidation,
+         "reason": reason, "fingerprint": _fingerprint_to_json(fingerprint)},
+    )
+    return {
+        "ok": True,
+        "requiresRevalidation": requires_revalidation,
+        "revalidationReason": reason,
+        "fingerprint": _fingerprint_to_json(fingerprint),
+        "intent": _intent_public(_intent_get_or_404(intent_id)),
+    }
+
+
+@app.post("/api/payment-intents/{intent_id}/compliance-packs")
+def payment_intent_compliance_packs(
+    intent_id: str,
+    body: CompliancePackCreateIn,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    row = _intent_get_or_404(intent_id)
+    _intent_owned_or_404(row, user["id"])
+    if body.transferLeg not in (VERIFICATION_LEG, MAIN_LEG):
+        raise HTTPException(status_code=400, detail="transferLeg must be 'verification' or 'main'")
+    if row["source_status"] != "pass":
+        raise HTTPException(
+            status_code=409,
+            detail="A failed or manual-review source cannot create a compliance pack",
+        )
+    fingerprint = _fingerprint_from_json(row["fingerprint_json"])
+    if not fingerprint or row["status"] == "revalidation_required":
+        raise HTTPException(
+            status_code=409,
+            detail="Actual payment must be confirmed (and not require re-validation) before creating a pack",
+        )
+    actual_hkd = body.actualHkdAmount
+    if actual_hkd is None:
+        try:
+            actual_hkd = str(Decimal(body.actualAmount) * DEMO_HKD_RATE)
+        except Exception:
+            actual_hkd = "0"
+    depth = travel_rule_depth(Decimal(actual_hkd))
+    pack_id = str(uuid.uuid4())
+    now = int(time.time())
+    snapshot = {
+        "packId": pack_id,
+        "paymentIntentId": row["id"],
+        "admissionCaseId": row["admission_case_id"],
+        "transferLeg": body.transferLeg,
+        "asset": row["asset"],
+        "network": row["network"],
+        "actualAmount": body.actualAmount,
+        "actualHkdAmount": actual_hkd,
+        "travelRuleDepth": depth,
+        "sourceType": row["source_type"],
+        "sourceIdentifier": row["source_identifier"],
+        "counterpartyName": row["counterparty_name"] or "",
+        "fingerprint": _fingerprint_to_json(fingerprint),
+        "createdAt": now,
+    }
+    # KYC valid-until 取自 case 行。
+    with db() as conn:
+        case_row = conn.execute(
+            "SELECT kyc_valid_until FROM vip_admission_cases WHERE id=?", (row["admission_case_id"],)
+        ).fetchone()
+    snapshot["kycValidUntil"] = case_row["kyc_valid_until"] if case_row else None
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO transaction_compliance_packs(
+                   id, payment_intent_id, transfer_leg, actual_amount, actual_hkd_amount,
+                   travel_rule_depth, kyt_status, travel_rule_status, notabene_reference,
+                   custody_address, tx_hash, immutable_snapshot_json, retention_until,
+                   created_at, finalized_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (pack_id, row["id"], body.transferLeg, body.actualAmount, actual_hkd,
+             depth, "pending", "pending", None, None, None,
+             json_dumps(snapshot), now + RETENTION_YEARS * 365 * 86400, now, None),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.pack.create", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "intentId": row["id"], "transferLeg": body.transferLeg,
+         "travelRuleDepth": depth, "actualHkdAmount": actual_hkd},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+def _pack_fingerprint_matches_current(pack: sqlite3.Row, intent: sqlite3.Row) -> bool:
+    try:
+        snapshot = json.loads(pack["immutable_snapshot_json"])
+    except Exception:
+        return False
+    return snapshot.get("fingerprint") == (intent["fingerprint_json"] or "")
+
+
+@app.post("/api/transaction-compliance-packs/{pack_id}/screen")
+def transaction_pack_screen(
+    pack_id: str,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    pack = _pack_owned_or_404(pack_id, user["id"])
+    intent = _intent_get_or_404(pack["payment_intent_id"])
+    if not _pack_fingerprint_matches_current(pack, intent):
+        raise HTTPException(
+            status_code=409,
+            detail="The payment changed; the prior compliance pack is invalidated. Confirm the actual payment again.",
+        )
+    # KYT(交易级, 确定性 demo)与 Travel Rule(Notabene 边界)并行。
+    kyt_status = "pass"
+    kyt_reference = f"KYT-DEMO-{pack['id']}"
+    try:
+        provider = resolve_notabene_provider(dict(os.environ), SUMSUB_ENVIRONMENT)
+        decision = provider.validate_and_send(_PackProviderView(pack))
+    except ProviderUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    travel_rule_status = decision.status  # accepted | rejected | manual_review
+    notabene_reference = decision.reference
+    with db() as conn:
+        conn.execute(
+            """UPDATE transaction_compliance_packs
+               SET kyt_status=?, travel_rule_status=?, notabene_reference=?
+               WHERE id=?""",
+            (kyt_status, travel_rule_status, notabene_reference, pack_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.pack.screen", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "kytStatus": kyt_status, "kytReference": kyt_reference,
+         "travelRuleStatus": travel_rule_status, "notabeneReference": notabene_reference},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+@app.post("/api/transaction-compliance-packs/{pack_id}/issue-address")
+def transaction_pack_issue_address(
+    pack_id: str,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    pack = _pack_owned_or_404(pack_id, user["id"])
+    intent = _intent_get_or_404(pack["payment_intent_id"])
+    if not _pack_fingerprint_matches_current(pack, intent):
+        raise HTTPException(
+            status_code=409,
+            detail="The payment changed; re-validate before issuing a custody address",
+        )
+    if pack["kyt_status"] != "pass" or pack["travel_rule_status"] != "accepted":
+        raise HTTPException(
+            status_code=409,
+            detail="KYT and Travel Rule must both pass before a custody address is issued",
+        )
+    if SUMSUB_ENVIRONMENT == "production" and not hexsafe_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Hex Safe custody is not configured; address issuance is unavailable in production",
+        )
+    chain_id = resolve_chain_id(intent["network"])
+    vault_id = _deposit_vault_id()
+    address = _demo_deposit_address(vault_id, chain_id)
+    with db() as conn:
+        conn.execute(
+            "UPDATE transaction_compliance_packs SET custody_address=? WHERE id=?",
+            (address, pack_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.pack.address", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "intentId": intent["id"], "network": intent["network"],
+         "addressIssued": True},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+@app.post("/api/transaction-compliance-packs/{pack_id}/record-transfer")
+def transaction_pack_record_transfer(
+    pack_id: str,
+    body: RecordTransferIn,
+    authorization: Optional[str] = Header(default=None),
+):
+    user = user_from_token(authorization)
+    pack = _pack_owned_or_404(pack_id, user["id"])
+    if not pack["custody_address"]:
+        raise HTTPException(status_code=409, detail="No custody address issued for this pack")
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """UPDATE transaction_compliance_packs
+               SET tx_hash=?, finalized_at=? WHERE id=?""",
+            (body.txHash, now, pack_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.pack.transfer", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "txHash": body.txHash, "status": body.status},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
 
 
 @app.get("/api/health")

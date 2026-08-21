@@ -48,7 +48,7 @@ export const readDemoDepositSettlement = (): DemoDepositSettlementRecord | null 
       sourceWallet: parsed.sourceWallet || "",
       depositAddress: parsed.depositAddress || "",
       txHash: parsed.txHash || "",
-      travelRuleStatus: parsed.travelRuleStatus || "not_required",
+      travelRuleStatus: parsed.travelRuleStatus || "travel_rule_required",
       screeningStatus: parsed.screeningStatus || "demo pass",
       verifyStatus: parsed.verifyStatus || "confirmed",
       status: parsed.status || "pending_marker",

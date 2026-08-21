@@ -17,16 +17,66 @@ import {
 } from "lucide-react";
 import { formatAssetAmount } from "@/lib/currency";
 import SessionRecovery from "@/components/SessionRecovery";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { formatNetworkRail } from "@/lib/compliance";
+import { admissionApi } from "@/lib/api";
+import { ADMISSION_STATUS_LABELS } from "@/lib/admission-case";
+import type { AdmissionCaseStatus } from "@/lib/admission-case";
+import { getCaseAwareKYCEligibility } from "@/lib/kyc-status";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
   const [expandedTxId, setExpandedTxId] = useState("");
+  // Case-aware: 被绑定的 admission case 决定"正确下一步"(入金只在 service_enabled + KYC 有效时)。
+  const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
+  const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    admissionApi
+      .patronMine()
+      .then((res) => {
+        if (cancelled) return;
+        setCaseStatus(res.data.case.status);
+        setCaseKycValidUntil(res.data.case.kycValidUntil ?? undefined);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCaseStatus(undefined); // 未绑定 case -> 沿用 demo/KYC 状态
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const caseEligibility = getCaseAwareKYCEligibility({ caseStatus, kycValidUntil: caseKycValidUntil });
 
   const accountStatus = (() => {
+    // Case-aware: 已绑定 admission case 时, 入金只在 service_enabled + KYC 有效时开放。
+    if (caseStatus && caseStatus !== "service_enabled") {
+      if (caseStatus === "kyc_passed" || caseStatus === "payment_precheck" || caseStatus === "leader_pending") {
+        return {
+          label: ADMISSION_STATUS_LABELS[caseStatus],
+          description: "Your VIP admission is with the leader for final approval.",
+          icon: Clock,
+          color: "text-warning",
+          bg: "bg-warning/10",
+          action: "View Status",
+          path: "/kyc-status",
+        };
+      }
+      return {
+        label: ADMISSION_STATUS_LABELS[caseStatus],
+        description: caseEligibility.blockerMessage || "Your admission is being prepared.",
+        icon: AlertCircle,
+        color: "text-warning",
+        bg: "bg-warning/10",
+        action: caseEligibility.canRetryKYC ? "Complete Verification" : "View Status",
+        path: caseEligibility.canRetryKYC ? "/kyc" : "/kyc-status",
+      };
+    }
     switch (state.kyc.status) {
       case "approved":
         return {
