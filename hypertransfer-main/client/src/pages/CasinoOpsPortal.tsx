@@ -24,6 +24,7 @@ import RefundQueuePanel from "@/components/RefundQueuePanel";
 import DepositQueuePanel from "@/components/DepositQueuePanel";
 import InvitationReviewPanel from "@/components/InvitationReviewPanel";
 import StaffAdminPanel from "@/components/StaffAdminPanel";
+import AdmissionCasePanel from "@/components/AdmissionCasePanel";
 
 function StatusPill({
   children,
@@ -80,11 +81,12 @@ function OpsCard({
 }
 
 // 左侧板块导航(tab 式)。roles=可见该板块的角色; admin 全可见。
-// 两层 RBAC: RM 只看 Access Requests(且板块内只能提交+看自己进度); marketing 看 Access Requests 审批队列。
+// 两层 RBAC: RM/Host 只看 VIP Admissions(且板块内只能操作自己的 case); marketing 看 Access Requests 审批队列。
 const SECTIONS = [
   { key: "deposits", label: "Deposits", icon: Boxes, roles: ["compliance", "ops", "custodian"] },
   { key: "refunds", label: "Withdrawals", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
-  { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["rm", "marketing", "compliance"] },
+  { key: "vip", label: "VIP Admissions", icon: UserPlus2, roles: ["host", "rm"] },
+  { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["marketing", "compliance"] },
   { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
 ] as const;
 
@@ -188,6 +190,7 @@ export default function CasinoOpsPortal() {
 
           {activeSection === "deposits" && <DepositQueuePanel />}
           {activeSection === "refunds" && <RefundQueuePanel />}
+          {activeSection === "vip" && <AdmissionCasePanel />}
           {activeSection === "access" && <InvitationReviewPanel />}
           {activeSection === "staff" && <StaffAdminPanel />}
 

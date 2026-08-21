@@ -491,3 +491,89 @@ export const refundApi = {
   execute: (id: string) =>
     api.post<{ ok: boolean; requestId: string; status: string; transferId: string }>(`/refunds/${id}/execute`, {}),
 };
+
+// ---------- Host-led VIP admission (2026-08-21) ----------
+export interface HostProfile {
+  userId: string;
+  employeeId: string | null;
+  department: string | null;
+  operatingTeam: string | null;
+  location: string | null;
+  phone: string | null;
+  status: "pending" | "active" | "disabled";
+  acknowledgedAt: number | null;
+  updatedAt: number;
+}
+
+export const hostApi = {
+  // Host 通过现有 staff 会话(企业 Okta 身份的边界)激活 profile
+  activate: (p: {
+    employeeId?: string;
+    department?: string;
+    operatingTeam?: string;
+    location?: string;
+    phone?: string;
+    acknowledged: boolean;
+  }) => api.post<{ ok: boolean; profile: HostProfile }>("/host/profile/activate", p),
+  profile: () => api.get<{ ok: boolean; profile: HostProfile }>("/host/profile"),
+};
+
+export interface AdmissionInvitationView {
+  emailExpiresAt: string;
+  qrExpiresAt: string;
+}
+
+export interface AdmissionCase {
+  id: string;
+  hostName: string;
+  patronEmailMasked: string;
+  status: AdmissionCaseStatus;
+  memberReference?: string | null;
+  servicePurpose?: string | null;
+  preferredLanguage?: string | null;
+  route?: "complete_dossier" | "kyc_first";
+  kycHostMessage?: string;
+  kycValidUntil?: number;
+  invitation?: AdmissionInvitationView | null;
+}
+
+export type AdmissionCaseStatus =
+  | "draft"
+  | "invitation_open"
+  | "vip_claimed"
+  | "kyc_in_progress"
+  | "kyc_passed"
+  | "payment_precheck"
+  | "leader_pending"
+  | "service_enabled"
+  | "kyc_failed"
+  | "compliance_review"
+  | "rejected"
+  | "expired"
+  | "revoked";
+
+export const admissionApi = {
+  // 仅 active Host 可创建(后端强制)
+  create: (p: {
+    patronEmail: string;
+    memberReference?: string;
+    servicePurpose?: string;
+    hostNotes?: string;
+    preferredLanguage?: string;
+    route?: "complete_dossier" | "kyc_first";
+  }) => api.post<{ ok: boolean; case: AdmissionCase }>("/admission-cases", p),
+  mine: () => api.get<{ ok: boolean; cases: AdmissionCase[] }>("/admission-cases/mine"),
+  get: (id: string) => api.get<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}`),
+  revoke: (id: string) => api.post<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}/revoke`, {}),
+  // 双通道邀请(2026-08-21): 同一 case 的 email link + 动态 QR session, 均须 Email OTP 认领
+  inviteEmail: (id: string) =>
+    api.post<{ ok: boolean; case: AdmissionCase; emailExpiresAt: string; qrExpiresAt: string }>(
+      `/admission-cases/${id}/invite/email`,
+      {},
+    ),
+  inviteQrSession: (id: string) =>
+    api.post<{ ok: boolean; case: AdmissionCase; qrExpiresAt: string }>(
+      `/admission-cases/${id}/invite/qr-session`,
+      {},
+    ),
+};

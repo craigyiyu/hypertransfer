@@ -42,6 +42,13 @@ from pydantic import BaseModel, Field
 
 from hexsafe_client import HexSafeClient, HexSafeError  # 本地模块: Hex Safe 托管客户端
 
+# Host-led VIP admission (2026-08-21): 纯状态机 + Host 可见 KYC 原因策略 + provider 边界。
+from admission_provider_adapters import (
+    HostProvisioningUnavailable,
+    require_host_provisioning,
+)
+from admission_rules import can_transition_admission, host_kyc_reason
+
 BASE_DIR = Path(__file__).resolve().parent
 # DB 路径可由 HT_DB_PATH 覆盖(Docker 部署时指向挂载卷,本地不设则沿用原行为)
 DB_PATH = Path(os.environ.get("HT_DB_PATH") or (BASE_DIR / "hypertransfer_auth.db"))
@@ -124,7 +131,8 @@ DEMO_BYPASS_2FA = (
 )
 
 # RBAC（PR①：先在现有 phone 体系上加角色，user_id 主键重建留 PR② 与邀请制一起做）
-STAFF_ROLES = {"rm", "marketing", "compliance", "ops", "custodian", "admin"}
+# host/leader 为 Host-led VIP admission (2026-08-21) 新增 staff 角色, 与 legacy 角色并存。
+STAFF_ROLES = {"rm", "marketing", "compliance", "ops", "custodian", "admin", "host", "leader"}
 HT_ADMIN_EMAIL = os.environ.get("HT_ADMIN_EMAIL", "").strip().lower()
 HT_ADMIN_PASSWORD = os.environ.get("HT_ADMIN_PASSWORD", "")
 
@@ -3772,6 +3780,314 @@ def hexsafe_forex_probe(user: Any = Depends(require_role("custodian", "ops", "ad
     findings["note"] = ("Hex Safe 未暴露 quote/order 转换 API(据 Hex Trust 口径); 上方仅为 fiat 结算线索。"
                         " 结算 Forex 暂为 demo, 真实兑换走高触人工 / 合同约定渠道。")
     return findings
+
+
+# --------------------------------------------------------------------------- #
+# Host-led VIP admission — Host provisioning + admission-case APIs (2026-08-21)
+# --------------------------------------------------------------------------- #
+# Hosts and the sole business leader authenticate through the existing staff
+# session boundary; production Okta OIDC remains a provider boundary (fails
+# closed when unconfigured). `host` and `leader` are staff roles alongside the
+# legacy roles. Hosts only ever touch their own admission cases.
+# --------------------------------------------------------------------------- #
+ADMISSION_ROUTES = ("complete_dossier", "kyc_first")
+
+
+def mask_email(email: str) -> str:
+    """Mask an email for non-owner viewers, e.g. vip@example.test -> v***@example.test."""
+    email = normalize_email(email)
+    if "@" not in email:
+        return "***"
+    local, _, domain = email.partition("@")
+    visible = local[:1] if local else ""
+    return f"{visible}***@{domain}"
+
+
+def _host_profile_get(user_id: str) -> Optional[sqlite3.Row]:
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM host_profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+
+
+def _host_profile_public(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "userId": row["user_id"],
+        "employeeId": row["employee_id"],
+        "department": row["department"],
+        "operatingTeam": row["operating_team"],
+        "location": row["location"],
+        "phone": row["phone"],
+        "status": row["status"],
+        "acknowledgedAt": row["acknowledged_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _require_active_host(user: Any) -> sqlite3.Row:
+    """Host gate: role `host` + host_profiles.status == 'active', else 403."""
+    profile = _host_profile_get(user["id"])
+    if not profile or profile["status"] != "active":
+        raise HTTPException(
+            status_code=403,
+            detail="Host profile is not active; activate it before managing VIP admission cases",
+        )
+    return profile
+
+
+def _user_name(user_id: str) -> str:
+    with db() as conn:
+        row = conn.execute("SELECT name FROM users WHERE id=?", (user_id,)).fetchone()
+    return row["name"] if row else ""
+
+
+def _admission_case_public(
+    row: sqlite3.Row, viewer_user_id: str, viewer_roles: set[str]
+) -> dict[str, Any]:
+    """Safe case projection.
+
+    Host notes, the full patron email and the internal KYC reason code are only
+    returned to the case-owner Host, Compliance and Admin — never to the VIP or
+    the leader. The Host additionally receives only the safe KYC category
+    message (kycHostMessage), never raw provider detail.
+    """
+    is_owner_host = row["host_user_id"] == viewer_user_id and "host" in viewer_roles
+    show_internal = is_owner_host or "compliance" in viewer_roles or "admin" in viewer_roles
+    kyc_message = ""
+    if row["kyc_reason_code"]:
+        kyc_message, _ = host_kyc_reason(row["kyc_reason_code"])
+    return {
+        "id": row["id"],
+        "hostUserId": row["host_user_id"],
+        "hostName": _user_name(row["host_user_id"]),
+        "patronEmail": row["patron_email"] if show_internal else "",
+        "patronEmailMasked": mask_email(row["patron_email"]),
+        "memberReference": row["member_reference"],
+        "servicePurpose": row["service_purpose"],
+        "hostNotes": row["host_notes"] if show_internal else None,
+        "preferredLanguage": row["preferred_language"],
+        "route": row["route"],
+        "patronUserId": row["patron_user_id"],
+        "status": row["status"],
+        "leaderUserId": row["leader_user_id"],
+        "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
+        "kycHostMessage": kyc_message or None,
+        "kycValidUntil": row["kyc_valid_until"],
+        "invitation": None,  # Task 4 fills email/QR invitation sessions
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _admission_case_get_or_404(case_id: str) -> sqlite3.Row:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM vip_admission_cases WHERE id=?", (case_id,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    return row
+
+
+def _admission_case_update(case_id: str, **fields: Any) -> None:
+    fields["updated_at"] = int(time.time())
+    assignments = ", ".join(f"{key}=?" for key in fields)
+    with db() as conn:
+        conn.execute(
+            f"UPDATE vip_admission_cases SET {assignments} WHERE id=?",
+            (*fields.values(), case_id),
+        )
+        conn.commit()
+
+
+def _admission_viewer_may_read(row: sqlite3.Row, user: Any) -> bool:
+    """Read access: owner Host, Compliance, Admin, or the bound VIP patron."""
+    roles = set(get_user_roles(user["id"]))
+    if "admin" in roles or "compliance" in roles:
+        return True
+    if "host" in roles and row["host_user_id"] == user["id"]:
+        return True
+    if row["patron_user_id"] and row["patron_user_id"] == user["id"]:
+        return True
+    return False
+
+
+class HostProfileActivateIn(BaseModel):
+    employeeId: Optional[str] = None
+    department: Optional[str] = None
+    operatingTeam: Optional[str] = None
+    location: Optional[str] = None
+    phone: Optional[str] = None
+    acknowledged: bool = False
+
+
+class AdmissionCaseCreateIn(BaseModel):
+    patronEmail: str
+    memberReference: Optional[str] = None
+    servicePurpose: Optional[str] = None
+    hostNotes: Optional[str] = None
+    preferredLanguage: Optional[str] = None
+    route: str = "complete_dossier"
+
+
+@app.post("/api/host/profile/activate")
+def host_profile_activate(
+    body: HostProfileActivateIn,
+    user: Any = Depends(require_role("host")),
+):
+    """Create/refresh the Host profile from the staff (Okta) identity and mark it
+    active once the operational fields are complete and the customer-data
+    handling policy is acknowledged. Production fails closed without real Okta
+    OIDC configuration."""
+    try:
+        require_host_provisioning(dict(os.environ), SUMSUB_ENVIRONMENT)
+    except HostProvisioningUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    now = int(time.time())
+    complete = bool(body.acknowledged and (body.operatingTeam or "").strip() and (body.location or "").strip())
+    status = "active" if complete else "pending"
+    existing = _host_profile_get(user["id"])
+    with db() as conn:
+        if existing:
+            conn.execute(
+                """UPDATE host_profiles
+                   SET employee_id=?, department=?, operating_team=?, location=?,
+                       phone=?, status=?, acknowledged_at=?, updated_at=?
+                   WHERE user_id=?""",
+                (
+                    body.employeeId, body.department, body.operatingTeam, body.location,
+                    body.phone, status,
+                    now if body.acknowledged else existing["acknowledged_at"],
+                    now, user["id"],
+                ),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO host_profiles(
+                       user_id, employee_id, department, operating_team, location,
+                       phone, status, acknowledged_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    user["id"], body.employeeId, body.department, body.operatingTeam,
+                    body.location, body.phone, status,
+                    now if body.acknowledged else None, now,
+                ),
+            )
+        conn.commit()
+    row = _host_profile_get(user["id"])
+    write_audit(
+        user["id"], "host.profile.activate", "host_profile", user["id"],
+        {"hostUserId": user["id"], "status": status},
+    )
+    return {"ok": True, "profile": _host_profile_public(row)}
+
+
+@app.get("/api/host/profile")
+def host_profile_get(user: Any = Depends(require_role("host"))):
+    row = _host_profile_get(user["id"])
+    if not row:
+        raise HTTPException(status_code=404, detail="Host profile not found")
+    return {"profile": _host_profile_public(row)}
+
+
+@app.post("/api/admission-cases")
+def admission_case_create(
+    body: AdmissionCaseCreateIn,
+    user: Any = Depends(require_role("host")),
+):
+    """An active Host creates one VIP admission case. The case starts as `draft`;
+    invitation delivery (email / dynamic QR) happens in the claim flow."""
+    _require_active_host(user)
+    patron_email = normalize_email(body.patronEmail)
+    if "@" not in patron_email or "." not in patron_email:
+        raise HTTPException(status_code=400, detail="Invalid patron email")
+    if body.route not in ADMISSION_ROUTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"route must be one of {', '.join(ADMISSION_ROUTES)}",
+        )
+    case_id = str(uuid.uuid4())
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO vip_admission_cases(
+                   id, host_user_id, patron_email, member_reference, service_purpose,
+                   host_notes, preferred_language, route, patron_user_id, status,
+                   leader_user_id, kyc_reason_code, kyc_valid_until, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                case_id, user["id"], patron_email, body.memberReference,
+                body.servicePurpose, body.hostNotes, body.preferredLanguage,
+                body.route, None, "draft", None, None, None, now, now,
+            ),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "admission.case.create", "admission_case", case_id,
+        {
+            "caseId": case_id,
+            "hostUserId": user["id"],
+            "patronEmailMasked": mask_email(patron_email),
+            "route": body.route,
+            "priorStatus": None,
+            "nextStatus": "draft",
+        },
+    )
+    row = _admission_case_get_or_404(case_id)
+    return {"ok": True, "case": _admission_case_public(row, user["id"], set(get_user_roles(user["id"])))}
+
+
+@app.get("/api/admission-cases/mine")
+def admission_cases_mine(user: Any = Depends(require_role("host"))):
+    rows = []
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM vip_admission_cases
+               WHERE host_user_id=? ORDER BY created_at DESC""",
+            (user["id"],),
+        ).fetchall()
+    roles = set(get_user_roles(user["id"]))
+    return {"cases": [_admission_case_public(r, user["id"], roles) for r in rows]}
+
+
+@app.get("/api/admission-cases/{case_id}")
+def admission_case_get(case_id: str, authorization: Optional[str] = Header(default=None)):
+    user = user_from_token(authorization)
+    row = _admission_case_get_or_404(case_id)
+    if not _admission_viewer_may_read(row, user):
+        # 非所有者一律 404, 不披露 case 是否存在(防枚举)。
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    roles = set(get_user_roles(user["id"]))
+    return {"case": _admission_case_public(row, user["id"], roles)}
+
+
+@app.post("/api/admission-cases/{case_id}/revoke")
+def admission_case_revoke(
+    case_id: str,
+    user: Any = Depends(require_role("host")),
+):
+    """Only the owning active Host may revoke a still-open admission case."""
+    _require_active_host(user)
+    row = _admission_case_get_or_404(case_id)
+    if row["host_user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    if not can_transition_admission(row["status"], "revoked", row["route"]):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot revoke a case in status {row['status']}",
+        )
+    _admission_case_update(case_id, status="revoked")
+    write_audit(
+        user["id"], "admission.case.revoke", "admission_case", case_id,
+        {
+            "caseId": case_id,
+            "hostUserId": user["id"],
+            "priorStatus": row["status"],
+            "nextStatus": "revoked",
+        },
+    )
+    updated = _admission_case_get_or_404(case_id)
+    return {"ok": True, "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"])))}
 
 
 @app.get("/api/health")

@@ -36,7 +36,7 @@ ADMISSION_STATUSES = frozenset({
 # --------------------------------------------------------------------------- #
 _TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
     "complete_dossier": {
-        "draft": frozenset({"invitation_open"}),
+        "draft": frozenset({"invitation_open", "revoked"}),
         "invitation_open": frozenset({"vip_claimed", "expired", "revoked"}),
         "vip_claimed": frozenset({"kyc_in_progress"}),
         "kyc_in_progress": frozenset({"kyc_passed", "kyc_failed", "compliance_review"}),
@@ -45,7 +45,7 @@ _TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
         "leader_pending": frozenset({"service_enabled", "rejected"}),
     },
     "kyc_first": {
-        "draft": frozenset({"invitation_open"}),
+        "draft": frozenset({"invitation_open", "revoked"}),
         "invitation_open": frozenset({"vip_claimed", "expired", "revoked"}),
         "vip_claimed": frozenset({"kyc_in_progress"}),
         "kyc_in_progress": frozenset({"kyc_passed", "kyc_failed", "compliance_review"}),

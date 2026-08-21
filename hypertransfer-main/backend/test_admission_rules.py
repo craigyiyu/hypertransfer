@@ -63,6 +63,7 @@ class AdmissionTransitionTests(unittest.TestCase):
         assert can_transition_admission("invitation_open", "vip_claimed", "complete_dossier")
         assert can_transition_admission("invitation_open", "expired", "complete_dossier")
         assert can_transition_admission("invitation_open", "revoked", "complete_dossier")
+        assert can_transition_admission("draft", "revoked", "complete_dossier")
         assert can_transition_admission("vip_claimed", "kyc_in_progress", "complete_dossier")
         assert can_transition_admission("kyc_in_progress", "kyc_failed", "complete_dossier")
         assert can_transition_admission("kyc_in_progress", "compliance_review", "complete_dossier")
