@@ -4180,6 +4180,16 @@ def admission_case_revoke(
             detail=f"Cannot revoke a case in status {row['status']}",
         )
     _admission_case_update(case_id, status="revoked")
+    # 撤销 case 时同案所有未用邀请 session 一并作废(claim 随即 410)。
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """UPDATE admission_invitation_sessions
+               SET revoked_at=?
+               WHERE admission_case_id=? AND revoked_at IS NULL AND consumed_at IS NULL""",
+            (now, case_id),
+        )
+        conn.commit()
     write_audit(
         user["id"], "admission.case.revoke", "admission_case", case_id,
         {

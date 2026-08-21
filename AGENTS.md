@@ -230,6 +230,29 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 Host-led VIP admission + per-transfer compliance packs（分支 `docs/host-led-vip-admission-plan`）
+
+- **日期 / 范围**：2026-08-21。按 `Docs/superpowers/plans/2026-08-21-host-led-vip-admission-implementation-plan.md` Task 1–9 落地
+  Host-led VIP admission（Host 企业身份激活 → 双通道邀请认领 → case-aware KYC → 单一领导审批 →
+  per-transfer Travel Rule/KYT pack → Cage/Finance 对账），每个 Task 独立 focused commit。
+- **核心业务 / 合规口径（实现即口径）**：
+  - Host 必须先激活 profile（staff 会话 = 企业 Okta 身份边界；生产无 Okta OIDC 配置 fail closed 503）才能建/撤 case；只能读自己的 case。
+  - 同一 case 双通道（email link 6h / 动态 QR 15min），均须邀请邮箱 + Email OTP 才认领；认领后同案所有未用 session 作废（410）；错误邮箱中性 400 不枚举。
+  - KYC case-aware：`valid_until = min(通过日 + 6 日历月, 最早证件到期日)`（日历月算法，废除固定 `180*86400`）；KYC 只从 `kyc_in_progress` 移到 `kyc_passed / kyc_failed / compliance_review`；受限结果走 `compliance_review` 中性文案；Host 只见安全原因分类（绝无证件号/原始 detail）。
+  - 单一 leader（`leader` 角色 + 可选 `HT_LEADER_USER_ID` 白名单；生产未配 leader 503）只做客户服务准入审批；`approved -> service_enabled`、`rejected` 必填业务原因；Host/Compliance/Marketing/Admin 不能决策；审批/拒绝/重交通知走邮件抽象并留 audit。
+  - 每笔转账（含 1 USDT/USDC 验证款）独立不可变 **Transaction Compliance Pack**：HKD 8,000 只切 basic/enhanced 字段深度，**绝不是 Travel Rule 豁免**（不再出现 `not_required`）；实际确认指纹变更（跨阈值/换资产/换网络/换来源/换对手）作废旧 pack、强制重验、阻发地址。
+  - KYT + Travel Rule 双双通过才发托管地址；production 缺 Notabene / Hex Safe 配置 503 fail closed；**不声称真实接入 Okta / Notabene / Hex Trust / KYT**（均为 adapter 边界 + 确定性 demo 实现）。
+  - HK Operations 手动录入 **Cage confirmation ID**（新流程标签；legacy deposit 仍用 Marker ref 并原样保留）→ Finance reconciliation → settled；retention ≥ 5 年；demo monitor 按来源/资产/时间聚簇标记关联转账给 Compliance。
+- **新增/修改关键文件**：`backend/{admission_rules,transaction_compliance_rules,admission_provider_adapters,notabene_adapter}.py`、
+  `backend/server.py`（admission/host/leader/claims/KYC/payment-intent/pack/operations 端点 + 幂等建表）、
+  `backend/{test_admission_rules,test_transaction_compliance_rules,test_admission_migration,test_notabene_adapter,test_admission_api,test_admission_claims,test_kyc_case_gates,test_leader_approval,test_transaction_compliance_api,test_payment_operations,test_e2e_matrix}.py`、
+  `backend/seed_demo.py`（完整 admission demo）、
+  `client/src/lib/{admission-case,transaction-compliance,leader-approval,kyc-status,api}.ts` +
+  `client/src/components/{AdmissionCasePanel,LeaderApprovalPanel,PaymentOperationsPanel}.tsx` +
+  `client/src/pages/{Invite,KYC,KYCStatus,Dashboard,NewDeposit,DepositAddress,MainDeposit,CasinoOpsPortal}.tsx`。
+- **验证**：Python `unittest discover` **143/143 通过**（含 e2e matrix）；`corepack pnpm test`（Vitest，含 jsdom 认领页/准入页测试）通过；`corepack pnpm run check`（tsc）✅；`corepack pnpm run build` ✅（仅 Vite chunk-size warning）；`seed_demo.py` 幂等可重复跑。每 Task 独立 commit（`feat: add admission case rules` … `feat: payment operations, retention and reconciliation`）。
+- **已知限制 / mock 边界**：Okta / Notabene / Hex Trust / KYT 均为 provider 边界（demo 适配器）；production 未配置时 fail closed（503/403），从未假装真实接入；真实 Sumsub/Notabene/Hex Safe 合同联调、真实 SMTP、PostgreSQL 迁移仍待生产化。KYC 原因分类为本地安全映射（真实 provider 拒绝文案需在联调时校准）；汇率/gas 为 demo 值。
+
 ### 2026-07-03 KYC 表单精简 + USDT 入金/钱包筛查/Travel Rule 合并
 
 - **日期 / 范围**：2026-07-03。HyperTransfer 客户端 Dashboard、KYC、KYC pending、New Deposit / Wallet Screening / Travel Rule 合并体验。本地测试 URL：隔离 QA 服务 `http://127.0.0.1:3000/dashboard`、`/kyc`、`/new-deposit`、`/deposit-address`（前端 3000 代理隔离后端 8123，测试 DB `/tmp/hypertransfer-qa-8123.db`）。
