@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import {
   Banknote,
   Boxes,
+  Gavel,
   UserPlus2,
   LogOut,
   Undo2,
@@ -25,6 +26,7 @@ import DepositQueuePanel from "@/components/DepositQueuePanel";
 import InvitationReviewPanel from "@/components/InvitationReviewPanel";
 import StaffAdminPanel from "@/components/StaffAdminPanel";
 import AdmissionCasePanel from "@/components/AdmissionCasePanel";
+import LeaderApprovalPanel from "@/components/LeaderApprovalPanel";
 
 function StatusPill({
   children,
@@ -86,6 +88,7 @@ const SECTIONS = [
   { key: "deposits", label: "Deposits", icon: Boxes, roles: ["compliance", "ops", "custodian"] },
   { key: "refunds", label: "Withdrawals", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
   { key: "vip", label: "VIP Admissions", icon: UserPlus2, roles: ["host", "rm"] },
+  { key: "leader", label: "Leader Approval", icon: Gavel, roles: ["leader"] },
   { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["marketing", "compliance"] },
   { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
 ] as const;
@@ -191,6 +194,7 @@ export default function CasinoOpsPortal() {
           {activeSection === "deposits" && <DepositQueuePanel />}
           {activeSection === "refunds" && <RefundQueuePanel />}
           {activeSection === "vip" && <AdmissionCasePanel />}
+          {activeSection === "leader" && <LeaderApprovalPanel />}
           {activeSection === "access" && <InvitationReviewPanel />}
           {activeSection === "staff" && <StaffAdminPanel />}
 

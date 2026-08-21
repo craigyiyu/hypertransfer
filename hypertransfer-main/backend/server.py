@@ -4526,10 +4526,19 @@ def persist_case_kyc_outcome(
         kyc_reason_code=code,
         kyc_valid_until=None,
     )
+    # 非受限失败才通知 VIP 安全重交指引; 受限/合规复核不发信(防 tip-off)。
+    vip_email_channel = None
+    if target == "kyc_failed":
+        vip_email_channel = send_email(
+            case["patron_email"],
+            "Action needed: KYC resubmission",
+            "Your identity verification was not approved. Please resubmit your identity "
+            "documents to continue your VIP admission.",
+        )
     write_audit(
         user_id, "admission.kyc.fail", "admission_case", case_id,
         {"caseId": case_id, "priorStatus": case["status"], "nextStatus": target,
-         "reasonCode": code},
+         "reasonCode": code, "vipEmailChannel": vip_email_channel},
     )
 
 
@@ -4581,6 +4590,150 @@ def admission_case_patron_mine(authorization: Optional[str] = Header(default=Non
         raise HTTPException(status_code=404, detail="No admission case bound to this account")
     roles = set(get_user_roles(user["id"]))
     return {"case": _admission_case_public(row, user["id"], roles)}
+
+
+# --------------------------------------------------------------------------- #
+# 单一领导审批门(2026-08-21)
+#   唯一 leader(HT_LEADER_USER_ID 或 leader 角色 + 生产必配)做客户服务准入决策;
+#   只读 leader_pending 队列; approved -> service_enabled, rejected 必填业务原因。
+#   Leader 视图只含业务摘要: 绝无 Host notes / 原始 KYC / 证件 / 钱包 / provider 细节。
+# --------------------------------------------------------------------------- #
+LEADER_USER_ID = os.environ.get("HT_LEADER_USER_ID", "").strip()
+
+
+def _require_leader(user: Any) -> Any:
+    """Leader 身份门: leader 角色; 若配置了 HT_LEADER_USER_ID 则必须精确匹配;
+    production 未配置 leader 时 fail closed(503)。admin 不能代替 leader 决策。"""
+    roles = set(get_user_roles(user["id"]))
+    if "leader" not in roles:
+        raise HTTPException(
+            status_code=403, detail="Only the designated leader can make this decision"
+        )
+    if LEADER_USER_ID and user["id"] != LEADER_USER_ID:
+        raise HTTPException(
+            status_code=403, detail="Only the designated leader can make this decision"
+        )
+    if not LEADER_USER_ID and SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(
+            status_code=503,
+            detail="No leader is configured; leader approval is unavailable in production",
+        )
+    return user
+
+
+def _leader_case_view(row: sqlite3.Row) -> dict[str, Any]:
+    """安全业务摘要。sourceIdentifier(钱包地址)/证件/文档到期日/KYC 原因绝不输出。"""
+    intent: Optional[dict[str, Any]] = None
+    with db() as conn:
+        ir = conn.execute(
+            """SELECT * FROM payment_intents
+               WHERE admission_case_id=? ORDER BY created_at DESC LIMIT 1""",
+            (row["id"],),
+        ).fetchone()
+    if ir:
+        intent = {
+            "asset": ir["asset"],
+            "network": ir["network"],
+            "intendedAmount": ir["intended_amount"],
+            "sourceType": ir["source_type"],
+            "counterpartyName": ir["counterparty_name"] or "",
+            "status": ir["status"],
+        }
+    return {
+        "id": row["id"],
+        "hostName": _user_name(row["host_user_id"]),
+        "patronEmailMasked": mask_email(row["patron_email"]),
+        "servicePurpose": row["service_purpose"],
+        "route": row["route"],
+        "status": row["status"],
+        "kycValidUntil": row["kyc_valid_until"],
+        "intendedPayment": intent,
+    }
+
+
+@app.get("/api/leader/admission-cases")
+def leader_admission_cases(user: Any = Depends(require_role("leader"))):
+    _require_leader(user)
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM vip_admission_cases
+               WHERE status='leader_pending' ORDER BY updated_at DESC"""
+        ).fetchall()
+    return {"cases": [_leader_case_view(r) for r in rows]}
+
+
+class LeaderDecisionIn(BaseModel):
+    decision: str
+    reason: Optional[str] = None
+
+
+@app.post("/api/admission-cases/{case_id}/leader-decision")
+def admission_case_leader_decision(
+    case_id: str,
+    body: LeaderDecisionIn,
+    user: Any = Depends(require_role("leader")),
+):
+    """唯一 leader 的客户服务准入决策: approved -> service_enabled;
+    rejected 必填业务原因并终结准入。审批/拒绝都会通知 VIP 与 Host(邮件抽象)。"""
+    _require_leader(user)
+    row = _admission_case_get_or_404(case_id)
+    if row["status"] != "leader_pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot decide a case in status {row['status']}",
+        )
+    if body.decision not in ("approved", "rejected"):
+        raise HTTPException(
+            status_code=400, detail="decision must be 'approved' or 'rejected'"
+        )
+    if body.decision == "rejected" and not (body.reason or "").strip():
+        raise HTTPException(
+            status_code=400, detail="A business reason is required to reject an admission case"
+        )
+    target = "service_enabled" if body.decision == "approved" else "rejected"
+    _admission_case_update(case_id, status=target, leader_user_id=user["id"])
+    reason = (body.reason or "").strip()
+    if body.decision == "approved":
+        vip_subject, vip_text = (
+            "Your VIP admission has been approved",
+            "Your VIP admission at HyperTransfer has been approved by our leadership. "
+            "You can now proceed with your first verified transfer.",
+        )
+    else:
+        vip_subject, vip_text = (
+            "Update on your VIP admission",
+            "Your VIP admission was not approved at this time. Please contact your Host "
+            "for further assistance.",
+        )
+    vip_channel = send_email(row["patron_email"], vip_subject, vip_text)
+    with db() as conn:
+        host_email = conn.execute(
+            "SELECT email FROM users WHERE id=?", (row["host_user_id"],)
+        ).fetchone()
+    host_email = host_email["email"] if host_email else ""
+    host_text = (
+        f"Your VIP admission case {mask_email(row['patron_email'])} was "
+        f"{'approved' if body.decision == 'approved' else 'rejected'}"
+        + (f" ({reason})." if reason else ".")
+    )
+    host_channel = send_email(host_email, "VIP admission decision", host_text) if host_email else "no-host-email"
+    write_audit(
+        user["id"],
+        f"admission.leader.{body.decision}",
+        "admission_case",
+        case_id,
+        {
+            "caseId": case_id,
+            "leaderUserId": user["id"],
+            "priorStatus": "leader_pending",
+            "nextStatus": target,
+            "reason": reason or None,
+            "vipEmailChannel": vip_channel,
+            "hostEmailChannel": host_channel,
+        },
+    )
+    updated = _admission_case_get_or_404(case_id)
+    return {"ok": True, "case": _leader_case_view(updated)}
 
 
 @app.get("/api/health")

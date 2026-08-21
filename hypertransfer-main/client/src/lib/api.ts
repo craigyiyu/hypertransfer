@@ -607,3 +607,35 @@ export const admissionClaimApi = {
   register: (p: { sessionToken: string; email: string; emailOtp: string; name: string; password: string }) =>
     api.post<AdmissionClaimRegisterResult>("/admission-claims/register", p),
 };
+
+// ---------- 单一领导审批 (Task 6) ----------
+export interface LeaderIntendedPayment {
+  asset: string;
+  network: string;
+  intendedAmount: string | null;
+  sourceType: string | null;
+  counterpartyName: string;
+  status: string;
+}
+
+export interface LeaderCase {
+  id: string;
+  hostName: string;
+  patronEmailMasked: string;
+  servicePurpose: string | null;
+  route: "complete_dossier" | "kyc_first";
+  status: string;
+  kycValidUntil: number | null;
+  intendedPayment: LeaderIntendedPayment | null;
+}
+
+export const leaderApi = {
+  // 只读 leader_pending 队列(仅 leader 角色; 生产需配置 HT_LEADER_USER_ID)
+  cases: () => api.get<{ ok: boolean; cases: LeaderCase[] }>("/leader/admission-cases"),
+  // approved -> service_enabled; rejected 必填业务原因
+  decide: (caseId: string, decision: "approved" | "rejected", reason?: string) =>
+    api.post<{ ok: boolean; case: LeaderCase }>(`/admission-cases/${caseId}/leader-decision`, {
+      decision,
+      reason,
+    }),
+};
