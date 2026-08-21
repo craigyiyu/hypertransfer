@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -45,7 +46,9 @@ from hexsafe_client import HexSafeClient, HexSafeError  # 本地模块: Hex Safe
 # Host-led VIP admission (2026-08-21): 纯状态机 + Host 可见 KYC 原因策略 + provider 边界。
 from admission_provider_adapters import (
     HostProvisioningUnavailable,
+    hash_session_token,
     require_host_provisioning,
+    verify_session_token,
 )
 from admission_rules import can_transition_admission, host_kyc_reason
 
@@ -3841,6 +3844,37 @@ def _user_name(user_id: str) -> str:
     return row["name"] if row else ""
 
 
+def _admission_case_invitation_view(case_id: str) -> dict[str, Any]:
+    """Latest live (unconsumed, unrevoked) email / QR session expiries (ISO)."""
+    with db() as conn:
+        email_row = conn.execute(
+            """SELECT expires_at FROM admission_invitation_sessions
+               WHERE admission_case_id=? AND channel='email'
+                 AND consumed_at IS NULL AND revoked_at IS NULL
+               ORDER BY created_at DESC LIMIT 1""",
+            (case_id,),
+        ).fetchone()
+        qr_row = conn.execute(
+            """SELECT expires_at FROM admission_invitation_sessions
+               WHERE admission_case_id=? AND channel='qr'
+                 AND consumed_at IS NULL AND revoked_at IS NULL
+               ORDER BY created_at DESC LIMIT 1""",
+            (case_id,),
+        ).fetchone()
+    return {
+        "emailExpiresAt": (
+            datetime.fromtimestamp(email_row["expires_at"], tz=timezone.utc).isoformat()
+            if email_row
+            else None
+        ),
+        "qrExpiresAt": (
+            datetime.fromtimestamp(qr_row["expires_at"], tz=timezone.utc).isoformat()
+            if qr_row
+            else None
+        ),
+    }
+
+
 def _admission_case_public(
     row: sqlite3.Row, viewer_user_id: str, viewer_roles: set[str]
 ) -> dict[str, Any]:
@@ -3873,7 +3907,7 @@ def _admission_case_public(
         "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
         "kycHostMessage": kyc_message or None,
         "kycValidUntil": row["kyc_valid_until"],
-        "invitation": None,  # Task 4 fills email/QR invitation sessions
+        "invitation": _admission_case_invitation_view(row["id"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -4088,6 +4122,259 @@ def admission_case_revoke(
     )
     updated = _admission_case_get_or_404(case_id)
     return {"ok": True, "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"])))}
+
+
+# --------------------------------------------------------------------------- #
+# 双通道邀请认领: email link (6h) + 动态 QR session (15min), 均须 Email OTP 认领
+# --------------------------------------------------------------------------- #
+EMAIL_SESSION_TTL = INVITE_TTL          # 邮件链接 6 小时
+QR_SESSION_TTL = 15 * 60                # 动态 QR enrollment session 15 分钟
+
+
+def _admission_session_by_token(token: str) -> sqlite3.Row:
+    """按 token 查邀请 session(token 以随机盐哈希存储, 故逐行常量时间校验)。
+
+    未命中返回中性 400(不披露邀请是否存在)。表规模很小(每个 case 若干 session),
+    原型阶段可接受; 生产换独立 salt 列 + 索引后再按哈希直接命中。"""
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM admission_invitation_sessions").fetchall()
+    for row in rows:
+        if verify_session_token(row["token_hash"], token):
+            return row
+    raise HTTPException(
+        status_code=400,
+        detail="The submitted details do not match our records. Please check and try again.",
+    )
+
+
+def _admission_session_status(row: sqlite3.Row) -> str:
+    now = int(time.time())
+    if row["revoked_at"]:
+        return "revoked"
+    if row["consumed_at"]:
+        return "consumed"
+    if row["expires_at"] < now:
+        return "expired"
+    return "ok"
+
+
+def _issue_admission_session(case_id: str, channel: str, ttl: int) -> "tuple[str, str]":
+    """创建 email/qr 邀请 session; 只存 token 的 salted hash, 明文只返回给调用方(Host 渲染)。"""
+    token = secrets.token_urlsafe(32)
+    sid = str(uuid.uuid4())
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO admission_invitation_sessions(
+                   id, admission_case_id, channel, token_hash, expires_at,
+                   consumed_at, revoked_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (sid, case_id, channel, hash_session_token(token), now + ttl, None, None, now),
+        )
+        conn.commit()
+    return sid, token
+
+
+def _require_own_open_case(case_id: str, user: Any) -> sqlite3.Row:
+    """Active-Host ownership + case still open for invitation (draft / invitation_open)."""
+    _require_active_host(user)
+    row = _admission_case_get_or_404(case_id)
+    if row["host_user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    if row["status"] not in ("draft", "invitation_open"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot send invitations for a case in status {row['status']}",
+        )
+    return row
+
+
+@app.post("/api/admission-cases/{case_id}/invite/email")
+def admission_case_invite_email(
+    case_id: str,
+    user: Any = Depends(require_role("host")),
+):
+    """Email invitation (primary channel): 6h one-time link sent to the case email."""
+    row = _require_own_open_case(case_id, user)
+    prior = row["status"]
+    if prior == "draft":
+        _admission_case_update(case_id, status="invitation_open")
+    _, token = _issue_admission_session(case_id, "email", EMAIL_SESSION_TTL)
+    invite_link = f"{INVITE_BASE_URL}/invite?emailSession={token}"
+    channel = send_email(
+        row["patron_email"],
+        "Your HyperTransfer VIP invitation",
+        f"Open this link to claim your VIP invitation: {invite_link}\n"
+        f"The link is valid for {EMAIL_SESSION_TTL // 3600} hours and can be used once.",
+    )
+    write_audit(
+        user["id"], "admission.invite.email", "admission_case", case_id,
+        {"caseId": case_id, "patronEmailMasked": mask_email(row["patron_email"]),
+         "priorStatus": prior, "nextStatus": "invitation_open", "emailChannel": channel},
+    )
+    updated = _admission_case_get_or_404(case_id)
+    view = _admission_case_invitation_view(case_id)
+    return {
+        "ok": True,
+        "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"]))),
+        "emailSessionToken": token,
+        "emailInviteLink": invite_link,
+        "emailExpiresAt": view["emailExpiresAt"],
+        "qrExpiresAt": view["qrExpiresAt"],
+    }
+
+
+@app.post("/api/admission-cases/{case_id}/invite/qr-session")
+def admission_case_invite_qr_session(
+    case_id: str,
+    user: Any = Depends(require_role("host")),
+):
+    """Dynamic QR (in-person fallback): 15-minute rotating session for the same case."""
+    row = _require_own_open_case(case_id, user)
+    prior = row["status"]
+    if prior == "draft":
+        _admission_case_update(case_id, status="invitation_open")
+    _, token = _issue_admission_session(case_id, "qr", QR_SESSION_TTL)
+    claim_url = f"{INVITE_BASE_URL}/invite?qrSession={token}"
+    write_audit(
+        user["id"], "admission.invite.qr", "admission_case", case_id,
+        {"caseId": case_id, "patronEmailMasked": mask_email(row["patron_email"]),
+         "priorStatus": prior, "nextStatus": "invitation_open"},
+    )
+    updated = _admission_case_get_or_404(case_id)
+    view = _admission_case_invitation_view(case_id)
+    return {
+        "ok": True,
+        "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"]))),
+        "qrSessionToken": token,
+        "claimUrl": claim_url,
+        "qrPngBase64": qr_data_uri(claim_url),
+        "qrExpiresAt": view["qrExpiresAt"],
+    }
+
+
+class AdmissionClaimVerifyIn(BaseModel):
+    sessionToken: str
+    email: str
+
+
+class AdmissionClaimRegisterIn(BaseModel):
+    sessionToken: str
+    email: str
+    emailOtp: str
+    name: str
+    password: str
+
+
+@app.post("/api/admission-claims/verify-email")
+def admission_claim_verify_email(body: AdmissionClaimVerifyIn):
+    """Public claim step 1: bind the submitted email to the open case and send the
+    Email OTP to that address. A QR scan alone does not claim the case.
+
+    Wrong emails get a neutral 400 that never discloses whether another email
+    exists; consumed/expired/revoked sessions return 410 Gone."""
+    email = normalize_email(body.email)
+    session = _admission_session_by_token(body.sessionToken)
+    if _admission_session_status(session) != "ok":
+        raise HTTPException(status_code=410, detail="This enrollment link is no longer valid")
+    case = _admission_case_get_or_404(session["admission_case_id"])
+    if email != case["patron_email"]:
+        raise HTTPException(
+            status_code=400,
+            detail="The submitted details do not match our records. Please check and try again.",
+        )
+    issue_email_otp(email)  # 只在 email 匹配时才发码(防枚举)
+    return {
+        "ok": True,
+        "patronEmailMasked": mask_email(email),
+        "caseId": case["id"],
+        "demo": bool(DEMO_BYPASS_2FA),
+    }
+
+
+@app.post("/api/admission-claims/register")
+def admission_claim_register(body: AdmissionClaimRegisterIn):
+    """Public claim step 2: Email OTP verified -> create the patron account, bind it
+    to the case (vip_claimed) and invalidate every unused invitation presentation."""
+    email = normalize_email(body.email)
+    session = _admission_session_by_token(body.sessionToken)
+    if _admission_session_status(session) != "ok":
+        raise HTTPException(status_code=410, detail="This enrollment link is no longer valid")
+    case = _admission_case_get_or_404(session["admission_case_id"])
+    if email != case["patron_email"]:
+        raise HTTPException(
+            status_code=400,
+            detail="The submitted details do not match our records. Please check and try again.",
+        )
+    if not can_transition_admission(case["status"], "vip_claimed", case["route"]):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Admission case cannot be claimed from status {case['status']}",
+        )
+    with db() as conn:
+        dup = conn.execute("SELECT status FROM users WHERE email=?", (email,)).fetchone()
+    if dup and dup["status"] == "active":
+        raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
+
+    verify_email_otp(email, body.emailOtp)  # 第一因子: 邮箱已验真(校验通过即消费)
+
+    secret = pyotp.random_base32()
+    pw_hash, pw_salt = hash_password(body.password)
+    now = int(time.time())
+    expires_at = now + TOTP_ENROLL_TTL
+    uid = str(uuid.uuid4())
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        if existing:
+            uid = existing["id"]
+            conn.execute(
+                """UPDATE users SET name=?, pw_hash=?, pw_salt=?, totp_secret=?,
+                          status='pending_totp', user_type='patron', last_counter=NULL,
+                          totp_expires_at=?, invited_by=? WHERE id=?""",
+                (body.name.strip(), pw_hash, pw_salt, secret, expires_at,
+                 case["host_user_id"], uid),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                                     totp_secret, status, user_type, last_counter, totp_expires_at,
+                                     invited_by, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?, 'patron', ?,?,?,?)""",
+                (uid, None, "", "", body.name.strip(), email, pw_hash, pw_salt,
+                 secret, "pending_totp", None, expires_at, case["host_user_id"], now),
+            )
+        # 绑定 case: vip_claimed + patron_user_id; 同一 case 的所有未用 session 全部作废。
+        conn.execute(
+            """UPDATE vip_admission_cases
+               SET status='vip_claimed', patron_user_id=?, updated_at=?
+               WHERE id=?""",
+            (uid, now, case["id"]),
+        )
+        conn.execute(
+            """UPDATE admission_invitation_sessions SET consumed_at=?
+               WHERE admission_case_id=? AND consumed_at IS NULL""",
+            (now, case["id"]),
+        )
+        conn.commit()
+    write_audit(
+        uid, "admission.claim.register", "admission_case", case["id"],
+        {"caseId": case["id"], "userId": uid,
+         "patronEmailMasked": mask_email(email),
+         "priorStatus": case["status"], "nextStatus": "vip_claimed"},
+    )
+    write_audit(uid, "user.register_invite", "user", uid, {"email": email})
+
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
+    return {
+        "userId": uid,
+        "email": email,
+        "otpauth_uri": otpauth,
+        "secret": secret,
+        "qr_png_base64": qr_data_uri(otpauth),
+        "expires_at": expires_at,
+        "expires_in": TOTP_ENROLL_TTL,
+        "demo": bool(DEMO_BYPASS_2FA),
+    }
 
 
 @app.get("/api/health")

@@ -273,5 +273,6 @@ export default defineConfig({
     environment: "node",
     // vite root is `client`, so test files live under src/ relative to root.
     include: ["src/**/*.test.{ts,tsx}"],
+    setupFiles: ["src/test-setup.ts"],
   },
 });

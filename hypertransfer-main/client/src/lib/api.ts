@@ -577,3 +577,31 @@ export const admissionApi = {
       {},
     ),
 };
+
+// ---------- 双通道认领 (Task 4): email link / QR 均须 Email OTP 绑定 ----------
+export interface AdmissionClaimVerifyResult {
+  ok: boolean;
+  patronEmailMasked: string;
+  caseId: string;
+  demo?: boolean;
+}
+
+export interface AdmissionClaimRegisterResult {
+  userId: string;
+  email: string;
+  otpauth_uri: string;
+  secret: string;
+  qr_png_base64: string;
+  expires_at: number;
+  expires_in: number;
+  demo?: boolean;
+}
+
+export const admissionClaimApi = {
+  // 认领第 1 步: 校验 session + 邮箱匹配, 向该邮箱发 Email OTP(QR 扫描本身不认领 case)
+  verifyEmail: (sessionToken: string, email: string) =>
+    api.post<AdmissionClaimVerifyResult>("/admission-claims/verify-email", { sessionToken, email }),
+  // 认领第 2 步: Email OTP 验真 -> 建 patron 账号 + 绑定 case(vip_claimed) + 返回 TOTP 绑定信息
+  register: (p: { sessionToken: string; email: string; emailOtp: string; name: string; password: string }) =>
+    api.post<AdmissionClaimRegisterResult>("/admission-claims/register", p),
+};
