@@ -172,6 +172,13 @@ export default function DepositQueuePanel() {
       <p className="mb-3 text-[11px] text-muted-foreground">
         Your roles: {(user?.roles ?? []).join(", ") || "—"} · For each session, confirm KYT / Travel Rule / 1 USDT verification, then enter the required marker reference.
       </p>
+      <p className="mb-3 rounded-lg border border-border/40 bg-secondary/20 px-3 py-2 text-[11px] text-muted-foreground">
+        <span className="font-semibold text-foreground">Label note:</span> these legacy deposit
+        sessions keep the <span className="font-semibold text-gold">Marker ref</span> label. The new
+        Host-led VIP admission flow records a <span className="font-semibold text-gold">Cage
+        confirmation ID</span> instead — see <span className="font-semibold">Payment Operations</span>.
+        Legacy marker references are preserved on legacy deposits.
+      </p>
 
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
       {!error && deposits.length === 0 && !showDemoDeposit && (

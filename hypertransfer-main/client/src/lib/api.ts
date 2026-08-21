@@ -724,3 +724,74 @@ export const transactionPackApi = {
   recordTransfer: (id: string, p: { txHash: string; status?: string }) =>
     api.post<{ ok: boolean; pack: TransactionCompliancePack }>(`/transaction-compliance-packs/${id}/record-transfer`, p),
 };
+
+// ---------- Operations / retention / reconciliation (Task 8) ----------
+export interface PaymentCaseView {
+  packId: string;
+  paymentIntentId: string;
+  transferLeg: "verification" | "main";
+  asset: string;
+  network: string;
+  actualAmount: string;
+  actualHkdAmount: string;
+  travelRuleDepth: "basic" | "enhanced";
+  kytStatus: string;
+  travelRuleStatus: string;
+  notabeneReference: string;
+  custodyAddress: string;
+  txHash: string;
+  cageConfirmationId: string;
+  reconciliationRef: string;
+  reconciledAt: number | null;
+  retentionUntil: number | null;
+  finalizedAt: number | null;
+  patronEmailMasked: string;
+  caseStatus: string;
+}
+
+export interface ReconciliationRow {
+  transactionCompliancePackId: string;
+  transferLeg: string;
+  asset: string;
+  network: string;
+  actualAmount: string;
+  actualHkdAmount: string;
+  travelRuleDepth: string;
+  kytStatus: string;
+  travelRuleStatus: string;
+  notabeneReference: string;
+  custodyAddress: string;
+  txHash: string;
+  cageConfirmationId: string;
+  reconciliationRef: string;
+  reconciledAt: number | null;
+  retentionUntil: number | null;
+}
+
+export interface MonitoringFlag {
+  id: string;
+  packId: string | null;
+  flagType: string;
+  detail: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export const operationsApi = {
+  paymentCases: () => api.get<{ ok: boolean; cases: PaymentCaseView[] }>("/operations/payment-cases"),
+  reconciliationExport: () =>
+    api.get<{ ok: boolean; rows: ReconciliationRow[] }>("/operations/reconciliation-export"),
+  // HK Operations 手动录入 Cage confirmation ID(仅主款已确认后可录)
+  cageConfirmation: (packId: string, cageConfirmationId: string) =>
+    api.post<{ ok: boolean; pack: TransactionCompliancePack }>(
+      `/transaction-compliance-packs/${packId}/cage-confirmation`,
+      { cageConfirmationId },
+    ),
+  // Finance reconciliation(须先有 Cage confirmation ID)
+  reconcile: (packId: string, reconciliationRef: string) =>
+    api.post<{ ok: boolean; pack: TransactionCompliancePack }>(
+      `/transaction-compliance-packs/${packId}/reconcile`,
+      { reconciliationRef },
+    ),
+  runMonitoring: () => api.post<{ ok: boolean; flagged: number }>("/operations/run-monitoring", {}),
+  monitoringFlags: () => api.get<{ ok: boolean; flags: MonitoringFlag[] }>("/operations/monitoring-flags"),
+};

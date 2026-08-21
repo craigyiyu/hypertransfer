@@ -467,6 +467,9 @@ ADMISSION_SCHEMA_SQL = """
         notabene_reference TEXT,
         custody_address    TEXT,
         tx_hash            TEXT,
+        cage_confirmation_id TEXT,
+        reconciliation_ref TEXT,
+        reconciled_at      INTEGER,
         immutable_snapshot_json TEXT NOT NULL,
         retention_until    INTEGER,
         created_at         INTEGER NOT NULL,
@@ -474,6 +477,15 @@ ADMISSION_SCHEMA_SQL = """
     );
     CREATE INDEX IF NOT EXISTS idx_compliance_pack_intent_leg
         ON transaction_compliance_packs(payment_intent_id, transfer_leg);
+    -- 持续监控(Task 8): 关联转账聚簇由 demo monitor 标记并路由给 Compliance。
+    CREATE TABLE IF NOT EXISTS monitoring_flags (
+        id          TEXT PRIMARY KEY,
+        pack_id     TEXT,
+        flag_type   TEXT NOT NULL,
+        detail_json TEXT,
+        created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitoring_pack ON monitoring_flags(pack_id);
 """
 
 # otps 表的 PK 始终是 phone(短信仍按手机号发码/限频),不随主键重建而变;
@@ -687,6 +699,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN custody_address TEXT")
         if "tx_hash" not in pack_cols:
             conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN tx_hash TEXT")
+        if "cage_confirmation_id" not in pack_cols:
+            conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN cage_confirmation_id TEXT")
+        if "reconciliation_ref" not in pack_cols:
+            conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN reconciliation_ref TEXT")
+        if "reconciled_at" not in pack_cols:
+            conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN reconciled_at INTEGER")
 
 
 # --------------------------------------------------------------------------- #
@@ -4874,6 +4892,9 @@ def _pack_public(row: sqlite3.Row) -> dict[str, Any]:
         "notabeneReference": row["notabene_reference"] or "",
         "custodyAddress": row["custody_address"] or "",
         "txHash": row["tx_hash"] or "",
+        "cageConfirmationId": row["cage_confirmation_id"] or "",
+        "reconciliationRef": row["reconciliation_ref"] or "",
+        "reconciledAt": row["reconciled_at"],
         "immutableSnapshotJson": row["immutable_snapshot_json"],
         "retentionUntil": row["retention_until"],
         "createdAt": row["created_at"],
@@ -5264,6 +5285,236 @@ def transaction_pack_record_transfer(
         {"packId": pack_id, "txHash": body.txHash, "status": body.status},
     )
     return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+# --------------------------------------------------------------------------- #
+# Operations / retention / reconciliation (Task 8)
+#   新流程的可见标签为 "Cage confirmation ID"(取代 legacy marker 的泛化叫法);
+#   legacy deposit_requests 的 marker 记录原样保留。settled 前置: 主款已确认
+#   + Cage confirmation ID 已录 + Finance reconciliation 已记。
+# --------------------------------------------------------------------------- #
+class CageConfirmationIn(BaseModel):
+    cageConfirmationId: str
+
+
+class ReconcileIn(BaseModel):
+    reconciliationRef: str
+
+
+def _operations_roles() -> "tuple[str, ...]":
+    return ("ops", "custodian", "compliance", "admin")
+
+
+def _pack_ops_view(row: sqlite3.Row) -> dict[str, Any]:
+    """Operations 安全视图: 不暴露完整邮箱(只用 masked)。"""
+    with db() as conn:
+        intent = conn.execute(
+            "SELECT * FROM payment_intents WHERE id=?", (row["payment_intent_id"],)
+        ).fetchone()
+        case = None
+        if intent:
+            case = conn.execute(
+                "SELECT * FROM vip_admission_cases WHERE id=?", (intent["admission_case_id"],)
+            ).fetchone()
+    snapshot: dict[str, Any] = {}
+    try:
+        snapshot = json.loads(row["immutable_snapshot_json"])
+    except Exception:
+        pass
+    return {
+        "packId": row["id"],
+        "paymentIntentId": row["payment_intent_id"],
+        "transferLeg": row["transfer_leg"],
+        "asset": snapshot.get("asset") or (intent["asset"] if intent else ""),
+        "network": snapshot.get("network") or (intent["network"] if intent else ""),
+        "actualAmount": row["actual_amount"],
+        "actualHkdAmount": row["actual_hkd_amount"],
+        "travelRuleDepth": row["travel_rule_depth"],
+        "kytStatus": row["kyt_status"],
+        "travelRuleStatus": row["travel_rule_status"],
+        "notabeneReference": row["notabene_reference"] or "",
+        "custodyAddress": row["custody_address"] or "",
+        "txHash": row["tx_hash"] or "",
+        "cageConfirmationId": row["cage_confirmation_id"] or "",
+        "reconciliationRef": row["reconciliation_ref"] or "",
+        "reconciledAt": row["reconciled_at"],
+        "retentionUntil": row["retention_until"],
+        "finalizedAt": row["finalized_at"],
+        "patronEmailMasked": mask_email(case["patron_email"]) if case else "",
+        "caseStatus": case["status"] if case else "",
+    }
+
+
+@app.post("/api/transaction-compliance-packs/{pack_id}/cage-confirmation")
+def transaction_pack_cage_confirmation(
+    pack_id: str,
+    body: CageConfirmationIn,
+    user: Any = Depends(require_role(*_operations_roles())),
+):
+    """HK Operations 手动录入 Cage confirmation ID。仅在主款已确认后允许(409 否则)。"""
+    pack = _pack_get_or_404(pack_id)
+    if pack["transfer_leg"] != "main":
+        raise HTTPException(
+            status_code=409,
+            detail="Cage confirmation applies to the main transfer leg only",
+        )
+    if not pack["finalized_at"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Cage confirmation requires the main transfer to be confirmed first",
+        )
+    cage_id = (body.cageConfirmationId or "").strip()
+    if not cage_id:
+        raise HTTPException(status_code=400, detail="Cage confirmation ID is required")
+    with db() as conn:
+        conn.execute(
+            "UPDATE transaction_compliance_packs SET cage_confirmation_id=? WHERE id=?",
+            (cage_id, pack_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.cage.confirm", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "cageConfirmationId": cage_id},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+@app.post("/api/transaction-compliance-packs/{pack_id}/reconcile")
+def transaction_pack_reconcile(
+    pack_id: str,
+    body: ReconcileIn,
+    user: Any = Depends(require_role(*_operations_roles())),
+):
+    """Finance reconciliation: 须先有 Cage confirmation ID; 落 reconciliation_ref + reconciled_at。"""
+    pack = _pack_get_or_404(pack_id)
+    if not pack["cage_confirmation_id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconciliation requires a Cage confirmation ID to be recorded first",
+        )
+    ref = (body.reconciliationRef or "").strip()
+    if not ref:
+        raise HTTPException(status_code=400, detail="Reconciliation reference is required")
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            """UPDATE transaction_compliance_packs
+               SET reconciliation_ref=?, reconciled_at=? WHERE id=?""",
+            (ref, now, pack_id),
+        )
+        conn.commit()
+    write_audit(
+        user["id"], "transaction.reconcile", "transaction_compliance_pack", pack_id,
+        {"packId": pack_id, "reconciliationRef": ref},
+    )
+    return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
+
+
+@app.get("/api/operations/payment-cases")
+def operations_payment_cases(user: Any = Depends(require_role(*_operations_roles()))):
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM transaction_compliance_packs ORDER BY created_at DESC"
+        ).fetchall()
+    return {"cases": [_pack_ops_view(r) for r in rows]}
+
+
+@app.get("/api/operations/reconciliation-export")
+def operations_reconciliation_export(user: Any = Depends(require_role(*_operations_roles()))):
+    rows = []
+    with db() as conn:
+        for pack in conn.execute(
+            "SELECT * FROM transaction_compliance_packs ORDER BY created_at DESC"
+        ).fetchall():
+            view = _pack_ops_view(pack)
+            rows.append({
+                "transactionCompliancePackId": view["packId"],
+                "transferLeg": view["transferLeg"],
+                "asset": view["asset"],
+                "network": view["network"],
+                "actualAmount": view["actualAmount"],
+                "actualHkdAmount": view["actualHkdAmount"],
+                "travelRuleDepth": view["travelRuleDepth"],
+                "kytStatus": view["kytStatus"],
+                "travelRuleStatus": view["travelRuleStatus"],
+                "notabeneReference": view["notabeneReference"],
+                "custodyAddress": view["custodyAddress"],
+                "txHash": view["txHash"],
+                "cageConfirmationId": view["cageConfirmationId"],
+                "reconciliationRef": view["reconciliationRef"],
+                "reconciledAt": view["reconciledAt"],
+                "retentionUntil": view["retentionUntil"],
+            })
+    return {"rows": rows}
+
+
+def _run_linked_transfer_monitor() -> int:
+    """确定性 demo monitor: 同一来源 + 同一资产 + 24h 窗口内出现多笔 pack 转账
+    -> 标记 linked_transfer_cluster, 路由给 Compliance(绝不静默改结果)。"""
+    now = int(time.time())
+    window_start = now - 24 * 3600
+    groups: dict[tuple[str, str], list[dict]] = {}
+    with db() as conn:
+        packs = conn.execute(
+            "SELECT * FROM transaction_compliance_packs WHERE finalized_at IS NOT NULL"
+        ).fetchall()
+    for pack in packs:
+        try:
+            snapshot = json.loads(pack["immutable_snapshot_json"])
+        except Exception:
+            continue
+        source = snapshot.get("sourceIdentifier") or ""
+        asset = snapshot.get("asset") or ""
+        if not source:
+            continue
+        groups.setdefault((source, asset), []).append(
+            {"packId": pack["id"], "amount": pack["actual_amount"], "finalizedAt": pack["finalized_at"]}
+        )
+    flagged = 0
+    for (source, asset), members in groups.items():
+        if len(members) < 2:
+            continue
+        for member in members:
+            if not member["finalizedAt"] or member["finalizedAt"] < window_start:
+                continue
+            flag_id = str(uuid.uuid4())
+            with db() as conn:
+                conn.execute(
+                    """INSERT INTO monitoring_flags(id, pack_id, flag_type, detail_json, created_at)
+                       VALUES (?,?,?,?,?)""",
+                    (flag_id, member["packId"], "linked_transfer_cluster",
+                     json_dumps({"source": source, "asset": asset,
+                                 "windowStart": window_start, "memberCount": len(members)}),
+                     now),
+                )
+                conn.commit()
+            flagged += 1
+    if flagged:
+        write_audit(None, "monitoring.linked_transfer_cluster", "monitoring", "",
+                    {"flagged": flagged, "windowSeconds": 24 * 3600})
+    return flagged
+
+
+@app.post("/api/operations/run-monitoring")
+def operations_run_monitoring(user: Any = Depends(require_role("compliance", "ops", "admin"))):
+    flagged = _run_linked_transfer_monitor()
+    return {"ok": True, "flagged": flagged}
+
+
+@app.get("/api/operations/monitoring-flags")
+def operations_monitoring_flags(user: Any = Depends(require_role("compliance", "ops", "admin"))):
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM monitoring_flags ORDER BY created_at DESC"
+        ).fetchall()
+    return {
+        "flags": [
+            {"id": r["id"], "packId": r["pack_id"], "flagType": r["flag_type"],
+             "detail": json.loads(r["detail_json"]) if r["detail_json"] else None,
+             "createdAt": r["created_at"]}
+            for r in rows
+        ]
+    }
 
 
 @app.get("/api/health")

@@ -27,6 +27,7 @@ import InvitationReviewPanel from "@/components/InvitationReviewPanel";
 import StaffAdminPanel from "@/components/StaffAdminPanel";
 import AdmissionCasePanel from "@/components/AdmissionCasePanel";
 import LeaderApprovalPanel from "@/components/LeaderApprovalPanel";
+import PaymentOperationsPanel from "@/components/PaymentOperationsPanel";
 
 function StatusPill({
   children,
@@ -89,6 +90,7 @@ const SECTIONS = [
   { key: "refunds", label: "Withdrawals", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
   { key: "vip", label: "VIP Admissions", icon: UserPlus2, roles: ["host", "rm"] },
   { key: "leader", label: "Leader Approval", icon: Gavel, roles: ["leader"] },
+  { key: "payment-ops", label: "Payment Operations", icon: Banknote, roles: ["ops", "custodian", "compliance"] },
   { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["marketing", "compliance"] },
   { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
 ] as const;
@@ -195,6 +197,7 @@ export default function CasinoOpsPortal() {
           {activeSection === "refunds" && <RefundQueuePanel />}
           {activeSection === "vip" && <AdmissionCasePanel />}
           {activeSection === "leader" && <LeaderApprovalPanel />}
+          {activeSection === "payment-ops" && <PaymentOperationsPanel />}
           {activeSection === "access" && <InvitationReviewPanel />}
           {activeSection === "staff" && <StaffAdminPanel />}
 

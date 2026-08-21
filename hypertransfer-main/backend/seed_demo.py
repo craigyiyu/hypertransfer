@@ -120,6 +120,138 @@ def seed() -> None:
         c.commit()
 
 
+# --------------------------------------------------------------------------- #
+# Task 8: 完整 admission demo —— 一个 active Host、一个已过 leader 审批的 VIP case、
+# 一个 verification pack + 一个已确认 main pack + 一个已 Cage 确认/已对账的结算。
+# 全部为保留/示例数据(reserved/example)。
+# --------------------------------------------------------------------------- #
+ADM_HOST_ID = "demo-adm-host"
+ADM_HOST_EMAIL = "host.vip.demo@operator.example"
+ADM_PATRON_ID = "demo-adm-patron"
+ADM_PATRON_EMAIL = "vip.admission.demo@operator.example"
+ADM_CASE_ID = "ADM-DEMO-0001"
+ADM_INTENT_ID = "PI-DEMO-0001"
+ADM_PACK_VERIFY = "PC-DEMO-VERIFY"
+ADM_PACK_MAIN = "PC-DEMO-MAIN"
+ADM_CAGE_ID = "CAGE-DEMO-0001"
+ADM_RECON_REF = "FIN-REC-DEMO-0001"
+
+
+def seed_admission_demo() -> None:
+    """灌入一条 Host-led VIP admission 完整 demo(幂等)。
+
+    组成: active Host + 已认领且 leader 已批准的 case(service_enabled, KYC 有效)
+    + 一个 verification pack(basic, 已转账) + 一个 main pack(enhanced, 已确认转账、
+    已录 Cage confirmation ID、已 Finance 对账)。"""
+    now = int(time.time())
+    pw = server.hash_password(STAFF_PASSWORD)
+    pw_patron = server.hash_password(PATRON_PASSWORD)
+    with server.db() as c:
+        # 清旧 demo 行(幂等)
+        for t, col, vid in (
+            ("transaction_compliance_packs", "id", ADM_PACK_VERIFY),
+            ("transaction_compliance_packs", "id", ADM_PACK_MAIN),
+            ("payment_intents", "id", ADM_INTENT_ID),
+            ("vip_admission_cases", "id", ADM_CASE_ID),
+            ("host_profiles", "user_id", ADM_HOST_ID),
+            ("users", "id", ADM_HOST_ID),
+            ("users", "id", ADM_PATRON_ID),
+        ):
+            c.execute(f"DELETE FROM {t} WHERE {col}=?", (vid,))
+        c.execute("DELETE FROM user_roles WHERE user_id IN (?,?)", (ADM_HOST_ID, ADM_PATRON_ID))
+        c.execute("DELETE FROM sumsub_kyc_applications WHERE user_id=?", (ADM_PATRON_ID,))
+
+        # active Host(staff + host 角色 + host_profiles active)
+        c.execute(
+            """INSERT INTO users(id,phone,area_code,number,name,email,pw_hash,pw_salt,
+                  totp_secret,totp_enabled,status,user_type,created_at)
+               VALUES(?,?,?,?,?,?,?,?,?,1,'active','staff',?)""",
+            (ADM_HOST_ID, None, "", "", "Demo VIP Host", ADM_HOST_EMAIL,
+             pw[0], pw[1], DEMO_TOTP_SECRET, now),
+        )
+        c.execute("INSERT INTO user_roles(user_id, role) VALUES (?, 'host')", (ADM_HOST_ID,))
+        c.execute(
+            """INSERT INTO host_profiles(user_id, employee_id, department, operating_team,
+                  location, phone, status, acknowledged_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (ADM_HOST_ID, "EMP-VIP-HOST", "VIP Services", "Macau Table Games",
+             "Macau Peninsula", "+853 0000 0000", "active", now, now),
+        )
+
+        # VIP patron: 已认领 + KYC 有效 + leader 已批准(service_enabled)
+        c.execute(
+            """INSERT INTO users(id,phone,area_code,number,name,email,pw_hash,pw_salt,
+                  totp_secret,totp_enabled,status,user_type,created_at)
+               VALUES(?,?,?,?,?,?,?,?,?,1,'active','patron',?)""",
+            (ADM_PATRON_ID, "85291230001", "852", "91230001", "Demo VIP Patron", ADM_PATRON_EMAIL,
+             pw_patron[0], pw_patron[1], DEMO_TOTP_SECRET, now),
+        )
+        c.execute(
+            """INSERT INTO sumsub_kyc_applications(user_id,external_user_id,applicant_id,level_name,
+                  status,review_status,review_answer,approved_at,valid_until,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_PATRON_ID, "ext-adm-patron", "app-adm-patron", "basic-kyc-level", "approved",
+             "completed", "GREEN", now, server.kyc_valid_until(now, []), now, now),
+        )
+        c.execute(
+            """INSERT INTO vip_admission_cases(
+                  id, host_user_id, patron_email, member_reference, service_purpose,
+                  host_notes, preferred_language, route, patron_user_id, status,
+                  leader_user_id, kyc_reason_code, kyc_valid_until, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_CASE_ID, ADM_HOST_ID, ADM_PATRON_EMAIL, "M-VIP-DEMO-001",
+             "VIP table credit demo", "Demo relationship note (internal only)", "zh-Hant",
+             "complete_dossier", ADM_PATRON_ID, "service_enabled", "demo-leader-id",
+             None, server.kyc_valid_until(now, []), now, now),
+        )
+
+        # payment intent: 来源已分类(pass) + 实际已确认(10000 USDT / tron)
+        c.execute(
+            """INSERT INTO payment_intents(
+                  id, admission_case_id, asset, network, intended_amount, source_type,
+                  source_identifier, counterparty_name, source_status, status,
+                  fingerprint_json, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_INTENT_ID, ADM_CASE_ID, "USDT", "tron", "10000", "wallet",
+             "TX9GxY8p8q6fZJ4dL9b2vQq7jK6mN5pA1B", "", "pass", "actual_confirmed",
+             '{"asset":"USDT","network":"tron","actualAmount":"10000","sourceType":"wallet",'
+             '"sourceIdentifier":"TX9GxY8p8q6fZJ4dL9b2vQq7jK6mN5pA1B","counterpartyId":null}',
+             now, now),
+        )
+
+        def insert_pack(pack_id: str, leg: str, amount: str, hkd: str, depth: str,
+                        tx_hash: str, cage: str | None, recon_ref: str | None) -> None:
+            snapshot = {
+                "packId": pack_id, "paymentIntentId": ADM_INTENT_ID,
+                "admissionCaseId": ADM_CASE_ID, "transferLeg": leg,
+                "asset": "USDT", "network": "tron", "actualAmount": amount,
+                "actualHkdAmount": hkd, "travelRuleDepth": depth,
+                "sourceType": "wallet",
+                "sourceIdentifier": "TX9GxY8p8q6fZJ4dL9b2vQq7jK6mN5pA1B",
+                "counterpartyName": "", "createdAt": now,
+            }
+            c.execute(
+                """INSERT INTO transaction_compliance_packs(
+                      id, payment_intent_id, transfer_leg, actual_amount, actual_hkd_amount,
+                      travel_rule_depth, kyt_status, travel_rule_status, notabene_reference,
+                      custody_address, tx_hash, cage_confirmation_id, reconciliation_ref,
+                      reconciled_at, immutable_snapshot_json, retention_until, created_at, finalized_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (pack_id, ADM_INTENT_ID, leg, amount, hkd, depth, "pass", "accepted",
+                 f"NB-DEMO-{pack_id}", "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC", tx_hash,
+                 cage, recon_ref, now if recon_ref else None,
+                 server.json_dumps(snapshot), now + server.RETENTION_YEARS * 365 * 86400,
+                 now, now),
+            )
+
+        insert_pack(ADM_PACK_VERIFY, "verification", "1", "8", "basic",
+                    "0xdemoVerifyTx00000000000000000000000000000000000000000000000000000001", None, None)
+        insert_pack(ADM_PACK_MAIN, "main", "10000", "80000", "enhanced",
+                    "0xdemoMainTx000000000000000000000000000000000000000000000000000000002",
+                    ADM_CAGE_ID, ADM_RECON_REF)
+        c.commit()
+
+
 def print_summary() -> None:
     code = staff_code()
     print("\n================  HyperTransfer 本地演示数据已就绪  ================")
@@ -144,4 +276,5 @@ if __name__ == "__main__":
         print(staff_code())
     else:
         seed()
+        seed_admission_demo()
         print_summary()
