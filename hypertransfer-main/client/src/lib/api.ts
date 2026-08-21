@@ -563,6 +563,8 @@ export const admissionApi = {
     route?: "complete_dossier" | "kyc_first";
   }) => api.post<{ ok: boolean; case: AdmissionCase }>("/admission-cases", p),
   mine: () => api.get<{ ok: boolean; cases: AdmissionCase[] }>("/admission-cases/mine"),
+  // VIP: 查看自己被绑定的 admission case(安全投影, 无 Host notes)
+  patronMine: () => api.get<{ ok: boolean; case: AdmissionCase }>("/admission-cases/patron/mine"),
   get: (id: string) => api.get<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}`),
   revoke: (id: string) => api.post<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}/revoke`, {}),
   // 双通道邀请(2026-08-21): 同一 case 的 email link + 动态 QR session, 均须 Email OTP 认领

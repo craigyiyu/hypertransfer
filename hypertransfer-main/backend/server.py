@@ -51,6 +51,7 @@ from admission_provider_adapters import (
     verify_session_token,
 )
 from admission_rules import can_transition_admission, host_kyc_reason
+from transaction_compliance_rules import kyc_valid_until
 
 BASE_DIR = Path(__file__).resolve().parent
 # DB 路径可由 HT_DB_PATH 覆盖(Docker 部署时指向挂载卷,本地不设则沿用原行为)
@@ -398,6 +399,7 @@ ADMISSION_SCHEMA_SQL = """
         leader_user_id  TEXT,
         kyc_reason_code TEXT,
         kyc_valid_until INTEGER,
+        kyc_document_expiries_json TEXT,
         created_at      INTEGER NOT NULL,
         updated_at      INTEGER NOT NULL
     );
@@ -656,6 +658,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE sumsub_kyc_applications ADD COLUMN approved_at INTEGER")
         if "valid_until" not in kyc_cols:
             conn.execute("ALTER TABLE sumsub_kyc_applications ADD COLUMN valid_until INTEGER")
+        # Host-led VIP admission: KYC document expiries (earliest relied-on expiry)。
+        admission_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(vip_admission_cases)").fetchall()}
+        if "kyc_document_expiries_json" not in admission_cols:
+            conn.execute(
+                "ALTER TABLE vip_admission_cases ADD COLUMN kyc_document_expiries_json TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -2580,8 +2588,12 @@ def _row_get(row: Any, key: str, default: Any = None) -> Any:
 
 
 def sumsub_persist_validity(user_id: str) -> Optional[sqlite3.Row]:
-    """PR③: KYC 首次通过(GREEN→status=approved)时落 approved_at + valid_until
-    (= approved_at + 6 个月)。幂等:已落过不覆盖。"""
+    """PR③: KYC 首次通过(GREEN→status=approved)时落 approved_at + valid_until。
+
+    valid_until = min(approved_at + 6 日历月, 最早证件到期日)——日历月算术,
+    绝不再用固定 `180 * 86400`。此处无证件到期信息时退化为 6 日历月;
+    绑定了 admission case 的 KYC 由 persist_case_kyc_outcome 以证件到期日为准写入。
+    幂等:已落过不覆盖。"""
     with db() as conn:
         row = conn.execute(
             "SELECT * FROM sumsub_kyc_applications WHERE user_id=?", (user_id,)
@@ -2590,9 +2602,10 @@ def sumsub_persist_validity(user_id: str) -> Optional[sqlite3.Row]:
             return None
         if row["status"] == "approved" and not _row_get(row, "approved_at"):
             approved_at = row["updated_at"] or int(time.time())
+            valid_until = kyc_valid_until(approved_at, [])
             conn.execute(
                 "UPDATE sumsub_kyc_applications SET approved_at=?, valid_until=? WHERE user_id=?",
-                (approved_at, approved_at + KYC_VALIDITY_SECS, user_id),
+                (approved_at, valid_until, user_id),
             )
             row = conn.execute(
                 "SELECT * FROM sumsub_kyc_applications WHERE user_id=?", (user_id,)
@@ -2601,7 +2614,13 @@ def sumsub_persist_validity(user_id: str) -> Optional[sqlite3.Row]:
 
 
 def sumsub_kyc_response_from_row(row: Optional[sqlite3.Row]) -> dict[str, Any]:
-    validity_days = KYC_VALIDITY_SECS // 86400
+    # validityDays 仅作前端展示提示: 有有效截止时按实际天数, 否则按 6 日历月参考值。
+    valid_until = _row_get(row, "valid_until") if row else None
+    approved_at = _row_get(row, "approved_at") if row else None
+    if valid_until and approved_at:
+        validity_days = max(1, (valid_until - approved_at) // 86400)
+    else:
+        validity_days = 183
     if not row:
         return {
             "ok": True,
@@ -2732,6 +2751,8 @@ def sumsub_travel_rule_txns(limit: int = 20, authorization: Optional[str] = Head
 @app.post("/api/sumsub/kyc/start")
 def sumsub_kyc_start(body: SumsubKycStartIn, authorization: Optional[str] = Header(default=None)):
     user = user_from_token(authorization)
+    # Case-aware: 开始 KYC 即把已认领的 admission case 移到 kyc_in_progress。
+    _mark_case_kyc_started(user["id"])
     level_name = body.levelName.strip() or SUMSUB_KYC_LEVEL_NAME
     fixed_info = sumsub_fixed_info_from_kyc(user, body)
     applicant_context = sumsub_ensure_applicant(user, level_name, fixed_info)
@@ -2811,6 +2832,8 @@ def sumsub_kyc_demo_approve(authorization: Optional[str] = Header(default=None))
         review_answer="GREEN",
     )
     row = sumsub_persist_validity(user["id"]) or sumsub_get_local_kyc(user["id"])
+    # Case-aware: 通过的 KYC 把已认领 case 移到 kyc_passed(6 日历月有效期)。
+    sync_case_kyc_from_provider(user["id"], "approved", "GREEN", "", None)
     return sumsub_kyc_response_from_row(row)
 
 
@@ -2909,6 +2932,11 @@ async def sumsub_webhook(request: Request):
             )
     if row:
         sumsub_persist_validity(row["user_id"])  # PR③: GREEN 落 valid_until
+        # Case-aware: provider 回调同步到已绑定的 admission case(安全原因分类)。
+        sync_case_kyc_from_provider(
+            row["user_id"], review["status"], review["reviewAnswer"],
+            review["rejectionReason"], payload,
+        )
     return {
         "ok": True,
         "provider": "sumsub",
@@ -4375,6 +4403,184 @@ def admission_claim_register(body: AdmissionClaimRegisterIn):
         "expires_in": TOTP_ENROLL_TTL,
         "demo": bool(DEMO_BYPASS_2FA),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Case-aware KYC (2026-08-21)
+#   valid_until = min(approved_at + 6 日历月, 最早证件到期日)。
+#   KYC 只把 case 从 kyc_in_progress 移到 kyc_passed / kyc_failed / compliance_review;
+#   Host 只拿安全原因分类, 绝无证件号/地址/生物特征/provider 原始细节。
+# --------------------------------------------------------------------------- #
+RESTRICTED_KYC_CODES = frozenset({"restricted", "compliance_review"})
+
+
+def _mark_case_kyc_started(user_id: str) -> None:
+    """VIP 开始 KYC: 已认领的 case(vip_claimed) -> kyc_in_progress(幂等)。"""
+    with db() as conn:
+        case = conn.execute(
+            "SELECT * FROM vip_admission_cases WHERE patron_user_id=? AND status='vip_claimed'",
+            (user_id,),
+        ).fetchone()
+    if case and can_transition_admission("vip_claimed", "kyc_in_progress", case["route"]):
+        _admission_case_update(case["id"], status="kyc_in_progress")
+        write_audit(
+            user_id, "admission.kyc.start", "admission_case", case["id"],
+            {"caseId": case["id"], "priorStatus": "vip_claimed", "nextStatus": "kyc_in_progress"},
+        )
+
+
+def _map_rejection_reason(text: str) -> str:
+    """把 provider 拒绝细节映射为 Host 可见的安全原因分类(未知一律 restricted)。"""
+    t = (text or "").lower()
+    if "expired" in t or "expir" in t:
+        return "document_expired"
+    if "quality" in t or "blur" in t or "illegible" in t or "unreadable" in t or "photo" in t:
+        return "document_quality"
+    if "mismatch" in t or "does not match" in t or "differ" in t:
+        return "identity_mismatch"
+    if "resubmit" in t or "resubmission" in t:
+        return "resubmit"
+    return "restricted"
+
+
+def _extract_document_expiries(payload: Optional[dict[str, Any]]) -> list[int]:
+    """从 provider payload 尽力提取证件到期日(best-effort; 拿不到就空列表)。"""
+    if not isinstance(payload, dict):
+        return []
+    review = payload.get("review") if isinstance(payload.get("review"), dict) else payload
+    id_docs = review.get("idDocs")
+    if not isinstance(id_docs, list):
+        return []
+    expiries: list[int] = []
+    for doc in id_docs:
+        if isinstance(doc, dict):
+            valid = doc.get("validUntil") or doc.get("expiredAt")
+            if isinstance(valid, (int, float)) and valid > 0:
+                expiries.append(int(valid))
+    return expiries
+
+
+def persist_case_kyc_outcome(
+    case_id: str,
+    user_id: str,
+    provider_status: str,
+    document_expiries: list[int],
+    reason_code: Optional[str],
+) -> None:
+    """把一次 KYC 结果落到 admission case 上。
+
+    - provider_status == "approved": case -> kyc_passed, 落 kyc_valid_until =
+      min(now + 6 日历月, 最早证件到期日), 同步写回 sumsub_kyc_applications.valid_until。
+    - 其他(failed/rejected): case -> kyc_failed 或 compliance_review(受限原因),
+      只存安全 reason_code, 绝不存 provider 原始细节。
+
+    只允许从 kyc_in_progress 转移; 其余状态返回 409(fail closed)。
+    """
+    case = _admission_case_get_or_404(case_id)
+    if case["patron_user_id"] != user_id:
+        raise HTTPException(
+            status_code=403, detail="KYC outcome does not belong to this admission case"
+        )
+    now = int(time.time())
+    if provider_status == "approved":
+        if not can_transition_admission(case["status"], "kyc_passed", case["route"]):
+            raise HTTPException(
+                status_code=409,
+                detail=f"KYC cannot pass a case in status {case['status']}",
+            )
+        valid_until = kyc_valid_until(now, [int(e) for e in document_expiries or []])
+        _admission_case_update(
+            case_id,
+            status="kyc_passed",
+            kyc_valid_until=valid_until,
+            kyc_reason_code=None,
+            kyc_document_expiries_json=(
+                json_dumps([int(e) for e in document_expiries]) if document_expiries else None
+            ),
+        )
+        # 同步回 sumsub 表, 让既有 user_kyc_ok / 入金闸门口径一致。
+        with db() as conn:
+            conn.execute(
+                """UPDATE sumsub_kyc_applications
+                   SET approved_at=?, valid_until=?, updated_at=? WHERE user_id=?""",
+                (now, valid_until, now, user_id),
+            )
+            conn.commit()
+        write_audit(
+            user_id, "admission.kyc.pass", "admission_case", case_id,
+            {"caseId": case_id, "priorStatus": case["status"], "nextStatus": "kyc_passed",
+             "validUntil": valid_until},
+        )
+        return
+    # 失败路径
+    code = reason_code or "restricted"
+    target = "compliance_review" if code in RESTRICTED_KYC_CODES else "kyc_failed"
+    if not can_transition_admission(case["status"], target, case["route"]):
+        raise HTTPException(
+            status_code=409,
+            detail=f"KYC outcome cannot move a case in status {case['status']}",
+        )
+    _admission_case_update(
+        case_id,
+        status=target,
+        kyc_reason_code=code,
+        kyc_valid_until=None,
+    )
+    write_audit(
+        user_id, "admission.kyc.fail", "admission_case", case_id,
+        {"caseId": case_id, "priorStatus": case["status"], "nextStatus": target,
+         "reasonCode": code},
+    )
+
+
+def sync_case_kyc_from_provider(
+    user_id: str,
+    provider_status: str,
+    review_answer: str,
+    rejection_reason: str,
+    payload: Optional[dict[str, Any]] = None,
+) -> None:
+    """Provider 回调/轮询结果同步到已绑定的 admission case(无 case 则 no-op)。"""
+    with db() as conn:
+        case = conn.execute(
+            """SELECT * FROM vip_admission_cases
+               WHERE patron_user_id=? AND status IN ('kyc_in_progress','vip_claimed')""",
+            (user_id,),
+        ).fetchone()
+    if not case:
+        return
+    document_expiries = _extract_document_expiries(payload)
+    if provider_status == "approved" and review_answer == "GREEN":
+        persist_case_kyc_outcome(case["id"], user_id, "approved", document_expiries, None)
+    elif provider_status in ("rejected", "failed"):
+        reason_code = _map_rejection_reason(rejection_reason)
+        persist_case_kyc_outcome(case["id"], user_id, "failed", document_expiries, reason_code)
+    # pending / 其它: case 保持 kyc_in_progress
+
+
+def admission_case_kyc_ok(case_id: str) -> bool:
+    """Case 级 KYC 闸门: 须 kyc_passed 且 kyc_valid_until 未过期。"""
+    case = _admission_case_get_or_404(case_id)
+    if case["status"] != "kyc_passed":
+        return False
+    valid_until = case["kyc_valid_until"]
+    if not valid_until:
+        return False
+    return int(time.time()) <= valid_until
+
+
+@app.get("/api/admission-cases/patron/mine")
+def admission_case_patron_mine(authorization: Optional[str] = Header(default=None)):
+    """VIP 查看自己被绑定的 admission case(安全投影: 无 Host notes/内部原因)。"""
+    user = user_from_token(authorization)
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM vip_admission_cases WHERE patron_user_id=?", (user["id"],)
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No admission case bound to this account")
+    roles = set(get_user_roles(user["id"]))
+    return {"case": _admission_case_public(row, user["id"], roles)}
 
 
 @app.get("/api/health")

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import Shell from '@/components/Shell';
 import { useDemo } from '@/contexts/DemoContext';
-import { apiError } from '@/lib/api';
+import { admissionApi, apiError } from '@/lib/api';
 import {
   formatKYCStatus,
   getStatusColor,
@@ -12,7 +12,10 @@ import {
   getKYCEligibility,
   getEstimatedReviewTime,
   canRetryKYC,
+  getCaseAwareKYCEligibility,
+  isKycCaseBlocked,
 } from '@/lib/kyc-status';
+import type { AdmissionCaseStatus } from '@/lib/admission-case';
 import { sumsubApi, type SumsubKycStatus } from '@/lib/sumsub';
 import {
   Clock,
@@ -34,9 +37,16 @@ export default function KYCStatus() {
   const [isChecking, setIsChecking] = useState(false);
   const [providerStatus, setProviderStatus] = useState<SumsubKycStatus | null>(null);
   const [providerMessage, setProviderMessage] = useState('Checking verification status...');
+  // Case-aware: KYC 状态与到期日以被绑定的 admission case 为准。
+  const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
+  const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
 
   const kycState = state.kyc;
   const eligibility = getKYCEligibility(kycState);
+  const caseEligibility = getCaseAwareKYCEligibility({
+    caseStatus,
+    kycValidUntil: caseKycValidUntil,
+  });
   const statusIcon = getStatusIcon(kycState.status);
   const IconComponent = iconMap[statusIcon as keyof typeof iconMap] || AlertCircle;
 
@@ -64,7 +74,12 @@ export default function KYCStatus() {
     if (result.status === 'approved') {
       setProviderMessage('Verification approved.');
     } else if (result.status === 'rejected') {
-      setProviderMessage(result.rejectionReason || 'Verification was not approved.');
+      // Case-aware: 只给客户安全的重交指引, 绝不展示 provider 原始拒绝细节。
+      setProviderMessage(
+        caseStatus
+          ? caseEligibility.actionRequired || 'Please resubmit your identity documents.'
+          : result.rejectionReason || 'Verification was not approved.',
+      );
     } else if (result.status === 'pending') {
       setProviderMessage('Automated checks usually complete in under a minute. You will be notified once verification is done.');
     } else {
@@ -102,6 +117,25 @@ export default function KYCStatus() {
   useEffect(() => {
     void handleCheckStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Case-aware: 读取被绑定的 admission case。
+  useEffect(() => {
+    let cancelled = false;
+    admissionApi
+      .patronMine()
+      .then((res) => {
+        if (cancelled) return;
+        setCaseStatus(res.data.case.status);
+        setCaseKycValidUntil(res.data.case.kycValidUntil ?? undefined);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCaseStatus(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -155,6 +189,12 @@ export default function KYCStatus() {
                     <p className="text-slate-300 text-sm">
                       Your identity verification is complete. You can now continue with deposits.
                     </p>
+                    {caseStatus === 'kyc_passed' && caseKycValidUntil && (
+                      <p className="text-xs text-slate-400 mt-3">
+                        KYC valid until{' '}
+                        {new Date(caseKycValidUntil * 1000).toLocaleDateString()}.
+                      </p>
+                    )}
                   </div>
                 </div>
               </Card>
@@ -199,15 +239,22 @@ export default function KYCStatus() {
                       We could not approve the submitted information. Please review the reason and submit again.
                     </p>
 
-                    {kycState.rejectionReason && (
+                    {caseStatus ? (
+                      // Case-aware: 客户只拿安全重交指引, 不展示 provider 原始细节。
                       <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
-                        <p className="text-xs text-slate-400 font-medium mb-1">
-                          Reason
-                        </p>
+                        <p className="text-xs text-slate-400 font-medium mb-1">Next steps</p>
                         <p className="text-sm text-slate-300">
-                          {kycState.rejectionReason}
+                          {caseEligibility.actionRequired ||
+                            'Please resubmit your identity documents to continue.'}
                         </p>
                       </div>
+                    ) : (
+                      kycState.rejectionReason && (
+                        <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
+                          <p className="text-xs text-slate-400 font-medium mb-1">Reason</p>
+                          <p className="text-sm text-slate-300">{kycState.rejectionReason}</p>
+                        </div>
+                      )
                     )}
 
                     <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">

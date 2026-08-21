@@ -3,6 +3,8 @@
  * Handles KYC status tracking, eligibility checks, and flow logic
  */
 
+import type { AdmissionCaseStatus } from "@/lib/admission-case";
+
 export type KYCStatus = 'not_started' | 'pending' | 'approved' | 'rejected';
 
 export interface KYCState {
@@ -138,4 +140,111 @@ export function getStatusIcon(status: KYCStatus): string {
     rejected: 'x-circle',
   };
   return iconMap[status] || 'circle';
+}
+
+// --------------------------------------------------------------------------- //
+// Case-aware KYC (Host-led VIP admission, 2026-08-21)
+// --------------------------------------------------------------------------- //
+
+export interface CaseAwareKycState {
+  caseStatus?: AdmissionCaseStatus;
+  /** Unix 秒; KYC 到期 = min(通过日 + 6 日历月, 最早证件到期日) */
+  kycValidUntil?: number;
+}
+
+/** KYC 是否已过期(仅 case 已 kyc_passed 时有意义)。 */
+export function isKycExpired(validUntil?: number, nowSec = Math.floor(Date.now() / 1000)): boolean {
+  if (!validUntil) return false;
+  return nowSec > validUntil;
+}
+
+const TERMINAL_BLOCKED_CASE_STATUSES: ReadonlySet<string> = new Set([
+  "kyc_failed",
+  "compliance_review",
+  "rejected",
+  "expired",
+  "revoked",
+]);
+
+/** 该 case 状态是否对 VIP 构成"不可继续"的阻断(KYC 相关)。 */
+export function isKycCaseBlocked(caseStatus?: AdmissionCaseStatus): boolean {
+  if (!caseStatus) return false;
+  return TERMINAL_BLOCKED_CASE_STATUSES.has(caseStatus);
+}
+
+/**
+ * Case-aware KYC 准入: Dashboard / 入金 / Travel Rule / leader queue 在
+ * kyc_passed 且未过期前一律不可用。文案只给客户安全信息。
+ */
+export function getCaseAwareKYCEligibility(state: CaseAwareKycState): KYCEligibility {
+  const status = state.caseStatus;
+  if (!status) {
+    return {
+      canDeposit: false,
+      canRetryKYC: false,
+      blockerMessage: 'No admission case is bound to this account',
+      actionRequired: 'Please contact your Host to start a VIP invitation.',
+    };
+  }
+  switch (status) {
+    case "kyc_passed":
+      if (isKycExpired(state.kycValidUntil)) {
+        return {
+          canDeposit: false,
+          canRetryKYC: true,
+          blockerMessage: 'Your KYC verification has expired',
+          actionRequired: 'Please complete identity verification again to continue.',
+        };
+      }
+      return { canDeposit: true, canRetryKYC: false };
+    case "kyc_in_progress":
+      return {
+        canDeposit: false,
+        canRetryKYC: false,
+        blockerMessage: 'Your KYC is being reviewed',
+        actionRequired: 'Automated checks usually complete in under a minute. You will be notified once verification is done.',
+      };
+    case "kyc_failed":
+      return {
+        canDeposit: false,
+        canRetryKYC: true,
+        blockerMessage: 'Your KYC was not approved',
+        actionRequired: 'Please resubmit your identity documents to continue.',
+      };
+    case "compliance_review":
+      return {
+        canDeposit: false,
+        canRetryKYC: false,
+        blockerMessage: 'Your verification is under compliance review',
+        actionRequired: 'We will contact you if more information is needed.',
+      };
+    case "vip_claimed":
+      return {
+        canDeposit: false,
+        canRetryKYC: true,
+        blockerMessage: 'Identity verification required',
+        actionRequired: 'Complete your KYC to proceed with deposits.',
+      };
+    case "invitation_open":
+      return {
+        canDeposit: false,
+        canRetryKYC: false,
+        blockerMessage: 'Your invitation is open',
+        actionRequired: 'Claim your invitation with the Email OTP sent to you.',
+      };
+    case "draft":
+      return {
+        canDeposit: false,
+        canRetryKYC: false,
+        blockerMessage: 'Your admission case is being prepared',
+        actionRequired: 'Please wait for your Host to send the invitation.',
+      };
+    default:
+      return {
+        canDeposit: false,
+        canRetryKYC: false,
+        blockerMessage: 'This service is not yet available for your account',
+        actionRequired: 'Please contact your Host or support.',
+      };
+  }
 }

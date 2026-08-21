@@ -18,7 +18,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiError } from "@/lib/api";
+import { admissionApi, apiError } from "@/lib/api";
+import {
+  getCaseAwareKYCEligibility,
+  isKycCaseBlocked,
+} from "@/lib/kyc-status";
+import type { AdmissionCaseStatus } from "@/lib/admission-case";
 import {
   sumsubApi,
   type SumsubConfig,
@@ -228,6 +233,10 @@ export default function KYC() {
   const [sumsubSubmitting, setSumsubSubmitting] = useState(false);
   const [sumsubMessage, setSumsubMessage] = useState("Checking verification availability...");
   const [applicantId, setApplicantId] = useState("");
+  // Case-aware: VIP 被绑定的 admission case 状态(KYC 闸门在 case 上)。
+  const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
+  const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
+  const [caseLoading, setCaseLoading] = useState(true);
 
   const canSubmit = Boolean(
     firstName.trim()
@@ -284,6 +293,29 @@ export default function KYC() {
       })
       .finally(() => {
         if (!cancelled) setSumsubLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Case-aware: 读取被绑定的 admission case(KYC 状态与到期日以 case 为准)。
+  useEffect(() => {
+    let cancelled = false;
+    admissionApi
+      .patronMine()
+      .then((res) => {
+        if (cancelled) return;
+        setCaseStatus(res.data.case.status);
+        setCaseKycValidUntil(res.data.case.kycValidUntil ?? undefined);
+      })
+      .catch(() => {
+        // 未绑定 case(404): 保持 undefined, 页面给出安全引导。
+        if (cancelled) return;
+        setCaseStatus(undefined);
+      })
+      .finally(() => {
+        if (!cancelled) setCaseLoading(false);
       });
     return () => {
       cancelled = true;
@@ -409,6 +441,28 @@ export default function KYC() {
       navigate("/kyc-status");
     }
   };
+
+  // Case-aware: KYC 失败 / 合规复核 / 过期 / 撤销等终态 → 客户安全阻断页(不给内部原因)。
+  if (!caseLoading && isKycCaseBlocked(caseStatus)) {
+    const eligibility = getCaseAwareKYCEligibility({ caseStatus, kycValidUntil: caseKycValidUntil });
+    return (
+      <Shell title="Identity Verification" subtitle="Verification status">
+        <div className="card-wine rounded-lg p-6 flex flex-col items-center text-center space-y-4">
+          <AlertCircle className="h-12 w-12 text-destructive/80" />
+          <h2 className="text-lg font-semibold text-foreground">{eligibility.blockerMessage}</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">{eligibility.actionRequired}</p>
+          {caseStatus === "kyc_failed" && (
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-xl border border-gold/40 px-5 py-2.5 text-sm font-semibold text-gold hover:bg-gold/10 transition-colors"
+            >
+              Retry verification
+            </button>
+          )}
+        </div>
+      </Shell>
+    );
+  }
 
   if (step === "pending") {
     return (

@@ -424,7 +424,18 @@ export default function AdmissionCasePanel() {
                     {c.kycHostMessage || (c.status === "kyc_passed" ? "KYC passed" : "—")}
                   </Field>
                   <Field label="KYC valid until">
-                    {c.kycValidUntil ? new Date(c.kycValidUntil * 1000).toLocaleDateString() : "—"}
+                    {c.kycValidUntil ? (
+                      <>
+                        {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
+                        {Date.now() / 1000 > c.kycValidUntil && (
+                          <span className="ml-1 text-[10px] font-semibold text-destructive">
+                            EXPIRED
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </Field>
                   <Field label="Invitation">
                     {c.invitation
