@@ -48,6 +48,7 @@ from hexsafe_client import HexSafeClient, HexSafeError  # 本地模块: Hex Safe
 from admission_provider_adapters import (
     HostProvisioningUnavailable,
     hash_session_token,
+    okta_configured,
     require_host_provisioning,
     verify_session_token,
 )
@@ -189,6 +190,7 @@ NEW_SCHEMA_SQL = """
         last_counter    INTEGER,
         totp_expires_at INTEGER,
         invited_by      TEXT,                    -- PR②-2: 邀请该客户的 RM user_id(自助注册为空)
+        okta_sub        TEXT,                    -- 员工 Okta 绑定标识(生产 OIDC 预留; demo 用 demo-okta:<user_id> 占位)
         created_at      INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -409,6 +411,9 @@ ADMISSION_SCHEMA_SQL = """
         kyc_reason_code TEXT,
         kyc_valid_until INTEGER,
         kyc_document_expiries_json TEXT,
+        leader_decision TEXT,
+        leader_reason   TEXT,
+        leader_decided_at INTEGER,
         created_at      INTEGER NOT NULL,
         updated_at      INTEGER NOT NULL
     );
@@ -676,6 +681,9 @@ def init_db() -> None:
         if "totp_enabled" not in user_cols:
             # 旧库 active 账户均已强制 2FA → 默认 1(保持其登录仍需 TOTP)
             conn.execute("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 1")
+        if "okta_sub" not in user_cols:
+            # 员工 Okta 绑定(生产 OIDC 预留; demo 占位)
+            conn.execute("ALTER TABLE users ADD COLUMN okta_sub TEXT")
         kyc_cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(sumsub_kyc_applications)").fetchall()}
         if "approved_at" not in kyc_cols:
@@ -688,6 +696,12 @@ def init_db() -> None:
         if "kyc_document_expiries_json" not in admission_cols:
             conn.execute(
                 "ALTER TABLE vip_admission_cases ADD COLUMN kyc_document_expiries_json TEXT")
+        if "leader_decision" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN leader_decision TEXT")
+        if "leader_reason" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN leader_reason TEXT")
+        if "leader_decided_at" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN leader_decided_at INTEGER")
         # Task 7: payment intent source outcome + pack custody/tx columns(既有库幂等补列)。
         intent_cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(payment_intents)").fetchall()}
@@ -1402,6 +1416,7 @@ def user_public(user) -> dict:
         "userType": user_type,
         "roles": get_user_roles(user["id"]),
         "totpEnabled": totp_enabled,   # PR③: 2FA 可选 → 前端据此决定登录/step-up 是否验 TOTP
+        "oktaLinked": bool(user["okta_sub"]) if "okta_sub" in keys else False,  # 员工 Okta 绑定(demo 占位/生产 OIDC)
     }
 
 
@@ -3944,15 +3959,50 @@ def _admission_case_invitation_view(case_id: str) -> dict[str, Any]:
     }
 
 
+def _case_payments_view(case_id: str) -> list[dict[str, Any]]:
+    """Case 级 settlement 聚合(安全字段): 每段转账的到账/Cage/对账状态。
+    VIP 与 Host 都能看自己的转账状态; 不含 Host notes/内部原因。"""
+    rows = []
+    with db() as conn:
+        intents = conn.execute(
+            "SELECT id FROM payment_intents WHERE admission_case_id=?", (case_id,)
+        ).fetchall()
+        intent_ids = [r["id"] for r in intents]
+        for iid in intent_ids:
+            packs = conn.execute(
+                "SELECT * FROM transaction_compliance_packs WHERE payment_intent_id=?",
+                (iid,),
+            ).fetchall()
+            for pack in packs:
+                rows.append({
+                    "packId": pack["id"],
+                    "transferLeg": pack["transfer_leg"],
+                    "actualAmount": pack["actual_amount"],
+                    "actualHkdAmount": pack["actual_hkd_amount"],
+                    "travelRuleDepth": pack["travel_rule_depth"],
+                    "kytStatus": pack["kyt_status"],
+                    "travelRuleStatus": pack["travel_rule_status"],
+                    "notabeneReference": pack["notabene_reference"] or "",
+                    "custodyAddress": pack["custody_address"] or "",
+                    "txHash": pack["tx_hash"] or "",
+                    "cageConfirmationId": pack["cage_confirmation_id"] or "",
+                    "reconciliationRef": pack["reconciliation_ref"] or "",
+                    "reconciledAt": pack["reconciled_at"],
+                    "finalizedAt": pack["finalized_at"],
+                })
+    return rows
+
+
 def _admission_case_public(
     row: sqlite3.Row, viewer_user_id: str, viewer_roles: set[str]
 ) -> dict[str, Any]:
     """Safe case projection.
 
-    Host notes, the full patron email and the internal KYC reason code are only
-    returned to the case-owner Host, Compliance and Admin — never to the VIP or
-    the leader. The Host additionally receives only the safe KYC category
-    message (kycHostMessage), never raw provider detail.
+    Host notes, the full patron email, the internal KYC reason code and the
+    leader's internal rejection reason are only returned to the case-owner Host,
+    Compliance and Admin — never to the VIP. The Host additionally receives only
+    the safe KYC category message (kycHostMessage), never raw provider detail.
+    The leader decision itself (approved/rejected) is visible to the owner Host.
     """
     is_owner_host = row["host_user_id"] == viewer_user_id and "host" in viewer_roles
     show_internal = is_owner_host or "compliance" in viewer_roles or "admin" in viewer_roles
@@ -3973,10 +4023,14 @@ def _admission_case_public(
         "patronUserId": row["patron_user_id"],
         "status": row["status"],
         "leaderUserId": row["leader_user_id"],
+        "leaderDecision": row["leader_decision"],
+        "leaderReason": row["leader_reason"] if show_internal else None,
+        "leaderDecidedAt": row["leader_decided_at"],
         "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
         "kycHostMessage": kyc_message or None,
         "kycValidUntil": row["kyc_valid_until"],
         "invitation": _admission_case_invitation_view(row["id"]),
+        "payments": _case_payments_view(row["id"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -4675,7 +4729,8 @@ def _require_leader(user: Any) -> Any:
 
 
 def _leader_case_view(row: sqlite3.Row) -> dict[str, Any]:
-    """安全业务摘要。sourceIdentifier(钱包地址)/证件/文档到期日/KYC 原因绝不输出。"""
+    """安全业务摘要: 含 Host 业务 note(内部员工可见)与 KYC passed/valid-until。
+    sourceIdentifier(钱包地址)/证件/文档到期日/KYC 原因/原始 provider 细节绝不输出。"""
     intent: Optional[dict[str, Any]] = None
     with db() as conn:
         ir = conn.execute(
@@ -4692,14 +4747,21 @@ def _leader_case_view(row: sqlite3.Row) -> dict[str, Any]:
             "counterpartyName": ir["counterparty_name"] or "",
             "status": ir["status"],
         }
+    kyc_passed = row["status"] in (
+        "kyc_passed", "payment_precheck", "leader_pending", "service_enabled"
+    )
     return {
         "id": row["id"],
         "hostName": _user_name(row["host_user_id"]),
         "patronEmailMasked": mask_email(row["patron_email"]),
         "servicePurpose": row["service_purpose"],
+        "hostNotes": row["host_notes"],            # 审批人可见业务 rationale
         "route": row["route"],
         "status": row["status"],
+        "kycStatus": "passed" if kyc_passed else row["status"],
         "kycValidUntil": row["kyc_valid_until"],
+        "leaderDecision": row["leader_decision"],
+        "leaderReason": row["leader_reason"],
         "intendedPayment": intent,
     }
 
@@ -4744,8 +4806,15 @@ def admission_case_leader_decision(
             status_code=400, detail="A business reason is required to reject an admission case"
         )
     target = "service_enabled" if body.decision == "approved" else "rejected"
-    _admission_case_update(case_id, status=target, leader_user_id=user["id"])
     reason = (body.reason or "").strip()
+    _admission_case_update(
+        case_id,
+        status=target,
+        leader_user_id=user["id"],
+        leader_decision=body.decision,
+        leader_reason=reason or None,
+        leader_decided_at=int(time.time()),
+    )
     if body.decision == "approved":
         vip_subject, vip_text = (
             "Your VIP admission has been approved",
@@ -5525,6 +5594,105 @@ def operations_monitoring_flags(user: Any = Depends(require_role("compliance", "
             for r in rows
         ]
     }
+
+
+# --------------------------------------------------------------------------- #
+# 员工多角色自助 onboarding + Okta demo 占位 (feedback round)
+#   Host / 单一 Manager(leader) / HK Operations(ops) 用公司邮箱自助注册账号 + TOTP,
+#   登录后按角色落各自工作台; 后续可接真实 Okta OIDC(本原型只做 demo 占位)。
+# --------------------------------------------------------------------------- #
+STAFF_ONBOARDING_ROLES = ("host", "leader", "ops")
+
+
+def _staff_onboarding_domains() -> "list[str]":
+    """公司邮箱允许域名: HT_STAFF_EMAIL_DOMAINS 可配; 非生产额外放行 demo.local。"""
+    domains = env_list("HT_STAFF_EMAIL_DOMAINS", "operator.example")
+    if SUMSUB_ENVIRONMENT != "production":
+        domains = list(dict.fromkeys(domains + ["demo.local"]))
+    return [d.lower().lstrip("@") for d in domains if d.strip()]
+
+
+class StaffOnboardingIn(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str
+
+
+@app.post("/api/staff/onboarding/start")
+def staff_onboarding_start(body: StaffOnboardingIn):
+    """员工用公司邮箱自助注册(公开端点): 建 pending_totp staff 账号 + 分配角色,
+    返回 TOTP 绑定信息; 激活复用 /confirm-totp(email)。"""
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid company email is required")
+    domain = email.split("@", 1)[1].lower()
+    if domain not in _staff_onboarding_domains():
+        raise HTTPException(
+            status_code=400,
+            detail="Only company emails are accepted for staff onboarding",
+        )
+    if body.role not in STAFF_ONBOARDING_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"role must be one of {', '.join(STAFF_ONBOARDING_ROLES)}",
+        )
+    with db() as conn:
+        dup = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if dup:
+        raise HTTPException(status_code=409, detail="This email is already registered, please sign in")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    secret = pyotp.random_base32()
+    pw_hash, pw_salt = hash_password(body.password)
+    now = int(time.time())
+    expires_at = now + TOTP_ENROLL_TTL
+    uid = str(uuid.uuid4())
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO users(id, phone, area_code, number, name, email, pw_hash, pw_salt,
+                                 totp_secret, totp_enabled, status, user_type, last_counter,
+                                 totp_expires_at, okta_sub, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,1,'pending_totp','staff',?,?,?,?)""",
+            (uid, None, "", "", body.name.strip(), email, pw_hash, pw_salt,
+             secret, None, expires_at, None, now),
+        )
+        conn.execute("INSERT INTO user_roles(user_id, role) VALUES (?,?)", (uid, body.role))
+        conn.commit()
+    write_audit(uid, "staff.onboard", "user", uid,
+                {"userId": uid, "email": email, "role": body.role})
+    otpauth = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=ISSUER)
+    return {
+        "ok": True,
+        "userId": uid,
+        "email": email,
+        "role": body.role,
+        "otpauth_uri": otpauth,
+        "secret": secret,
+        "qr_png_base64": qr_data_uri(otpauth),
+        "expires_at": expires_at,
+        "expires_in": TOTP_ENROLL_TTL,
+        "demo": bool(DEMO_BYPASS_2FA),
+    }
+
+
+@app.post("/api/staff/okta/link")
+def staff_okta_link(user: Any = Depends(require_role(*STAFF_ROLES))):
+    """Okta 绑定 —— demo 占位: 生产需要真实 OIDC(未配置 fail closed 503);
+    非生产写入 demo-okta:<user_id> 标记, 预留后续真实绑定字段。"""
+    if SUMSUB_ENVIRONMENT == "production" and not okta_configured(dict(os.environ)):
+        raise HTTPException(
+            status_code=503,
+            detail="Okta OIDC is not configured; Okta linking is unavailable in production",
+        )
+    okta_sub = f"demo-okta:{user['id']}"
+    with db() as conn:
+        conn.execute("UPDATE users SET okta_sub=? WHERE id=?", (okta_sub, user["id"]))
+        conn.commit()
+    write_audit(user["id"], "staff.okta.link", "user", user["id"],
+                {"userId": user["id"], "oktaSub": okta_sub, "demo": True})
+    return {"ok": True, "linked": True, "demo": True, "oktaSub": okta_sub}
 
 
 @app.get("/api/health")

@@ -31,6 +31,8 @@ STAFF = [
     ("demo-marketing", "marketing@demo.local", "Demo Marketing", "marketing"),
     ("demo-compliance", "compliance@demo.local", "Demo Compliance", "compliance"),
     ("demo-custodian", "custodian@demo.local", "Demo Custodian", "custodian"),
+    ("demo-leader", "leader@demo.local", "Demo Leader", "leader"),   # 单一 Manager 审批人
+    ("demo-ops", "ops@demo.local", "Demo HK Ops", "ops"),            # HK Operations
 ]
 PATRON_ID = "demo-patron"
 PATRON_EMAIL = "patron.demo@hypercrypto.com"

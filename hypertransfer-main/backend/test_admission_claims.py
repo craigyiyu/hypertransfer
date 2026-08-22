@@ -41,6 +41,8 @@ class AdmissionClaimsTestCase(unittest.TestCase):
         server.init_db()
         self.client = TestClient(server.app)
         self.now = int(time.time())
+        # 测试确定性: 关闭 demo 旁路, Email OTP 必须真实校验(错误码被拒)
+        server.DEMO_BYPASS_2FA = False
 
     def tearDown(self):
         server.DB_PATH = self._old_db_path

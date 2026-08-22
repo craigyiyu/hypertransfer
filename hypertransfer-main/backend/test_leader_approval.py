@@ -267,15 +267,16 @@ class LeaderViewSafetyTests(LeaderApprovalTestCase):
         rows = self._leader_cases(leader)
         assert len(rows) == 1
         dumped = json.dumps(rows[0])
-        # 商业摘要可见
+        # 商业摘要可见(审批人看业务 dossier): service purpose + Host 业务 note + KYC valid-until
         assert rows[0]["servicePurpose"] == "VIP table credit"
         assert rows[0]["kycValidUntil"] is not None
-        # 敏感信息绝不出现在 leader 视图
-        assert rows[0].get("hostNotes") is None
+        assert rows[0]["hostNotes"] == "Internal note — never for the leader"
+        assert rows[0]["kycStatus"] == "passed"
+        # 敏感信息绝不出现在 leader 视图: 完整邮箱/内部 KYC 原因/证件/钱包/provider 细节
         assert rows[0].get("kycReasonCode") is None
         assert rows[0].get("patronEmail") is None
-        for leaked in ("Internal note", "vip@example.test", "passport", "wallet", "provider",
-                       "applicant", "webhook", "sanction", "host_notes", "kyc_reason"):
+        for leaked in ("vip@example.test", "passport", "wallet", "provider",
+                       "applicant", "webhook", "sanction", "kyc_reason"):
             assert leaked not in dumped
 
     def test_leader_rejection_notifies_without_restricted_detail(self):
