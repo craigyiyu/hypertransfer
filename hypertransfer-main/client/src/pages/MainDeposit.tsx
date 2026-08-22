@@ -563,7 +563,7 @@ export default function MainDeposit() {
                   {/* 汇率(Hex Trust API, demo 值) —— 以 HKD 展示(非 MOP) */}
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Exchange rate · Hex Trust</span>
-                    <span className="text-foreground">1 {state.selectedAsset} ≈ {formatHKD(getExchangeRate("USDT", "HKD"))}</span>
+                    <span className="text-foreground">1 {state.selectedAsset} ≈ {formatHKD(getExchangeRate(state.selectedAsset === "USDC" ? "USD" : "USDT", "HKD"))}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Total planned deposit</span>

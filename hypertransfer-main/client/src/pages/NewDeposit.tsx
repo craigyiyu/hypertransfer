@@ -24,7 +24,9 @@ import {
 import {
   TRAVEL_RULE_THRESHOLD_USD,
   formatNetworkRail,
+  getPhaseOneNetworks,
   requiresTravelRule,
+  type ActivePhaseOneAsset,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
 import { depositApi, paymentApi, transactionPackApi, type HexSafeNetwork } from "@/lib/api";
@@ -39,7 +41,6 @@ import { toast } from "sonner";
 
 type ScreeningState = "idle" | "scanning" | "passed" | "failed";
 
-const SELECTED_ASSET = "USDT";
 const SYSTEM_BENEFICIARY_ROUTE = "HyperTransfer custody deposit account";
 const SYSTEM_PROVIDER_STRATEGY = "Sumsub Travel Rule adapter";
 
@@ -97,6 +98,12 @@ export default function NewDeposit() {
   const [originatorVasp, setOriginatorVasp] = useState(
     state.travelRuleInfo.originatorVasp || TRAVEL_RULE_DEMO_VALUES.originatorVasp,
   );
+  const [selectedAsset, setSelectedAsset] = useState<ActivePhaseOneAsset>(
+    state.selectedAsset === "USDC" ? "USDC" : "USDT",
+  );
+  const [selectedAssetNetwork, setSelectedAssetNetwork] = useState<string>(() =>
+    getPhaseOneNetworks(state.selectedAsset === "USDC" ? "USDC" : "USDT")[0]?.id ?? "ethereum",
+  );
   const [submittingTravelRule, setSubmittingTravelRule] = useState(false);
 
   useEffect(() => {
@@ -142,17 +149,19 @@ export default function NewDeposit() {
     return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyDemoValues);
   }, []);
 
-  const selectedNet = networks.find((n) => n.chainId === selectedChainId) ?? networks[0];
-  const selectedNetwork = selectedNet?.rail ?? "";
+  const assetNetworks = getPhaseOneNetworks(selectedAsset);
   const plannedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
-  const travelRuleRequired = requiresTravelRule(SELECTED_ASSET, plannedAmount);
+  const travelRuleRequired = requiresTravelRule(selectedAsset, plannedAmount);
   const useDemoNetwork = !netLoading && networks.length === 0;
-  const effectiveNetwork = selectedNetwork || (useDemoNetwork ? "demo" : "");
+  // 资产驱动网络: 配置了真实链时用所选资产支持的 rail; 否则 demo rail。
+  const effectiveNetwork = netConfigured ? selectedAssetNetwork : useDemoNetwork ? "demo" : selectedAssetNetwork;
+  const selectedConfirmations =
+    assetNetworks.find((n) => n.id === selectedAssetNetwork)?.confirmations ?? null;
   const canScreen =
     plannedAmount > 0 &&
     walletAddress.trim().length > 0 &&
     !netLoading &&
-    (Boolean(selectedNet) || useDemoNetwork);
+    (netConfigured || useDemoNetwork || Boolean(networks.length));
   const canSubmitTravelRule = Boolean(trAddress && trCity && trCountry && sourceOfFunds && originatorVasp);
   const travelRuleGatePassed = canPassTravelRuleGate(state.travelRuleStatus, travelRuleRequired);
 
@@ -170,9 +179,9 @@ export default function NewDeposit() {
     resetSession();
     setScreening("scanning");
     updateState({
-      selectedAsset: SELECTED_ASSET,
+      selectedAsset: selectedAsset,
       selectedNetwork: nextNetwork,
-      selectedMinConfirmations: selectedNet?.minConfirmations ?? null,
+      selectedMinConfirmations: selectedConfirmations,
       mainDepositAmount: cleanAmount,
       sourceWallet,
       depositRequestId: "",
@@ -186,7 +195,7 @@ export default function NewDeposit() {
       try {
         const { data } = await depositApi.create({
           network: nextNetwork,
-          asset: SELECTED_ASSET,
+          asset: selectedAsset,
           amountDecimal: cleanAmount,
         });
         requestId = data.requestId;
@@ -218,7 +227,7 @@ export default function NewDeposit() {
       // 未绑定 admission case / 后端不可用时静默回退 legacy flow。
       try {
         const intentRes = await paymentApi.createIntent({
-          asset: SELECTED_ASSET,
+          asset: selectedAsset,
           network: effectiveNetwork,
           intendedAmount: cleanAmount,
         });
@@ -229,7 +238,7 @@ export default function NewDeposit() {
           jurisdiction: "HK",
         });
         const confirm = await paymentApi.confirmActual(intentId, {
-          asset: SELECTED_ASSET,
+          asset: selectedAsset,
           network: effectiveNetwork,
           actualAmount: cleanAmount,
           sourceType: "wallet",
@@ -279,7 +288,7 @@ export default function NewDeposit() {
       originatorVasp,
       beneficiaryVasp: SYSTEM_BENEFICIARY_ROUTE,
       provider: SYSTEM_PROVIDER_STRATEGY,
-      asset: SELECTED_ASSET,
+      asset: selectedAsset,
       network: effectiveNetwork,
       amount: plannedAmount,
     });
@@ -314,7 +323,7 @@ export default function NewDeposit() {
         const { data } = await sumsubApi.travelRuleSubmit({
           direction: "out",
           amount: plannedAmount,
-          currencyCode: SELECTED_ASSET,
+          currencyCode: selectedAsset,
           cryptoChain: networkToCryptoChain(effectiveNetwork),
           originatorWallet: walletAddress.trim(),
           counterpartyName: SYSTEM_BENEFICIARY_ROUTE,
@@ -401,20 +410,60 @@ export default function NewDeposit() {
   };
 
   return (
-    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="USDT deposit setup">
+    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="Stablecoin deposit setup">
       <div className="space-y-5">
         <div className="card-gold rounded-xl p-4 space-y-2">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Accepted asset</p>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-base font-semibold text-foreground">USDT only</p>
+              <p className="text-base font-semibold text-foreground">Select asset</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Phase 1 deposits only accept USDT. Deposit rails are provisioned by the custody provider.
+                Phase 1 stablecoins: USDT (ERC-20 / TRC-20) and USDC (ERC-20). Deposit rails are provisioned by the custody provider.
               </p>
             </div>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#26A17B] text-sm font-bold text-white">
-              U
+              {selectedAsset === "USDT" ? "T" : "U"}
             </div>
+          </div>
+
+          <div className="flex gap-2">
+            {(["USDT", "USDC"] as const).map((asset) => (
+              <button
+                key={asset}
+                type="button"
+                onClick={() => {
+                  setSelectedAsset(asset);
+                  setSelectedAssetNetwork(getPhaseOneNetworks(asset)[0]?.id ?? "ethereum");
+                }}
+                disabled={screening !== "idle"}
+                className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                  selectedAsset === asset
+                    ? "border-gold/50 bg-gold/10 text-gold"
+                    : "border-border/60 bg-secondary/20 text-muted-foreground hover:border-gold/30"
+                }`}
+              >
+                {asset}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network</span>
+            {assetNetworks.map((net) => (
+              <button
+                key={net.id}
+                type="button"
+                onClick={() => setSelectedAssetNetwork(net.id)}
+                disabled={screening !== "idle"}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                  selectedAssetNetwork === net.id
+                    ? "border-gold/50 bg-gold/10 text-gold"
+                    : "border-border/60 text-muted-foreground hover:border-gold/30"
+                }`}
+              >
+                {formatNetworkRail(net.id)}
+              </button>
+            ))}
           </div>
           <p className="text-[10px] text-gold/70">
             Network: {netLoading ? "loading..." : formatNetworkRail(effectiveNetwork || "demo")}
@@ -434,12 +483,12 @@ export default function NewDeposit() {
               className="bg-input border-border h-12 rounded-xl text-base font-semibold pr-16"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gold font-medium">
-              USDT
+              {selectedAsset}
             </span>
           </div>
           {plannedAmount > 0 && (
             <p className="text-xs text-muted-foreground">
-              ≈ {getHKDEquivalent(plannedAmount, SELECTED_ASSET)}
+              ≈ {getHKDEquivalent(plannedAmount, selectedAsset)}
             </p>
           )}
         </div>
@@ -456,7 +505,7 @@ export default function NewDeposit() {
             className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl font-mono text-xs"
           />
           <p className="text-[10px] text-muted-foreground/60">
-            This is the wallet you will use to send USDT. We verify it before issuing a deposit address.
+            This is the wallet you will use to send your deposit. We verify it before issuing a deposit address.
           </p>
         </div>
 
@@ -530,7 +579,7 @@ export default function NewDeposit() {
                 {plannedAmount.toLocaleString()} USDT on {formatNetworkRail(effectiveNetwork)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                ≈ {getHKDEquivalent(plannedAmount, SELECTED_ASSET)}
+                ≈ {getHKDEquivalent(plannedAmount, selectedAsset)}
               </p>
             </div>
 

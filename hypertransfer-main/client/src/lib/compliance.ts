@@ -4,8 +4,9 @@ export const TRAVEL_RULE_THRESHOLD_USD = 1000;
 export const SUPPORTED_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
 export type SupportedPhaseOneAsset = (typeof SUPPORTED_PHASE_ONE_ASSETS)[number];
 
-// 当前对客户开放的资产（最终流程 v1：仅 USDT）。USDC 定义保留备 Phase 2，由本白名单控制客户端是否显示。
-export const ACTIVE_PHASE_ONE_ASSETS = ["USDT"] as const;
+// 当前对客户开放的资产(2026-08-21 口径): USDT + USDC。USDT 支持 ERC-20/TRC-20,
+// USDC 仅 ERC-20(见 PHASE_ONE_NETWORKS)。Travel Rule 阈值按资产 1:1 USD 判定。
+export const ACTIVE_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
 export type ActivePhaseOneAsset = (typeof ACTIVE_PHASE_ONE_ASSETS)[number];
 
 export const PHASE_ONE_NETWORKS: Record<
