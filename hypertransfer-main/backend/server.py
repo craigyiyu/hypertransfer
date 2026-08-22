@@ -3622,8 +3622,8 @@ def deposit_create(body: DepositCreateIn, authorization: Optional[str] = Header(
     user = user_from_token(authorization)
     require_kyc(user["id"])                                   # ② 硬阻断
     asset = (body.asset or "USDT").strip().upper()
-    if asset != "USDT":
-        raise HTTPException(status_code=400, detail="Phase 1 supports USDT only")
+    if asset not in ("USDT", "USDC"):
+        raise HTTPException(status_code=400, detail="Phase 1 supports USDT and USDC only")
     chain_id = resolve_chain_id(body.network)
     tr_required = _tr_required(body.amountDecimal)
     did = "DR-" + time.strftime("%Y%m", time.gmtime()) + "-" + uuid.uuid4().hex[:8].upper()
@@ -4616,6 +4616,16 @@ def persist_case_kyc_outcome(
             {"caseId": case_id, "priorStatus": case["status"], "nextStatus": "kyc_passed",
              "validUntil": valid_until},
         )
+        # kyc_first 路线: KYC 通过后自动进入单一 manager 的审批队列。
+        if (
+            case["route"] == "kyc_first"
+            and can_transition_admission("kyc_passed", "leader_pending", "kyc_first")
+        ):
+            _admission_case_update(case_id, status="leader_pending")
+            write_audit(
+                user_id, "admission.kyc_first.queued", "admission_case", case_id,
+                {"caseId": case_id, "priorStatus": "kyc_passed", "nextStatus": "leader_pending"},
+            )
         return
     # 失败路径
     code = reason_code or "restricted"
@@ -5017,14 +5027,23 @@ class RecordTransferIn(BaseModel):
 
 
 def _require_payment_eligibility(user_id: str) -> sqlite3.Row:
-    """支付前置: 已绑定 case + service_enabled + KYC 有效(未过期)。"""
+    """支付前置: 已绑定 case + KYC 有效。
+
+    complete_dossier 路线在 kyc_passed / payment_precheck 阶段允许创建 payment intent
+    (即"intended first-payment pre-check"——pre-check 完成后 case 进入 leader 队列);
+    kyc_first 路线须等 leader 批准(service_enabled)后才能发起支付。
+    """
     with db() as conn:
         case = conn.execute(
             "SELECT * FROM vip_admission_cases WHERE patron_user_id=?", (user_id,)
         ).fetchone()
     if not case:
         raise HTTPException(status_code=404, detail="No admission case bound to this account")
-    if case["status"] != "service_enabled":
+    allowed_precheck = (
+        case["route"] == "complete_dossier"
+        and case["status"] in ("kyc_passed", "payment_precheck")
+    )
+    if case["status"] != "service_enabled" and not allowed_precheck:
         raise HTTPException(
             status_code=403,
             detail="Service is not enabled for this admission case; the leader has not approved it",
@@ -5067,6 +5086,18 @@ def payment_intent_create(
         raise HTTPException(status_code=400, detail="Unsupported asset or network for Phase 1")
     intent_id = str(uuid.uuid4())
     now = int(time.time())
+    # complete_dossier 预检: kyc_passed -> payment_precheck(启动 intended pre-check)。
+    if (
+        case["route"] == "complete_dossier"
+        and case["status"] == "kyc_passed"
+        and can_transition_admission("kyc_passed", "payment_precheck", case["route"])
+    ):
+        _admission_case_update(case["id"], status="payment_precheck")
+        write_audit(
+            user["id"], "admission.precheck.start", "admission_case", case["id"],
+            {"caseId": case["id"], "priorStatus": "kyc_passed", "nextStatus": "payment_precheck",
+             "intentId": intent_id},
+        )
     with db() as conn:
         conn.execute(
             """INSERT INTO payment_intents(
@@ -5166,6 +5197,23 @@ def payment_intent_actual_confirmation(
             (_fingerprint_to_json(fingerprint), status, int(time.time()), intent_id),
         )
         conn.commit()
+    # complete_dossier 预检完成: 实际确认(无需重验) -> payment_precheck -> leader_pending。
+    if not requires_revalidation:
+        with db() as conn:
+            case = conn.execute(
+                "SELECT * FROM vip_admission_cases WHERE id=?", (row["admission_case_id"],)
+            ).fetchone()
+        if (
+            case
+            and case["status"] == "payment_precheck"
+            and can_transition_admission("payment_precheck", "leader_pending", case["route"])
+        ):
+            _admission_case_update(case["id"], status="leader_pending")
+            write_audit(
+                user["id"], "admission.precheck.pass", "admission_case", case["id"],
+                {"caseId": case["id"], "priorStatus": "payment_precheck",
+                 "nextStatus": "leader_pending", "intentId": intent_id},
+            )
     write_audit(
         user["id"], "payment.intent.actual", "payment_intent", intent_id,
         {"intentId": intent_id, "requiresRevalidation": requires_revalidation,
@@ -5191,6 +5239,16 @@ def payment_intent_compliance_packs(
     _intent_owned_or_404(row, user["id"])
     if body.transferLeg not in (VERIFICATION_LEG, MAIN_LEG):
         raise HTTPException(status_code=400, detail="transferLeg must be 'verification' or 'main'")
+    # 资金流严格闸门: per-transfer pack 只在服务启用后创建(pre-check 阶段不建 pack)。
+    with db() as conn:
+        case = conn.execute(
+            "SELECT status, route FROM vip_admission_cases WHERE id=?", (row["admission_case_id"],)
+        ).fetchone()
+    if not case or case["status"] != "service_enabled":
+        raise HTTPException(
+            status_code=403,
+            detail="Service must be enabled before creating transaction packs",
+        )
     if row["source_status"] != "pass":
         raise HTTPException(
             status_code=409,

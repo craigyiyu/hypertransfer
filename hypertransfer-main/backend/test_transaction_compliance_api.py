@@ -372,9 +372,29 @@ class PackGateTests(TransactionComplianceTestCase):
 
     def test_payment_requires_service_enabled_case(self):
         patron = self._create_eligible_case()  # kyc_passed but NOT service_enabled
+        # complete_dossier 预检: kyc_passed 允许建 intent(启动 pre-check)...
         resp = self.client.post(
             f"{API}/payment-intents",
             json={"asset": "USDT", "network": "tron", "intendedAmount": "10000"},
+            headers=self._auth(patron["patronToken"]),
+        )
+        assert resp.status_code == 200, resp.text
+        intent_id = resp.json()["intent"]["id"]
+        # ...但真正的 per-transfer pack(资金流)须 service_enabled 后才可创建。
+        self.client.post(
+            f"{API}/payment-intents/{intent_id}/source-classification",
+            json={"sourceType": "wallet", "sourceIdentifier": "T-gate-1", "jurisdiction": "HK"},
+            headers=self._auth(patron["patronToken"]),
+        )
+        self.client.post(
+            f"{API}/payment-intents/{intent_id}/actual-confirmation",
+            json={"asset": "USDT", "network": "tron", "actualAmount": "10000",
+                  "sourceType": "wallet", "sourceIdentifier": "T-gate-1"},
+            headers=self._auth(patron["patronToken"]),
+        )
+        resp = self.client.post(
+            f"{API}/payment-intents/{intent_id}/compliance-packs",
+            json={"transferLeg": "verification", "actualAmount": "1", "actualHkdAmount": "8"},
             headers=self._auth(patron["patronToken"]),
         )
         assert resp.status_code == 403
