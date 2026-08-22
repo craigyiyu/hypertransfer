@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Invite from "@/pages/Invite";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DemoProvider } from "@/contexts/DemoContext";
 
 afterEach(() => cleanup());
@@ -34,11 +35,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
 function renderInvite(url = "/invite?qrSession=qr-session-token-123") {
   window.history.replaceState({}, "", url);
   return render(
-    <AuthProvider>
-      <DemoProvider>
-        <Invite />
-      </DemoProvider>
-    </AuthProvider>,
+    <ThemeProvider defaultTheme="dark">
+      <AuthProvider>
+        <DemoProvider>
+          <Invite />
+        </DemoProvider>
+      </AuthProvider>
+    </ThemeProvider>,
   );
 }
 

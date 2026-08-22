@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import ThemeToggle from "@/components/ThemeToggle";
 import { staffApi, apiError } from "@/lib/api";
 import { toast } from "sonner";
 import { formatNetworkRail } from "@/lib/compliance";
@@ -184,6 +185,7 @@ export default function CasinoOpsPortal() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <StatusPill tone="success">Staff only</StatusPill>
             <OktaLinkButton />
             <button

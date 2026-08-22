@@ -102,7 +102,7 @@ export default function Support() {
                 value={contactForm.subject}
                 onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
                 placeholder="e.g., Issue with deposit"
-                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700/50 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:border-gold-400/50"
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:border-gold-400/50"
                 required
               />
             </div>
@@ -113,7 +113,7 @@ export default function Support() {
                 onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
                 placeholder="Describe your issue..."
                 rows={3}
-                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700/50 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:border-gold-400/50 resize-none"
+                className="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:border-gold-400/50 resize-none"
                 required
               />
             </div>

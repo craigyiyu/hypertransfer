@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import ThemeToggle from "@/components/ThemeToggle";
 import { isStaffUser } from "@/lib/api";
 import type { ReactNode } from "react";
 
@@ -112,6 +113,7 @@ export default function Shell({
             </a>
           </div>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             {isAuthenticated && (
               <div className="relative">
                 <button
