@@ -230,6 +230,22 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 USDC 支持 + 审批队列可达（同分支, feedback round 2）
+
+- **日期 / 范围**：2026-08-21。按用户反馈补两块：
+  - **USDC 开放**：`ACTIVE_PHASE_ONE_ASSETS = ["USDT","USDC"]`（口径对齐 2026-08-21 设计：USDT on ERC-20/TRC-20、
+    USDC on ERC-20）；NewDeposit 增加**资产选择器**（USDT/USDC）与按资产的网络选择；金额后缀/汇率/文案跟随所选资产；
+    验证款为所选资产的 1 单位。后端 payment-intent 与 legacy deposit-create 资产门均放开 USDT+USDC。
+  - **单一 manager 审批队列可达（修演示缺口）**：此前 API 无路径把 case 从 `kyc_passed` 推进到 `leader_pending`，
+    manager 队列永远为空。现：complete_dossier 路线在 `kyc_passed` 建 payment intent 即进入 `payment_precheck`（预检启动），
+    实际确认（无需重验）后进入 `leader_pending`（预检完成）；kyc_first 路线 KYC 通过自动进 `leader_pending`。
+    **资金流严格闸门**：per-transfer pack 仅在 `service_enabled` 后可创建；kyc_first 批准前不可建 intent。
+    新增测试 `test_precheck_leader_flow.py`（8 项）。
+  - **seed**：新增 `ADM-DEMO-0002`（leader_pending，USDC/ethereum 预检 intent，VASP 来源）——manager 队列开箱即有内容。
+- **验证**：Python unittest discover **168/168** ✅、`pnpm test` 28/28 ✅、`check` ✅、`build` ✅；bob 已重新部署并冒烟
+  （manager 队列见 ADM-DEMO-0002 + USDC dossier、USDC intent 可建、路由 200）。
+- **已知限制**：USDC 仅 ERC-20（TRC-20 不开放 USDC）；汇率 demo 按 USDC≈USD 1:1 折算 HKD。
+
 ### 2026-08-21 多角色 onboarding + 审批/结算 visibility + KYC 减摩擦（同分支, feedback round）
 
 - **日期 / 范围**：2026-08-21。在 Host-led VIP admission 基础上按用户反馈落地三块：
