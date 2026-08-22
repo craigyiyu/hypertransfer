@@ -23,6 +23,8 @@ import { admissionApi } from "@/lib/api";
 import { ADMISSION_STATUS_LABELS } from "@/lib/admission-case";
 import type { AdmissionCaseStatus } from "@/lib/admission-case";
 import { getCaseAwareKYCEligibility } from "@/lib/kyc-status";
+import AdmissionJourney from "@/components/AdmissionJourney";
+import type { CasePaymentView } from "@/lib/api";
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
@@ -32,6 +34,7 @@ export default function Dashboard() {
   // Case-aware: 被绑定的 admission case 决定"正确下一步"(入金只在 service_enabled + KYC 有效时)。
   const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
   const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
+  const [casePayments, setCasePayments] = useState<CasePaymentView[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +44,7 @@ export default function Dashboard() {
         if (cancelled) return;
         setCaseStatus(res.data.case.status);
         setCaseKycValidUntil(res.data.case.kycValidUntil ?? undefined);
+        setCasePayments(res.data.case.payments ?? []);
       })
       .catch(() => {
         if (cancelled) return;
@@ -165,6 +169,9 @@ export default function Dashboard() {
   return (
     <Shell title={`Welcome, ${state.patronName || "User"}`} subtitle="Manage your crypto deposits">
       <div className="space-y-5">
+        {caseStatus && (
+          <AdmissionJourney status={caseStatus} payments={casePayments} />
+        )}
         {/* Session recovery alert */}
         {incompleteSessions.length > 0 && (
           <SessionRecovery

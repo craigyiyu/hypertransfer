@@ -16,6 +16,8 @@ import {
   isKycCaseBlocked,
 } from '@/lib/kyc-status';
 import type { AdmissionCaseStatus } from '@/lib/admission-case';
+import type { CasePaymentView } from '@/lib/api';
+import AdmissionJourney from '@/components/AdmissionJourney';
 import { sumsubApi, type SumsubKycStatus } from '@/lib/sumsub';
 import {
   Clock,
@@ -40,6 +42,7 @@ export default function KYCStatus() {
   // Case-aware: KYC 状态与到期日以被绑定的 admission case 为准。
   const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
   const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
+  const [casePayments, setCasePayments] = useState<CasePaymentView[]>([]);
 
   const kycState = state.kyc;
   const eligibility = getKYCEligibility(kycState);
@@ -128,6 +131,7 @@ export default function KYCStatus() {
         if (cancelled) return;
         setCaseStatus(res.data.case.status);
         setCaseKycValidUntil(res.data.case.kycValidUntil ?? undefined);
+        setCasePayments(res.data.case.payments ?? []);
       })
       .catch(() => {
         if (cancelled) return;
@@ -142,6 +146,7 @@ export default function KYCStatus() {
     <Shell>
       <div className="min-h-screen bg-gradient-to-b from-background via-background to-background px-4 py-8">
         <div className="max-w-2xl mx-auto">
+          {caseStatus && <AdmissionJourney status={caseStatus} payments={casePayments} />}
           {/* Status Header */}
           <div className="text-center mb-8">
             <div className="flex justify-center mb-6">
@@ -149,12 +154,12 @@ export default function KYCStatus() {
                 <div
                   className={`w-20 h-20 rounded-full flex items-center justify-center ${
                     kycState.status === 'approved'
-                      ? 'bg-green-500/20'
+                      ? 'bg-success/20'
                       : kycState.status === 'rejected'
-                        ? 'bg-red-500/20'
+                        ? 'bg-destructive/20'
                         : kycState.status === 'pending'
-                          ? 'bg-yellow-500/20'
-                          : 'bg-slate-700/50'
+                          ? 'bg-warning/20'
+                          : 'bg-secondary/50'
                   }`}
                 >
                   <IconComponent

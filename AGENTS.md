@@ -230,6 +230,21 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 UX/视觉打磨（分支 `feat/ux-visual-polish`, B+C）
+
+- **B1 VIP 旅程**：`lib/admission-journey.ts` + `components/AdmissionJourney.tsx`——VIP Dashboard/KYCStatus 顶部
+  展示统一旅程条（Created→Invited→Claimed→KYC→KYC passed→Pre-check→Approver→Enabled + 服务启用后的
+  Verification→Main→Cage→Reconciled），并给每个状态客户安全的"下一步"文案；单测覆盖进度计算与文案不泄露内部原因。
+- **B2 Host 跟进闭环**：AdmissionCasePanel 顶部"Needs your attention"汇总（Awaiting approver / KYC action /
+  Rejected / Cage pending 计数）；后端邮件模板(邀请/KYC 重交/审批/拒绝)补 case 引用与跟进指引。
+- **B3+C2 状态一致性**：ops-ui 新增 `EmptyState`/`LoadingSkeleton` 并应用到三个 admission 面板；
+  ErrorRecovery/LoadingState/SuccessCelebration/KYCStatus 残留硬编码深色样式 token 化。
+- **C1+C3 视觉系统**：展示衬线 Fraunces(与 Outfit 正文搭配, 克制用于品牌级标题)；`page-enter` 页面淡入动效、
+  `card-interactive` 卡片悬浮微交互；`BrandMark`(金边盾形 H 字标)用于 Shell/Portal/Landing；
+  加载转圈改金色品牌色。
+- **验证**：tsc ✅、pnpm test 34/34 ✅、build ✅；待部署 bob。
+- **已知限制**：B4 移动端/无障碍全量审计与 B5 双语 i18n 完整化本轮未做(留待后续)；QR 倒计时未加。
+
 ### 2026-08-21 USDC 支持 + 审批队列可达（同分支, feedback round 2）
 
 - **日期 / 范围**：2026-08-21。按用户反馈补两块：
