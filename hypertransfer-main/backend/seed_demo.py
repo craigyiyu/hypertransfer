@@ -137,6 +137,9 @@ ADM_PACK_VERIFY = "PC-DEMO-VERIFY"
 ADM_PACK_MAIN = "PC-DEMO-MAIN"
 ADM_CAGE_ID = "CAGE-DEMO-0001"
 ADM_RECON_REF = "FIN-REC-DEMO-0001"
+# 第二条演示 case: 待单一 manager 审批(leader_pending), 让 Leader Approval 队列开箱即有内容。
+ADM_PENDING_CASE_ID = "ADM-DEMO-0002"
+ADM_PENDING_INTENT_ID = "PI-DEMO-0002"
 
 
 def seed_admission_demo() -> None:
@@ -154,7 +157,9 @@ def seed_admission_demo() -> None:
             ("transaction_compliance_packs", "id", ADM_PACK_VERIFY),
             ("transaction_compliance_packs", "id", ADM_PACK_MAIN),
             ("payment_intents", "id", ADM_INTENT_ID),
+            ("payment_intents", "id", ADM_PENDING_INTENT_ID),
             ("vip_admission_cases", "id", ADM_CASE_ID),
+            ("vip_admission_cases", "id", ADM_PENDING_CASE_ID),
             ("host_profiles", "user_id", ADM_HOST_ID),
             ("users", "id", ADM_HOST_ID),
             ("users", "id", ADM_PATRON_ID),
@@ -253,6 +258,34 @@ def seed_admission_demo() -> None:
         insert_pack(ADM_PACK_MAIN, "main", "10000", "80000", "enhanced",
                     "0xdemoMainTx000000000000000000000000000000000000000000000000000000002",
                     ADM_CAGE_ID, ADM_RECON_REF)
+
+        # 待审批演示 case(complete_dossier, 预检完成 -> leader_pending)
+        c.execute(
+            """INSERT INTO vip_admission_cases(
+                  id, host_user_id, patron_email, member_reference, service_purpose,
+                  host_notes, preferred_language, route, patron_user_id, status,
+                  leader_user_id, kyc_reason_code, kyc_valid_until,
+                  leader_decision, leader_reason, leader_decided_at, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_PENDING_CASE_ID, ADM_HOST_ID, "vip2.admission.demo@operator.example",
+             "M-VIP-DEMO-002", "VIP table credit (pending approval)",
+             "Second demo case awaiting the manager's approval", "en",
+             "complete_dossier", ADM_PATRON_ID, "leader_pending", None,
+             None, server.kyc_valid_until(now, []),
+             None, None, None, now, now),
+        )
+        c.execute(
+            """INSERT INTO payment_intents(
+                  id, admission_case_id, asset, network, intended_amount, source_type,
+                  source_identifier, counterparty_name, source_status, status,
+                  fingerprint_json, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_PENDING_INTENT_ID, ADM_PENDING_CASE_ID, "USDC", "ethereum", "15000", "vasp",
+             "demo-vasp.example.test", "Demo VASP", "pass", "actual_confirmed",
+             '{"asset":"USDC","network":"ethereum","actualAmount":"15000","sourceType":"vasp",'
+             '"sourceIdentifier":"demo-vasp.example.test","counterpartyId":null}',
+             now, now),
+        )
         c.commit()
 
 
