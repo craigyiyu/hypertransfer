@@ -199,12 +199,14 @@ def seed_admission_demo() -> None:
             """INSERT INTO vip_admission_cases(
                   id, host_user_id, patron_email, member_reference, service_purpose,
                   host_notes, preferred_language, route, patron_user_id, status,
-                  leader_user_id, kyc_reason_code, kyc_valid_until, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  leader_user_id, kyc_reason_code, kyc_valid_until,
+                  leader_decision, leader_reason, leader_decided_at, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ADM_CASE_ID, ADM_HOST_ID, ADM_PATRON_EMAIL, "M-VIP-DEMO-001",
              "VIP table credit demo", "Demo relationship note (internal only)", "zh-Hant",
              "complete_dossier", ADM_PATRON_ID, "service_enabled", "demo-leader-id",
-             None, server.kyc_valid_until(now, []), now, now),
+             None, server.kyc_valid_until(now, []),
+             "approved", None, now, now, now),
         )
 
         # payment intent: 来源已分类(pass) + 实际已确认(10000 USDT / tron)
