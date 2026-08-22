@@ -230,6 +230,24 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 多角色 onboarding + 审批/结算 visibility + KYC 减摩擦（同分支, feedback round）
+
+- **日期 / 范围**：2026-08-21。在 Host-led VIP admission 基础上按用户反馈落地三块：
+  - **员工多角色自助 onboarding**：`/staff-onboard` 公开页——Host / Manager(leader) / HK Operations(ops)
+    用**公司邮箱**（`HT_STAFF_EMAIL_DOMAINS` 可配, 默认 `operator.example`; 非生产额外放行 `demo.local`）注册
+    + TOTP 激活; 登录后按角色落各自工作台（Host→VIP Admissions / Leader→Leader Approval / Ops→Payment Operations）;
+    `/ops` 加入口。**Okta 绑定 = demo 占位**（后台「Link Okta」写 `okta_sub=demo-okla:<id>`, `/me` 返回
+    `oktaLinked`; 生产无 OKTA_* 配置 503 fail closed, 真实 OIDC 留待后续）。
+  - **审批与结算 visibility**：leader 决策/拒批原因落库（`vip_admission_cases.leader_decision/leader_reason/leader_decided_at`）;
+    Host 面板显示 批准/拒绝+原因、状态 timeline、逐段 payments & settlement（到账/Cage/对账）; leader dossier 含
+    Host 业务 note + KYC passed/valid-until（内部员工数据, VIP 仍不可见）; data-visibility 边界保持。
+  - **VIP KYC 减摩擦**（Sumsub 调研落地）：表单只收 level 必填固定信息（姓名/出生日期/国籍/电话+同意）,
+    证件/住址/职业/资金来源改由 provider 按其 level 步骤收集; 配置存在时提供 Sumsub WebSDK 启动按钮,
+    未配置走原 demo approve。liveness 仅在 level 配置含该步骤时执行（Sumsub 文档口径）。
+- **验证**：Python unittest discover **160/160** ✅、`corepack pnpm test` **28/28** ✅、`check` ✅、`build` ✅。
+- **已知限制**：Okta 为 demo 占位（生产 OIDC 未接）; KYC WebSDK 需真实 Sumsub 凭据才可跑（无凭据走 demo approve）;
+  员工角色自选在 demo 允许, 生产建议 admin 分配。
+
 ### 2026-08-21 Host-led VIP admission + per-transfer compliance packs（分支 `docs/host-led-vip-admission-plan`）
 
 - **日期 / 范围**：2026-08-21。按 `Docs/superpowers/plans/2026-08-21-host-led-vip-admission-implementation-plan.md` Task 1–9 落地
