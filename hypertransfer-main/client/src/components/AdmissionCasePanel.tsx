@@ -37,6 +37,7 @@ import {
   ADMISSION_STATUS_LABELS,
   admissionStatusTone,
   isTerminalAdmissionStatus,
+  type AdmissionCaseStatus,
 } from "@/lib/admission-case";
 import { ActionBtn, Field, LabeledInput, PanelHeader, Pill } from "@/components/ops-ui";
 
@@ -48,6 +49,58 @@ const EMPTY_CASE_FORM = {
   preferredLanguage: "",
   route: "complete_dossier" as "complete_dossier" | "kyc_first",
 };
+
+const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
+  { key: "draft", label: "Draft" },
+  { key: "invitation_open", label: "Invited" },
+  { key: "vip_claimed", label: "Claimed" },
+  { key: "kyc_in_progress", label: "KYC" },
+  { key: "kyc_passed", label: "KYC OK" },
+  { key: "payment_precheck", label: "Pre-check" },
+  { key: "leader_pending", label: "Approver" },
+  { key: "service_enabled", label: "Enabled" },
+];
+
+function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
+  const order = ADMISSION_MILESTONES.map((m) => m.key);
+  const idx = order.indexOf(status);
+  const current = idx >= 0 ? idx : order.length - 1;
+  const terminal = isTerminalAdmissionStatus(status);
+  return (
+    <div className="mt-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Admission status</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        {ADMISSION_MILESTONES.map((m, i) => {
+          const done = terminal ? i <= current : i < current;
+          const isCurrent = i === current && !terminal;
+          return (
+            <div key={m.key} className="flex items-center gap-1">
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  done
+                    ? "border-success/30 bg-success/10 text-success"
+                    : isCurrent
+                      ? "border-gold/40 bg-gold/10 text-gold"
+                      : "border-border/40 bg-secondary/20 text-muted-foreground/60"
+                }`}
+              >
+                {m.label}
+              </span>
+              {i < ADMISSION_MILESTONES.length - 1 && (
+                <span className="text-[9px] text-border">→</span>
+              )}
+            </div>
+          );
+        })}
+        {terminal && (
+          <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
+            {ADMISSION_STATUS_LABELS[status]}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function AdmissionCasePanel() {
   const { user } = useAuth();
@@ -444,6 +497,66 @@ export default function AdmissionCasePanel() {
                         ).toLocaleString()}`
                       : "Not sent yet"}
                   </Field>
+                </div>
+
+                {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
+                {c.leaderDecision === "rejected" && (
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+                    <span className="font-semibold text-destructive">Rejected by the approver</span>
+                    {c.leaderReason && (
+                      <span className="ml-2 text-muted-foreground">Reason: {c.leaderReason}</span>
+                    )}
+                  </div>
+                )}
+                {c.status === "service_enabled" && c.leaderDecision === "approved" && (
+                  <div className="mt-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
+                    Approved by the approver — service enabled
+                  </div>
+                )}
+
+                {/* 状态 timeline */}
+                <CaseTimeline status={c.status} />
+
+                {/* Payments & settlement 状态 */}
+                <div className="mt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Payments &amp; settlement
+                  </p>
+                  {(c.payments ?? []).length === 0 ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      No transfers yet — VIP will confirm the actual payment after service is enabled.
+                    </p>
+                  ) : (
+                    <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                      {(c.payments ?? []).map((p) => {
+                        const confirmed = Boolean(p.finalizedAt);
+                        return (
+                          <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-foreground">
+                                {p.transferLeg === "verification" ? "Verification (1 USDT)" : "Main transfer"}
+                              </span>
+                              <Pill tone={confirmed ? "success" : "warning"}>
+                                {confirmed ? "Received" : p.cageConfirmationId ? "Cage recorded" : "Pending"}
+                              </Pill>
+                            </div>
+                            <p className="mt-1 text-muted-foreground">
+                              {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
+                            </p>
+                            {p.txHash && (
+                              <p className="mt-0.5 max-w-[220px] truncate font-mono text-gold">{p.txHash}</p>
+                            )}
+                            <p className="mt-1 text-muted-foreground">
+                              {p.cageConfirmationId
+                                ? `Cage: ${p.cageConfirmationId}`
+                                : "Cage: not recorded yet"}
+                              {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">

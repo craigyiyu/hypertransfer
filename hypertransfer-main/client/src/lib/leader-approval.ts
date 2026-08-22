@@ -11,11 +11,13 @@
 import type { LeaderCase, LeaderIntendedPayment } from "@/lib/api";
 
 /** KYC summary for the leader: passed status + valid-until label (no reason). */
-export function leaderKycSummary(c: Pick<LeaderCase, "status" | "kycValidUntil">): {
+export function leaderKycSummary(
+  c: Pick<LeaderCase, "status" | "kycValidUntil" | "kycStatus">,
+): {
   passed: boolean;
   validUntilLabel: string;
 } {
-  const passed = c.status === "leader_pending" || c.status === "service_enabled";
+  const passed = c.kycStatus === "passed" || c.status === "service_enabled";
   if (!c.kycValidUntil) {
     return { passed, validUntilLabel: "—" };
   }

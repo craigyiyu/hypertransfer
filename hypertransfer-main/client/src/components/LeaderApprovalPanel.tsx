@@ -112,6 +112,12 @@ export default function LeaderApprovalPanel() {
                 </Field>
               </div>
 
+              <div className="mt-2">
+                <Field label="Host note (business context)">
+                  {c.hostNotes || "—"}
+                </Field>
+              </div>
+
               <div className="mt-4 flex flex-wrap items-end gap-2">
                 <ActionBtn
                   icon={CheckCircle2}

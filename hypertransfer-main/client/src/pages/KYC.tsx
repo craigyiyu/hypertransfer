@@ -8,7 +8,7 @@
  * 2. Backend creates or reuses a verification applicant through signed API calls
  * 3. HyperTransfer shows provider status without embedding provider SDK UI
  */
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import { DEMO_AUTOFILL_EVENT } from "@/contexts/DemoModeContext";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/kyc-status";
 import type { AdmissionCaseStatus } from "@/lib/admission-case";
 import {
+  launchSumsubWebSdk,
   sumsubApi,
   type SumsubConfig,
   type SumsubKycStatusValue,
@@ -238,19 +239,19 @@ export default function KYC() {
   const [caseKycValidUntil, setCaseKycValidUntil] = useState<number | undefined>(undefined);
   const [caseLoading, setCaseLoading] = useState(true);
 
+  // 减摩擦(2026-08 feedback): 只收集 level 真正需要的固定信息——姓名/出生日期/国籍/电话 + 同意。
+  // 证件、住址、职业、资金来源由验证 provider(Sumsub)按其配置的 level 步骤收集, 不再自建大表单。
   const canSubmit = Boolean(
     firstName.trim()
     && lastName.trim()
     && nationality
     && dob.length === 10
     && phoneNumber.trim()
-    && idType
-    && idNumber.trim()
-    && documentCountry
     && consentAccepted
   );
   // 演示环境(非 production)自动通过, 生产环境等待真实 provider 回调。
   const demoApproveAllowed = sumsubConfig ? sumsubConfig.environment !== "production" : false;
+  const webSdkAvailable = Boolean(sumsubConfig?.configured);
 
   const handleDobChange = (value: string) => {
     setDob(formatDateInput(value));
@@ -395,6 +396,45 @@ export default function KYC() {
       setSumsubMessage(apiError(err));
     } finally {
       setSumsubSubmitting(false);
+    }
+  };
+
+  // 减摩擦: 配置存在时用 Sumsub WebSDK 完成验证(level 决定步骤; 未配置回落 demo approve)。
+  const [webSdkLaunching, setWebSdkLaunching] = useState(false);
+  const [webSdkLaunched, setWebSdkLaunched] = useState(false);
+  const webSdkContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleLaunchWebSdk = async () => {
+    setWebSdkLaunching(true);
+    try {
+      const { data } = await sumsubApi.accessToken({
+        levelName: sumsubConfig?.kycLevelName,
+        ttlInSecs: 600,
+      });
+      setWebSdkLaunched(true);
+      await launchSumsubWebSdk({
+        accessToken: data.token,
+        containerSelector: "#sumsub-websdk-container",
+        refreshAccessToken: async () => {
+          const res = await sumsubApi.accessToken({
+            levelName: sumsubConfig?.kycLevelName,
+            ttlInSecs: 600,
+          });
+          return res.data.token;
+        },
+        onApplicantVerificationCompleted: () => {
+          setSumsubMessage("Verification completed — we are confirming your result.");
+          syncKycState("pending", undefined, Math.floor(Date.now() / 1000));
+          setStep("pending");
+        },
+        onError: (payload) => {
+          setSumsubMessage(`Verification flow error: ${JSON.stringify(payload)}`);
+        },
+      });
+    } catch (err) {
+      setSumsubMessage(apiError(err));
+    } finally {
+      setWebSdkLaunching(false);
     }
   };
 
@@ -622,130 +662,16 @@ export default function KYC() {
           </div>
         </div>
 
-        {/* ID Type & Number */}
-        <div className="space-y-3">
-          <SectionTitle icon={FileText}>Identity document</SectionTitle>
-
-          <div className="space-y-2">
-            <FieldLabel>ID Document Type</FieldLabel>
-            <Select value={idType} onValueChange={setIdType}>
-              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                <SelectValue placeholder="Select document type" />
-              </SelectTrigger>
-              <SelectContent className="bg-popover border-border">
-                <SelectItem value="passport">Passport</SelectItem>
-                <SelectItem value="national_id">National ID Card</SelectItem>
-                <SelectItem value="drivers">Driver's License</SelectItem>
-                <SelectItem value="residence_permit">Residence Permit</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel>Document Number</FieldLabel>
-            <Input
-              value={idNumber}
-              onChange={(e) => setIdNumber(e.target.value)}
-              placeholder="Enter document number"
-              className="bg-input border-border h-11 rounded-xl font-mono text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <FieldLabel>Issuing Country</FieldLabel>
-              <CountrySelect value={documentCountry} onValueChange={setDocumentCountry} />
-            </div>
-            <div className="space-y-2">
-              <FieldLabel required={false}>Expiry Date</FieldLabel>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={documentExpiry}
-                onChange={(e) => setDocumentExpiry(formatDateInput(e.target.value))}
-                placeholder="YYYY-MM-DD"
-                maxLength={10}
-                className="bg-input border-border h-11 rounded-xl text-sm font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Address / questionnaire data */}
-        <div className="space-y-3">
-          <SectionTitle icon={Home}>Residential address</SectionTitle>
-
-          <div className="space-y-2">
-            <FieldLabel required={false}>Residential Address</FieldLabel>
-            <Textarea
-              value={residentialAddress}
-              onChange={(e) => setResidentialAddress(e.target.value)}
-              placeholder="Street, building, unit"
-              className="bg-input border-border min-h-20 rounded-xl text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <FieldLabel required={false}>City</FieldLabel>
-              <Input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="Hong Kong"
-                className="bg-input border-border h-11 rounded-xl text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <FieldLabel required={false}>Postal Code</FieldLabel>
-              <Input
-                value={postalCode}
-                onChange={(e) => setPostalCode(e.target.value)}
-                placeholder="If applicable"
-                className="bg-input border-border h-11 rounded-xl text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel required={false}>Address Country / Region</FieldLabel>
-            <CountrySelect value={addressCountry} onValueChange={setAddressCountry} />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <SectionTitle icon={ClipboardList}>Financial Profile</SectionTitle>
-
-          <div className="space-y-2">
-            <FieldLabel required={false}>Occupation / Industry</FieldLabel>
-            <Select value={occupation} onValueChange={setOccupation}>
-              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                <SelectValue placeholder="Select occupation / industry" />
-              </SelectTrigger>
-              <SelectContent className="bg-popover border-border">
-                {OCCUPATION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel required={false}>Source of Funds</FieldLabel>
-            <Select value={sourceOfFunds} onValueChange={setSourceOfFunds}>
-              <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                <SelectValue placeholder="Select source of funds" />
-              </SelectTrigger>
-              <SelectContent className="bg-popover border-border">
-                {SOURCE_OF_FUNDS_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* 减摩擦: 证件/住址/财务问卷由验证 provider(Sumsub)按其 level 步骤收集 */}
+        <div className="card-wine rounded-xl px-4 py-3 flex items-start gap-3">
+          <FileText className="w-4 h-4 text-gold shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Only the identity basics above are collected here. Your identity document, selfie and
+            any additional checks are handled by the verification provider in its own flow — the
+            exact steps depend on the configured verification level (a liveness check only runs if
+            the level includes one). Documents you prepare: a valid government-issued ID and, if the
+            level requires it, a proof of address.
+          </p>
         </div>
 
         {/* Customer-facing upload preparation summary */}
@@ -756,12 +682,12 @@ export default function KYC() {
             Passport, ID card, driver's license, or residence permit. Use original color photos with all corners visible and readable text. If both sides contain information, prepare front and back photos.
           </RequirementCard>
 
-          <RequirementCard icon={Camera} title="Selfie / liveness check" required>
-            Be ready for a live selfie, face scan, short video, or selfie with document so the provider can match you with the identity document.
+          <RequirementCard icon={Camera} title="Selfie" required>
+            Be ready for a selfie or face check so the provider can match you with the identity document. A liveness (head-movement) check is only required if your verification level includes one.
           </RequirementCard>
 
           <RequirementCard icon={Home} title="Proof of address">
-            Prepare a recent utility bill, bank statement, or official address document that matches the residential address entered above.
+            Prepare a recent utility bill, bank statement, or official address document in case the verification level requests it.
           </RequirementCard>
         </div>
 
@@ -783,10 +709,28 @@ export default function KYC() {
           </p>
         </div>
 
-        <div className="mt-8">
+        {webSdkLaunched && (
+          <div
+            id="sumsub-websdk-container"
+            ref={webSdkContainerRef}
+            className="rounded-xl border border-border/60 bg-card/40 p-2"
+          />
+        )}
+
+        <div className="mt-8 space-y-3">
+          {webSdkAvailable && (
+            <button
+              onClick={handleLaunchWebSdk}
+              disabled={webSdkLaunching || webSdkLaunched || sumsubSubmitting}
+              className="w-full rounded-xl border border-gold/40 py-4 text-sm font-semibold text-gold hover:bg-gold/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {webSdkLaunching ? <RotateCw className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              Verify with provider WebSDK
+            </button>
+          )}
           <button
             onClick={handleSubmit}
-            disabled={!canSubmit || sumsubSubmitting || sumsubLoading}
+            disabled={!canSubmit || sumsubSubmitting || sumsubLoading || webSdkLaunched}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {sumsubSubmitting && <RotateCw className="h-4 w-4 animate-spin" />}

@@ -18,9 +18,13 @@ function leaderCase(overrides: Partial<LeaderCase> = {}): LeaderCase {
     hostName: "Host A",
     patronEmailMasked: "v***@example.test",
     servicePurpose: "VIP table credit",
+    hostNotes: "Business note from the Host",
     route: "complete_dossier",
     status: "leader_pending",
+    kycStatus: "passed",
     kycValidUntil: 1_800_000_000,
+    leaderDecision: null,
+    leaderReason: null,
     intendedPayment: null,
     ...overrides,
   };
@@ -28,10 +32,10 @@ function leaderCase(overrides: Partial<LeaderCase> = {}): LeaderCase {
 
 describe("leader approval helpers", () => {
   it("summarises KYC pass and valid-until without any reason", () => {
-    const summary = leaderKycSummary(leaderCase({ status: "leader_pending", kycValidUntil: 1_800_000_000 }));
+    const summary = leaderKycSummary(leaderCase({ kycStatus: "passed", kycValidUntil: 1_800_000_000 }));
     expect(summary.passed).toBe(true);
     expect(summary.validUntilLabel).toBeTruthy();
-    const notPassed = leaderKycSummary(leaderCase({ status: "kyc_failed", kycValidUntil: null }));
+    const notPassed = leaderKycSummary(leaderCase({ kycStatus: "kyc_failed", kycValidUntil: null }));
     expect(notPassed.passed).toBe(false);
   });
 
@@ -62,9 +66,12 @@ describe("leader approval helpers", () => {
     expect(leaderDecisionLabel("rejected")).toBe("Reject");
   });
 
-  it("leader view never exposes host notes, emails or KYC reason codes", () => {
+  it("leader dossier carries the host business note but never emails/KYC reason codes", () => {
     const dumped = JSON.stringify(leaderCase());
-    for (const leaked of ["hostNotes", "kycReasonCode", "vip@example.test", "passport", "wallet address"]) {
+    // 审批人可见 Host 业务 note(内部员工数据)
+    expect(dumped).toContain("Business note from the Host");
+    // 但完整邮箱、内部 KYC 原因、证件/钱包细节绝不出现
+    for (const leaked of ["kycReasonCode", "vip@example.test", "passport", "wallet address"]) {
       expect(dumped).not.toContain(leaked);
     }
   });

@@ -17,6 +17,7 @@ import Invite from "./pages/Invite";
 import Setup2FA from "./pages/Setup2FA";
 import Login from "./pages/Login";
 import StaffLogin from "./pages/StaffLogin";
+import StaffOnboarding from "./pages/StaffOnboarding";
 import ForgotPassword from "./pages/ForgotPassword";
 import Verify2FA from "./pages/Verify2FA";
 import KYC from "./pages/KYC";
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/setup-2fa" component={Setup2FA} />
       <Route path="/login" component={Login} />
       <Route path="/ops" component={StaffLogin} />
+      <Route path="/staff-onboard" component={StaffOnboarding} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/verify-2fa" component={Verify2FA} />
       {/* 登录后受保护页 */}

@@ -86,6 +86,7 @@ export interface AuthUser {
   userType?: string;      // 'patron' | 'staff'（RBAC，PR①）
   roles?: string[];       // staff 细分角色：rm/marketing/compliance/ops/custodian/admin
   totpEnabled?: boolean;  // PR③ 2FA 可选：是否已启用 TOTP（登录/step-up 是否验码）
+  oktaLinked?: boolean;   // 员工 Okta 绑定(demo 占位 / 生产 OIDC)
 }
 
 /** 员工(staff)判定: 登录后路由到后台 /casino-ops 而非客户 /dashboard。 */
@@ -523,6 +524,23 @@ export interface AdmissionInvitationView {
   qrExpiresAt: string;
 }
 
+export interface CasePaymentView {
+  packId: string;
+  transferLeg: "verification" | "main";
+  actualAmount: string;
+  actualHkdAmount: string;
+  travelRuleDepth: "basic" | "enhanced";
+  kytStatus: string;
+  travelRuleStatus: string;
+  notabeneReference: string;
+  custodyAddress: string;
+  txHash: string;
+  cageConfirmationId: string;
+  reconciliationRef: string;
+  reconciledAt: number | null;
+  finalizedAt: number | null;
+}
+
 export interface AdmissionCase {
   id: string;
   hostName: string;
@@ -534,7 +552,11 @@ export interface AdmissionCase {
   route?: "complete_dossier" | "kyc_first";
   kycHostMessage?: string;
   kycValidUntil?: number;
+  leaderDecision?: "approved" | "rejected" | null;
+  leaderReason?: string | null;
+  leaderDecidedAt?: number | null;
   invitation?: AdmissionInvitationView | null;
+  payments?: CasePaymentView[];
 }
 
 export type AdmissionCaseStatus =
@@ -608,6 +630,30 @@ export const admissionClaimApi = {
     api.post<AdmissionClaimRegisterResult>("/admission-claims/register", p),
 };
 
+// ---------- 员工多角色自助 onboarding + Okta demo 占位 (feedback round) ----------
+export type StaffOnboardingRole = "host" | "leader" | "ops";
+
+export interface StaffOnboardingResult {
+  ok: boolean;
+  userId: string;
+  email: string;
+  role: StaffOnboardingRole;
+  otpauth_uri: string;
+  secret: string;
+  qr_png_base64: string;
+  expires_at: number;
+  expires_in: number;
+  demo?: boolean;
+}
+
+export const staffApi = {
+  // 公司邮箱自助注册(公开): 建 pending_totp staff + 分配角色, 返回 TOTP 绑定信息
+  onboardingStart: (p: { name: string; email: string; password: string; role: StaffOnboardingRole }) =>
+    api.post<StaffOnboardingResult>("/staff/onboarding/start", p),
+  // Okta 绑定 demo 占位(生产需真实 OIDC, 未配置 503 fail closed)
+  oktaLink: () => api.post<{ ok: boolean; linked: boolean; demo: boolean; oktaSub: string }>("/staff/okta/link", {}),
+};
+
 // ---------- 单一领导审批 (Task 6) ----------
 export interface LeaderIntendedPayment {
   asset: string;
@@ -623,9 +669,13 @@ export interface LeaderCase {
   hostName: string;
   patronEmailMasked: string;
   servicePurpose: string | null;
+  hostNotes: string | null;
   route: "complete_dossier" | "kyc_first";
   status: string;
+  kycStatus: string;
   kycValidUntil: number | null;
+  leaderDecision: "approved" | "rejected" | null;
+  leaderReason: string | null;
   intendedPayment: LeaderIntendedPayment | null;
 }
 

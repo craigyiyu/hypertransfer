@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
   Banknote,
+  KeyRound,
   Boxes,
   Gavel,
   UserPlus2,
@@ -19,6 +20,8 @@ import {
 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { staffApi, apiError } from "@/lib/api";
+import { toast } from "sonner";
 import { formatNetworkRail } from "@/lib/compliance";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
 import RefundQueuePanel from "@/components/RefundQueuePanel";
@@ -95,8 +98,46 @@ const SECTIONS = [
   { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
 ] as const;
 
+function OktaLinkButton() {
+  const { user, refresh } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const linked = Boolean(user?.oktaLinked);
+  const link = async () => {
+    setBusy(true);
+    try {
+      const { data } = await staffApi.oktaLink();
+      await refresh();
+      toast.success(data.demo ? "Okta linked (demo placeholder — production uses real OIDC)." : "Okta linked.");
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      onClick={link}
+      disabled={busy}
+      title="Enterprise Okta SSO — demo placeholder, real OIDC reserved"
+      className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+        linked ? "border-success/40 text-success hover:bg-success/10" : "border-border/60 text-muted-foreground hover:border-gold/30 hover:text-gold"
+      }`}
+    >
+      <KeyRound className="h-3.5 w-3.5" />
+      {linked ? "Okta linked" : "Link Okta"}
+    </button>
+  );
+}
+
 export default function CasinoOpsPortal() {
-  const [activeSection, setActiveSection] = useState<string>("deposits");
+  // 按角色落地默认工作台: Host→VIP Admissions, Manager→Leader Approval, Ops→Payment Operations
+  const [activeSection, setActiveSection] = useState<string>(() => {
+    const roles = new Set(user?.roles ?? []);
+    if (roles.has("host")) return "vip";
+    if (roles.has("leader")) return "leader";
+    if (roles.has("ops")) return "payment-ops";
+    return "deposits";
+  });
   const [, navigate] = useLocation();
   const { user, logout } = useAuth();
   // 两层 RBAC: 侧栏只显示当前角色可见的板块(admin 全可见)。RM → 只见 Access Requests。
@@ -144,6 +185,7 @@ export default function CasinoOpsPortal() {
           </div>
           <div className="flex items-center gap-2">
             <StatusPill tone="success">Staff only</StatusPill>
+            <OktaLinkButton />
             <button
               onClick={async () => {
                 await logout();
