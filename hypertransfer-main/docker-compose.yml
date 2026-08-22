@@ -16,6 +16,12 @@ services:
       SMS_API_URL: "${SMS_API_URL:-https://hv-test.hypervelocity.cn/api/sms/simpleSend}"
       SMS_SIGN_CN: "${SMS_SIGN_CN:-【武汉极数信息技术】}"
       SMS_SIGN_INTL: "${SMS_SIGN_INTL:-[Hypervelocity]}"
+      # 演示旁路(仅非生产生效): OTP 自动填码 + 2FA 任意 6 位通过; 生产务必留空
+      HT_DEMO_BYPASS_2FA: "${HT_DEMO_BYPASS_2FA:-}"
+      # 邀请链接 / QR 落地页前缀(未配则用相对路径)
+      HT_INVITE_BASE_URL: "${HT_INVITE_BASE_URL:-}"
+      # Host-led VIP admission: 单一 leader 用户 id(可选; production 必配否则 leader 决策 503)
+      HT_LEADER_USER_ID: "${HT_LEADER_USER_ID:-}"
       # Sumsub provider secrets are optional locally; set these to enable live WebSDK/API calls.
       SUMSUB_BASE_URL: "${SUMSUB_BASE_URL:-https://api.sumsub.com}"
       SUMSUB_ENVIRONMENT: "${SUMSUB_ENVIRONMENT:-sandbox}"

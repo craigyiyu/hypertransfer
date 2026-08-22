@@ -7,7 +7,9 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py hexsafe_client.py seed_demo.py ./
+COPY server.py hexsafe_client.py seed_demo.py \
+     admission_rules.py transaction_compliance_rules.py \
+     admission_provider_adapters.py notabene_adapter.py ./
 
 # SQLite 落在挂载卷 /data(由 docker-compose 提供持久化)
 ENV HT_DB_PATH=/data/hypertransfer_auth.db
