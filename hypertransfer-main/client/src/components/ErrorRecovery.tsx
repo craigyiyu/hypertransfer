@@ -36,7 +36,7 @@ export function ErrorRecovery({
         </motion.div>
 
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-white mb-1">{title}</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-1">{title}</h3>
           <p className="text-sm text-slate-300 mb-3">{message}</p>
 
           {errorCode && (
@@ -57,8 +57,8 @@ export function ErrorRecovery({
                   onClick={action.onClick}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     action.variant === 'primary'
-                      ? 'bg-gold-500 hover:bg-gold-600 text-black'
-                      : 'bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 border border-slate-700/50'
+                      ? 'bg-gold hover:bg-gold-bright text-primary-foreground'
+                      : 'bg-secondary/50 hover:bg-secondary text-foreground border border-border'
                   }`}
                 >
                   {action.label}
@@ -75,7 +75,7 @@ export function ErrorRecovery({
               <div className="flex gap-2">
                 <a
                   href="mailto:support@hypertransfer.io"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 text-xs transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 hover:bg-secondary text-foreground text-xs transition-colors"
                 >
                   <Mail className="w-3.5 h-3.5" />
                   Contact Support

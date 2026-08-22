@@ -39,7 +39,7 @@ import {
   isTerminalAdmissionStatus,
   type AdmissionCaseStatus,
 } from "@/lib/admission-case";
-import { ActionBtn, Field, LabeledInput, PanelHeader, Pill } from "@/components/ops-ui";
+import { ActionBtn, EmptyState, Field, LabeledInput, LoadingSkeleton, PanelHeader, Pill } from "@/components/ops-ui";
 
 const EMPTY_CASE_FORM = {
   patronEmail: "",
@@ -60,6 +60,41 @@ const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
   { key: "leader_pending", label: "Approver" },
   { key: "service_enabled", label: "Enabled" },
 ];
+
+/** Host 跟进汇总(B2): 按状态聚合"需要动作"的 case, 便于 follow up。 */
+function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
+  const awaitingApproval = cases.filter((c) => c.status === "leader_pending").length;
+  const kycAction = cases.filter(
+    (c) => c.status === "kyc_failed" || c.status === "compliance_review",
+  ).length;
+  const rejected = cases.filter((c) => c.status === "rejected").length;
+  const cagePending = cases.filter((c) =>
+    (c.payments ?? []).some((p) => p.transferLeg === "main" && p.finalizedAt && !p.cageConfirmationId),
+  ).length;
+
+  const items = [
+    { label: "Awaiting approver", count: awaitingApproval, tone: "warning" as const },
+    { label: "KYC action needed", count: kycAction, tone: "danger" as const },
+    { label: "Rejected", count: rejected, tone: "danger" as const },
+    { label: "Cage pending", count: cagePending, tone: "warning" as const },
+  ].filter((i) => i.count > 0);
+
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-card/80 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Needs your attention
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.map((i) => (
+          <Pill key={i.label} tone={i.tone}>
+            {`${i.label} · ${i.count}`}
+          </Pill>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
   const order = ADMISSION_MILESTONES.map((m) => m.key);
@@ -412,6 +447,9 @@ export default function AdmissionCasePanel() {
         </div>
       )}
 
+      {/* 需跟进汇总(B2): 让 Host 一眼看到哪些 case 需要动作 */}
+      <HostFollowUpSummary cases={cases} />
+
       {/* Case list */}
       <div className="rounded-lg border border-border/60 bg-card/80 p-4">
         <div className="flex items-center justify-between">
@@ -423,18 +461,24 @@ export default function AdmissionCasePanel() {
 
         {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
 
-        {!loading && cases.length === 0 && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            No VIP admission cases yet. Create one above to start the invitation flow.
-          </p>
-        )}
+        {loading ? (
+          <div className="mt-3"><LoadingSkeleton rows={2} /></div>
+        ) : cases.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState
+              icon={UserPlus2}
+              title="No admission cases yet"
+              description="Create one above to start the Host-led invitation flow."
+            />
+          </div>
+        ) : null}
 
         <div className="mt-3 space-y-3">
           {cases.map((c) => {
             const tone = admissionStatusTone(c.status);
             const terminal = isTerminalAdmissionStatus(c.status);
             return (
-              <div key={c.id} className="rounded-lg border border-border/40 bg-background/40 p-3">
+              <div key={c.id} className="card-interactive rounded-lg border border-border/40 bg-background/40 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-gold">{c.id.slice(0, 8)}</span>

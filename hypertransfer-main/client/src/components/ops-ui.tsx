@@ -124,3 +124,38 @@ export function shortAddr(a: string | null | undefined) {
   if (!a) return "—";
   return a.length > 18 ? `${a.slice(0, 10)}…${a.slice(-6)}` : a;
 }
+
+/** 空态(B3): 图标 + 标题 + 说明, 让空队列/空列表不再是裸文字。 */
+export function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-card/40 px-6 py-10 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold/10 text-gold">
+        <Icon className="h-6 w-6" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
+      {description && <p className="mt-1 max-w-sm text-xs text-muted-foreground">{description}</p>}
+    </div>
+  );
+}
+
+/** 加载骨架(B3): 面板加载时的一排脉冲占位, 避免整页空白。 */
+export function LoadingSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="h-20 animate-pulse rounded-xl border border-border/50 bg-secondary/30"
+        />
+      ))}
+    </div>
+  );
+}

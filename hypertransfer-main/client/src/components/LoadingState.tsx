@@ -17,7 +17,7 @@ export function LoadingState({
             key={i}
             animate={{ opacity: [0.5, 1, 0.5] }}
             transition={{ duration: 2, repeat: Infinity }}
-            className="h-12 bg-slate-800/50 rounded-lg"
+            className="h-12 bg-secondary/50 rounded-lg"
           />
         ))}
       </div>
@@ -30,7 +30,7 @@ export function LoadingState({
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2, repeat: Infinity }}
-          className="w-12 h-12 rounded-full border-2 border-gold-400 border-t-transparent"
+          className="w-12 h-12 rounded-full border-2 border-gold/30 border-t-gold"
         />
       </div>
     );
@@ -41,13 +41,13 @@ export function LoadingState({
       <motion.div
         animate={{ rotate: 360 }}
         transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-        className="w-10 h-10 border-3 border-gold-400/20 border-t-gold-400 rounded-full"
+        className="w-10 h-10 border-[3px] border-gold/20 border-t-gold rounded-full"
       />
       {message && (
         <motion.p
           animate={{ opacity: [0.6, 1, 0.6] }}
           transition={{ duration: 2, repeat: Infinity }}
-          className="text-sm text-slate-400"
+          className="text-sm text-muted-foreground"
         >
           {message}
         </motion.p>

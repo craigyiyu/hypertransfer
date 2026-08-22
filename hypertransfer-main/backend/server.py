@@ -4337,8 +4337,11 @@ def admission_case_invite_email(
     channel = send_email(
         row["patron_email"],
         "Your HyperTransfer VIP invitation",
-        f"Open this link to claim your VIP invitation: {invite_link}\n"
-        f"The link is valid for {EMAIL_SESSION_TTL // 3600} hours and can be used once.",
+        f"Your Host has invited you to open a VIP admission case (ref {case_id[:8]}).\n\n"
+        f"Open this link to claim your invitation: {invite_link}\n"
+        f"The link is valid for {EMAIL_SESSION_TTL // 3600} hours and can be used once. "
+        f"After claiming, complete identity verification to continue.\n"
+        f"Please do not share this link.",
     )
     write_audit(
         user["id"], "admission.invite.email", "admission_case", case_id,
@@ -4647,8 +4650,9 @@ def persist_case_kyc_outcome(
         vip_email_channel = send_email(
             case["patron_email"],
             "Action needed: KYC resubmission",
-            "Your identity verification was not approved. Please resubmit your identity "
-            "documents to continue your VIP admission.",
+            f"Your identity verification for your VIP admission (ref {case_id[:8]}) was not approved.\n\n"
+            f"Please sign in, resubmit your identity documents and complete verification again "
+            f"to continue. Your Host can help if you have questions.",
         )
     write_audit(
         user_id, "admission.kyc.fail", "admission_case", case_id,
@@ -4828,14 +4832,14 @@ def admission_case_leader_decision(
     if body.decision == "approved":
         vip_subject, vip_text = (
             "Your VIP admission has been approved",
-            "Your VIP admission at HyperTransfer has been approved by our leadership. "
-            "You can now proceed with your first verified transfer.",
+            f"Your VIP admission (ref {case_id[:8]}) at HyperTransfer has been approved by our "
+            f"leadership. You can now proceed with your first verified transfer.",
         )
     else:
         vip_subject, vip_text = (
             "Update on your VIP admission",
-            "Your VIP admission was not approved at this time. Please contact your Host "
-            "for further assistance.",
+            f"Your VIP admission (ref {case_id[:8]}) was not approved at this time. "
+            f"Please contact your Host for further assistance.",
         )
     vip_channel = send_email(row["patron_email"], vip_subject, vip_text)
     with db() as conn:
@@ -4844,9 +4848,10 @@ def admission_case_leader_decision(
         ).fetchone()
     host_email = host_email["email"] if host_email else ""
     host_text = (
-        f"Your VIP admission case {mask_email(row['patron_email'])} was "
-        f"{'approved' if body.decision == 'approved' else 'rejected'}"
-        + (f" ({reason})." if reason else ".")
+        f"Your VIP admission case {mask_email(row['patron_email'])} (ref {case_id[:8]}) was "
+        f"{'approved by the approver — service is enabled' if body.decision == 'approved' else 'rejected by the approver'}"
+        + (f". Business reason: {reason}." if reason else ".")
+        + " Sign in to the operations portal to follow up."
     )
     host_channel = send_email(host_email, "VIP admission decision", host_text) if host_email else "no-host-email"
     write_audit(

@@ -16,7 +16,7 @@ import {
   leaderKycSummary,
   leaderReasonRequired,
 } from "@/lib/leader-approval";
-import { ActionBtn, Field, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
+import { ActionBtn, EmptyState, Field, LoadingSkeleton, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
 function statusTone(status: string): Tone {
   if (status === "leader_pending") return "warning";
@@ -79,17 +79,21 @@ export default function LeaderApprovalPanel() {
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      {!loading && cases.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          No admission cases awaiting your decision.
-        </p>
-      )}
+      {loading ? (
+        <LoadingSkeleton rows={2} />
+      ) : cases.length === 0 ? (
+        <EmptyState
+          icon={Gavel}
+          title="Nothing awaiting your decision"
+          description="Cases appear here once they pass KYC and the payment pre-check."
+        />
+      ) : null}
 
       <div className="space-y-3">
         {cases.map((c) => {
           const kyc = leaderKycSummary(c);
           return (
-            <div key={c.id} className="rounded-lg border border-border/60 bg-card/80 p-4">
+            <div key={c.id} className="card-interactive rounded-lg border border-border/60 bg-card/80 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-gold">{c.id.slice(0, 8)}</span>

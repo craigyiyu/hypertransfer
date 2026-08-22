@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Boxes, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { apiError, operationsApi, type PaymentCaseView } from "@/lib/api";
-import { ActionBtn, Field, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
+import { ActionBtn, EmptyState, Field, LoadingSkeleton, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
 function legTone(leg: PaymentCaseView["transferLeg"]): Tone {
   return leg === "main" ? "success" : "neutral";
@@ -114,16 +114,22 @@ export default function PaymentOperationsPanel() {
         </ActionBtn>
       </div>
 
-      {!loading && cases.length === 0 && (
-        <p className="text-sm text-muted-foreground">No payment cases yet.</p>
-      )}
+      {loading ? (
+        <LoadingSkeleton rows={2} />
+      ) : cases.length === 0 ? (
+        <EmptyState
+          icon={Boxes}
+          title="No payment cases yet"
+          description="Transfers appear here once VIPs confirm payments after service is enabled."
+        />
+      ) : null}
 
       <div className="space-y-3">
         {cases.map((c) => {
           const main = c.transferLeg === "main";
           const confirmed = Boolean(c.finalizedAt);
           return (
-            <div key={c.packId} className="rounded-lg border border-border/60 bg-card/80 p-4">
+            <div key={c.packId} className="card-interactive rounded-lg border border-border/60 bg-card/80 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-gold">{c.packId.slice(0, 8)}</span>
