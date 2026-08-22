@@ -21,6 +21,7 @@ import {
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
 import ThemeToggle from "@/components/ThemeToggle";
+import BrandMark from "@/components/BrandMark";
 import { staffApi, apiError } from "@/lib/api";
 import { toast } from "sonner";
 import { formatNetworkRail } from "@/lib/compliance";
@@ -170,18 +171,18 @@ export default function CasinoOpsPortal() {
     : "—";
 
   return (
-    <div className="min-h-[100svh] bg-background text-foreground">
+    <div className="page-enter min-h-[100svh] bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border/50 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold/10 text-gold">
-              <Vault className="h-5 w-5" />
+              <BrandMark size={26} />
             </div>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Casino Staff Operations
               </p>
-              <h1 className="text-lg font-semibold text-foreground">VA Operations Portal</h1>
+              <h1 className="font-display text-lg font-semibold text-foreground">VA Operations Portal</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">

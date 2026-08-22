@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
 import ThemeToggle from "@/components/ThemeToggle";
+import BrandMark from "@/components/BrandMark";
 import { isStaffUser } from "@/lib/api";
 import type { ReactNode } from "react";
 
@@ -62,7 +63,7 @@ export default function Shell({
 
   return (
     <div
-      className="min-h-[100svh] bg-background noise-overlay flex flex-col items-center relative overflow-hidden"
+      className="page-enter min-h-[100svh] bg-background noise-overlay flex flex-col items-center relative overflow-hidden"
       style={{
         paddingTop: "max(0px, env(safe-area-inset-top))",
         paddingBottom: "max(0px, env(safe-area-inset-bottom))",
@@ -106,8 +107,8 @@ export default function Shell({
               aria-label="Go to home"
               title="Go to home"
             >
-              <Shield className="w-4 h-4 text-gold" />
-              <span className="text-sm font-semibold tracking-wide text-gold">
+              <BrandMark size={28} />
+              <span className="font-display text-sm font-semibold tracking-wide text-gold">
                 HyperTransfer
               </span>
             </a>
@@ -175,7 +176,7 @@ export default function Shell({
         {/* Title area */}
         {title && (
           <div className="mb-6">
-            <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+            <h1 className="font-display text-2xl font-bold text-foreground">{title}</h1>
             {subtitle && (
               <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
             )}

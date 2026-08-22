@@ -4,7 +4,8 @@
  * 新用户通过邀请邮件里的 /invite 链接注册(见 Invite.tsx)。
  */
 import { motion } from "framer-motion";
-import { Shield, LogIn, Mail } from "lucide-react";
+import { LogIn, Mail } from "lucide-react";
+import BrandMark from "@/components/BrandMark";
 import { useLocation } from "wouter";
 import ComplianceBadges from "@/components/ComplianceBadges";
 import { useI18n } from "@/contexts/I18nContext";
@@ -35,10 +36,10 @@ export default function Landing() {
           transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
           className="flex flex-col items-center mb-10"
         >
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[oklch(0.70_0.12_85)] to-[oklch(0.85_0.14_85)] flex items-center justify-center mb-4 shadow-lg shadow-[oklch(0.75_0.12_85/0.2)]">
-            <Shield className="w-7 h-7 text-background" />
+          <div className="mb-4 rounded-2xl border border-gold/25 bg-card/60 p-3 shadow-lg">
+            <BrandMark size={44} />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
             {t("landing.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 tracking-wide">
