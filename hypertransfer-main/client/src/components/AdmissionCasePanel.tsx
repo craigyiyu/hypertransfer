@@ -48,13 +48,26 @@ import {
 import { ActionBtn, EmptyState, Field, LabeledInput, LoadingSkeleton, PanelHeader, Pill } from "@/components/ops-ui";
 
 const EMPTY_CASE_FORM = {
-  patronName: "",
+  firstName: "",
+  lastName: "",
   patronEmail: "",
   memberReference: "",
   intendedAmount: "",
   preferredLanguage: "zh",
   hostNotes: "",
 };
+
+/** 千分位格式化输入: 保留数字与小数点, 整数部分加千分位逗号。 */
+function formatThousandSeparators(raw: string): string {
+  // 只保留数字和小数点(去掉已输入的逗号)
+  const cleaned = raw.replace(/[^\d.]/g, "");
+  const dotIdx = cleaned.indexOf(".");
+  if (dotIdx === -1) {
+    return cleaned.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  const intPart = cleaned.slice(0, dotIdx).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${intPart}.${cleaned.slice(dotIdx + 1).slice(0, 2)}`;
+}
 
 const LANGUAGE_OPTIONS = [
   { value: "zh", labelKey: "admissionPanel.langZh" },
@@ -162,7 +175,203 @@ function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
   );
 }
 
-export default function AdmissionCasePanel() {
+/** 单个 VIP 请求行: 行头(可展开 + 操作按钮) + 展开详情。 */
+function CaseRow({
+  c,
+  expanded,
+  toggleExpand,
+  busyId,
+  onSendEmail,
+  onShowQr,
+  onRemind,
+  onRevoke,
+}: {
+  c: AdmissionCase;
+  expanded: Set<string>;
+  toggleExpand: (id: string) => void;
+  busyId: string;
+  onSendEmail: (id: string) => void;
+  onShowQr: (id: string) => void;
+  onRemind: (id: string) => void;
+  onRevoke: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  const tone = admissionStatusTone(c.status);
+  const terminal = isTerminalAdmissionStatus(c.status);
+  const isOpen = expanded.has(c.id);
+  const isApproved = c.status === "service_enabled";
+  const displayName = c.patronName || c.patronEmailMasked;
+  return (
+    <div
+      className={`rounded-lg border bg-background/40 transition-colors ${
+        isOpen ? "border-gold/40" : "border-border/40 card-interactive"
+      }`}
+    >
+      {/* Row header — click to expand */}
+      <button
+        onClick={() => toggleExpand(c.id)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left focus:outline-none focus:ring-1 focus:ring-gold/40 rounded-lg"
+        aria-expanded={isOpen}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {isOpen ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate text-sm font-semibold text-foreground">{displayName}</span>
+          {c.patronName && (
+            <span className="hidden text-xs text-muted-foreground sm:inline">{c.patronEmailMasked}</span>
+          )}
+          {isApproved ? (
+            <Pill tone="success">{t("admissionPanel.serviceEnabledTag")}</Pill>
+          ) : (
+            <Pill tone={tone}>{ADMISSION_STATUS_LABELS[c.status]}</Pill>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {!isApproved && !terminal && (
+            <>
+              <ActionBtn icon={Mail} onClick={() => void onSendEmail(c.id)} disabled={busyId === c.id}>
+                {t("admissionPanel.sendEmail")}
+              </ActionBtn>
+              <ActionBtn icon={QrCode} onClick={() => void onShowQr(c.id)} disabled={busyId === c.id}>
+                {t("admissionPanel.showQr")}
+              </ActionBtn>
+            </>
+          )}
+          {!isApproved && (
+            <ActionBtn icon={MailCheck} onClick={() => void onRemind(c.id)} disabled={busyId === c.id}>
+              {t("admissionPanel.remind")}
+            </ActionBtn>
+          )}
+          {!isApproved && !terminal && (
+            <ActionBtn icon={Ban} tone="danger" onClick={() => void onRevoke(c.id)} disabled={busyId === c.id}>
+              {t("admissionPanel.revoke")}
+            </ActionBtn>
+          )}
+        </div>
+      </button>
+
+      {/* Expanded detail */}
+      {isOpen && (
+        <div className="border-t border-border/40 px-3 pb-3 pt-2">
+          {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
+          {c.leaderDecision === "rejected" && (
+            <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+              <span className="font-semibold text-destructive">{t("admissionPanel.rejectedByApprover")}</span>
+              {c.leaderReason && (
+                <span className="ml-2 text-muted-foreground">{t("common.reason")}: {c.leaderReason}</span>
+              )}
+            </div>
+          )}
+          {isApproved && c.leaderDecision === "approved" && (
+            <div className="mb-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
+              {t("admissionPanel.approver")} — {t("admissionPanel.enabled")}
+            </div>
+          )}
+
+          {/* 状态 timeline */}
+          <CaseTimeline status={c.status} />
+
+          {/* 概要字段 */}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label={t("admissionPanel.intendedDeposit")}>{c.servicePurpose || "—"}</Field>
+            <Field label={t("admissionPanel.memberReference")}>{c.memberReference || "—"}</Field>
+            <Field label={t("admissionPanel.kycStatus")}>
+              {c.kycHostMessage || (c.status === "kyc_passed" ? t("admissionPanel.kycPassed") : "—")}
+            </Field>
+            <Field label={t("admissionPanel.kycValidUntil")}>
+              {c.kycValidUntil ? (
+                <>
+                  {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
+                  {Date.now() / 1000 > c.kycValidUntil && (
+                    <span className="ml-1 text-[10px] font-semibold text-destructive">
+                      {t("admissionPanel.expired")}
+                    </span>
+                  )}
+                </>
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label={t("admissionPanel.note")}>{c.hostNotes || "—"}</Field>
+            <Field label={t("admissionPanel.invitation")}>
+              {c.invitation
+                ? `Email ${new Date(c.invitation.emailExpiresAt).toLocaleString()} · QR ${new Date(
+                    c.invitation.qrExpiresAt,
+                  ).toLocaleString()}`
+                : t("admissionPanel.notSentYet")}
+            </Field>
+          </div>
+
+          {/* Payments & settlement 状态 */}
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("admissionPanel.payments")}
+            </p>
+            {(c.payments ?? []).length === 0 ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {t("admissionPanel.noTransfersYet")}
+              </p>
+            ) : (
+              <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                {(c.payments ?? []).map((p) => {
+                  const confirmed = Boolean(p.finalizedAt);
+                  return (
+                    <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-foreground">
+                          {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
+                        </span>
+                        <Pill tone={confirmed ? "success" : "warning"}>
+                          {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
+                        </Pill>
+                      </div>
+                      <p className="mt-1 text-muted-foreground">
+                        {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
+                      </p>
+                      {p.txHash && (
+                        <p className="mt-0.5 max-w-[220px] truncate font-mono text-gold">{p.txHash}</p>
+                      )}
+                      <p className="mt-1 text-muted-foreground">
+                        {p.cageConfirmationId
+                          ? `Cage: ${p.cageConfirmationId}`
+                          : t("admissionPanel.cageNotRecorded")}
+                        {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {c.invitation && (
+              <span className="flex items-center gap-1 text-[11px] text-success">
+                <MailCheck className="h-3 w-3" />
+                {t("admissionPanel.dualChannelIssued")}
+              </span>
+            )}
+            {terminal && (
+              <span className="text-[11px] text-muted-foreground">
+                {t("admissionPanel.terminalNote")}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AdmissionCasePanel({
+  view = "all",
+}: {
+  /** 左侧三菜单复用: form=创建表单 / attention=待办列表 / approved=已启用列表 / all=完整工作台 */
+  view?: "form" | "attention" | "approved" | "all";
+}) {
   const { user } = useAuth();
   const { isDemoMode, getDemoValue } = useDemoMode();
   const { t } = useI18n();
@@ -189,6 +398,16 @@ export default function AdmissionCasePanel() {
     const roles = new Set(user?.roles ?? []);
     return roles.has("admin") || roles.has("host");
   }, [user]);
+
+  // 两区划分: service_enabled -> Approve VIP Request(已启用); 其余 -> Need Your Attention
+  const attentionCases = useMemo(
+    () => cases.filter((c) => c.status !== "service_enabled"),
+    [cases],
+  );
+  const approvedCases = useMemo(
+    () => cases.filter((c) => c.status === "service_enabled"),
+    [cases],
+  );
 
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -286,13 +505,15 @@ export default function AdmissionCasePanel() {
     setCreating(true);
     try {
       // Intended deposit: amount + USDT (servicePurpose 存展示串, 供 leader dossier/邮件使用)
-      const amount = caseForm.intendedAmount.trim();
+      // 金额先去千分位逗号再入库
+      const amount = caseForm.intendedAmount.replace(/,/g, "").trim();
       const servicePurpose = amount
         ? `${amount} USDT`
         : undefined;
       await admissionApi.create({
         patronEmail: caseForm.patronEmail.trim(),
-        patronName: caseForm.patronName.trim() || undefined,
+        firstName: caseForm.firstName.trim() || undefined,
+        lastName: caseForm.lastName.trim() || undefined,
         memberReference: caseForm.memberReference.trim() || undefined,
         servicePurpose,
         hostNotes: caseForm.hostNotes.trim() || undefined,
@@ -341,6 +562,18 @@ export default function AdmissionCasePanel() {
       await admissionApi.revoke(caseId);
       toast.success(t("admissionPanel.revokedToast"));
       await loadCases();
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const remindCase = async (caseId: string) => {
+    setBusyId(caseId);
+    try {
+      await admissionApi.remind(caseId);
+      toast.success(t("admissionPanel.remindSent"));
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -429,18 +662,24 @@ export default function AdmissionCasePanel() {
         </div>
       )}
 
-      {/* Create-request form */}
-      {profile?.status === "active" && canManage && (
+      {/* Create-request form (仅 form / all 视图显示) */}
+      {(view === "all" || view === "form") && profile?.status === "active" && canManage && (
         <div className="rounded-lg border border-border/60 bg-card/80 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {t("admissionPanel.newCase")}
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <LabeledInput
-              label={`${t("admissionPanel.patronName")} *`}
-              placeholder={t("admissionPanel.patronNamePlaceholder")}
-              value={caseForm.patronName}
-              onChange={(e) => setCaseForm((p) => ({ ...p, patronName: e.target.value }))}
+              label={`${t("admissionPanel.firstName")} *`}
+              placeholder={t("admissionPanel.firstNamePlaceholder")}
+              value={caseForm.firstName}
+              onChange={(e) => setCaseForm((p) => ({ ...p, firstName: e.target.value }))}
+            />
+            <LabeledInput
+              label={`${t("admissionPanel.lastName")} *`}
+              placeholder={t("admissionPanel.lastNamePlaceholder")}
+              value={caseForm.lastName}
+              onChange={(e) => setCaseForm((p) => ({ ...p, lastName: e.target.value }))}
             />
             <LabeledInput
               label={`${t("admissionPanel.patronEmail")} *`}
@@ -449,11 +688,11 @@ export default function AdmissionCasePanel() {
               onChange={(e) => setCaseForm((p) => ({ ...p, patronEmail: e.target.value }))}
             />
             <LabeledInput
-              label={t("admissionPanel.intendedDeposit")}
-              placeholder={t("admissionPanel.intendedDepositPlaceholder")}
+              label={t("admissionPanel.intendedDepositUsd")}
+              placeholder={t("admissionPanel.amountInUsd")}
               inputMode="numeric"
               value={caseForm.intendedAmount}
-              onChange={(e) => setCaseForm((p) => ({ ...p, intendedAmount: e.target.value.replace(/[^\d.]/g, "") }))}
+              onChange={(e) => setCaseForm((p) => ({ ...p, intendedAmount: formatThousandSeparators(e.target.value) }))}
             />
             <LabeledInput
               label={t("admissionPanel.memberReference")}
@@ -477,213 +716,125 @@ export default function AdmissionCasePanel() {
                 ))}
               </select>
             </label>
-            <LabeledInput
-              label={t("admissionPanel.note")}
-              placeholder={t("admissionPanel.notePlaceholder")}
-              containerClassName="sm:col-span-2 lg:col-span-1"
-              value={caseForm.hostNotes}
-              onChange={(e) => setCaseForm((p) => ({ ...p, hostNotes: e.target.value }))}
-            />
           </div>
+
+          {/* Note: 大文本框, 放在表单下方 */}
+          <div className="mt-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("admissionPanel.note")}
+              </span>
+              <textarea
+                value={caseForm.hostNotes}
+                onChange={(e) => setCaseForm((p) => ({ ...p, hostNotes: e.target.value }))}
+                placeholder={t("admissionPanel.notePlaceholder")}
+                rows={4}
+                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50 resize-y"
+              />
+            </label>
+          </div>
+
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] text-muted-foreground">
               {t("admissionPanel.formNote")}
             </p>
-            <ActionBtn icon={Plus} tone="success" onClick={createCase} disabled={creating}>
-              {creating ? t("opsUi.loading") : t("admissionPanel.createCase")}
-            </ActionBtn>
+            <button
+              onClick={createCase}
+              disabled={creating}
+              className="btn-gold rounded-xl px-5 py-3 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              {creating ? t("opsUi.loading") : t("admissionPanel.sendForApproval")}
+            </button>
           </div>
         </div>
       )}
 
       {/* 需跟进汇总(B2, 可点击展开): 让 Host 一眼看到哪些 case 需要动作 */}
-      <HostFollowUpSummary cases={cases} onSelect={expandMany} />
+      {(view === "all" || view === "attention") && (
+        <HostFollowUpSummary cases={cases} onSelect={expandMany} />
+      )}
 
-      {/* Request list — collapsible per customer */}
-      <div className="rounded-lg border border-border/60 bg-card/80 p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {t("admissionPanel.myCases")}
-          </p>
-          <Pill tone="neutral">{String(cases.length)}</Pill>
-        </div>
-
-        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
-
-        {loading ? (
-          <div className="mt-3"><LoadingSkeleton rows={2} /></div>
-        ) : cases.length === 0 ? (
-          <div className="mt-3">
-            <EmptyState
-              icon={UserPlus2}
-              title={t("admissionPanel.noCases")}
-              description={t("admissionPanel.createFirst")}
-            />
-          </div>
-        ) : null}
-
-        <div className="mt-3 space-y-2">
-          {cases.map((c) => {
-            const tone = admissionStatusTone(c.status);
-            const terminal = isTerminalAdmissionStatus(c.status);
-            const isOpen = expanded.has(c.id);
-            const displayName = c.patronName || c.patronEmailMasked;
-            return (
-              <div
-                key={c.id}
-                className={`rounded-lg border bg-background/40 transition-colors ${
-                  isOpen ? "border-gold/40" : "border-border/40 card-interactive"
-                }`}
-              >
-                {/* Row header — click to expand */}
-                <button
-                  onClick={() => toggleExpand(c.id)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left focus:outline-none focus:ring-1 focus:ring-gold/40 rounded-lg"
-                  aria-expanded={isOpen}
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    {isOpen ? (
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="truncate text-sm font-semibold text-foreground">{displayName}</span>
-                    {c.patronName && (
-                      <span className="hidden text-xs text-muted-foreground sm:inline">{c.patronEmailMasked}</span>
-                    )}
-                    <Pill tone={tone}>{ADMISSION_STATUS_LABELS[c.status]}</Pill>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    {!terminal && c.status !== "service_enabled" && (
-                      <>
-                        <ActionBtn icon={Mail} onClick={() => void sendEmailInvite(c.id)} disabled={busyId === c.id}>
-                          {t("admissionPanel.sendEmail")}
-                        </ActionBtn>
-                        <ActionBtn icon={QrCode} onClick={() => void showQrSession(c.id)} disabled={busyId === c.id}>
-                          {t("admissionPanel.showQr")}
-                        </ActionBtn>
-                        <ActionBtn icon={Ban} tone="danger" onClick={() => void revokeCase(c.id)} disabled={busyId === c.id}>
-                          {t("admissionPanel.revoke")}
-                        </ActionBtn>
-                      </>
-                    )}
-                  </div>
-                </button>
-
-                {/* Expanded detail */}
-                {isOpen && (
-                  <div className="border-t border-border/40 px-3 pb-3 pt-2">
-                    {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
-                    {c.leaderDecision === "rejected" && (
-                      <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
-                        <span className="font-semibold text-destructive">{t("admissionPanel.rejectedByApprover")}</span>
-                        {c.leaderReason && (
-                          <span className="ml-2 text-muted-foreground">{t("common.reason")}: {c.leaderReason}</span>
-                        )}
-                      </div>
-                    )}
-                    {c.status === "service_enabled" && c.leaderDecision === "approved" && (
-                      <div className="mb-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
-                        {t("admissionPanel.approver")} — {t("admissionPanel.enabled")}
-                      </div>
-                    )}
-
-                    {/* 状态 timeline */}
-                    <CaseTimeline status={c.status} />
-
-                    {/* 概要字段 */}
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                      <Field label={t("admissionPanel.intendedDeposit")}>{c.servicePurpose || "—"}</Field>
-                      <Field label={t("admissionPanel.memberReference")}>{c.memberReference || "—"}</Field>
-                      <Field label={t("admissionPanel.kycStatus")}>
-                        {c.kycHostMessage || (c.status === "kyc_passed" ? t("admissionPanel.kycPassed") : "—")}
-                      </Field>
-                      <Field label={t("admissionPanel.kycValidUntil")}>
-                        {c.kycValidUntil ? (
-                          <>
-                            {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
-                            {Date.now() / 1000 > c.kycValidUntil && (
-                              <span className="ml-1 text-[10px] font-semibold text-destructive">
-                                {t("admissionPanel.expired")}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </Field>
-                      <Field label={t("admissionPanel.note")}>{c.hostNotes || "—"}</Field>
-                      <Field label={t("admissionPanel.invitation")}>
-                        {c.invitation
-                          ? `Email ${new Date(c.invitation.emailExpiresAt).toLocaleString()} · QR ${new Date(
-                              c.invitation.qrExpiresAt,
-                            ).toLocaleString()}`
-                          : t("admissionPanel.notSentYet")}
-                      </Field>
-                    </div>
-
-                    {/* Payments & settlement 状态 */}
-                    <div className="mt-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {t("admissionPanel.payments")}
-                      </p>
-                      {(c.payments ?? []).length === 0 ? (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {t("admissionPanel.noTransfersYet")}
-                        </p>
-                      ) : (
-                        <div className="mt-1 grid gap-2 sm:grid-cols-2">
-                          {(c.payments ?? []).map((p) => {
-                            const confirmed = Boolean(p.finalizedAt);
-                            return (
-                              <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold text-foreground">
-                                    {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
-                                  </span>
-                                  <Pill tone={confirmed ? "success" : "warning"}>
-                                    {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
-                                  </Pill>
-                                </div>
-                                <p className="mt-1 text-muted-foreground">
-                                  {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
-                                </p>
-                                {p.txHash && (
-                                  <p className="mt-0.5 max-w-[220px] truncate font-mono text-gold">{p.txHash}</p>
-                                )}
-                                <p className="mt-1 text-muted-foreground">
-                                  {p.cageConfirmationId
-                                    ? `Cage: ${p.cageConfirmationId}`
-                                    : t("admissionPanel.cageNotRecorded")}
-                                  {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {c.invitation && (
-                        <span className="flex items-center gap-1 text-[11px] text-success">
-                          <MailCheck className="h-3 w-3" />
-                          {t("admissionPanel.dualChannelIssued")}
-                        </span>
-                      )}
-                      {terminal && (
-                        <span className="text-[11px] text-muted-foreground">
-                          {t("admissionPanel.terminalNote")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
+      {/* 分两区: Need Your Attention(未启用) + Approve VIP Request(已启用) */}
+      {view === "all" || view === "attention" || view === "approved" ? (
+        <>
+          {view !== "approved" && (
+            <div className="rounded-lg border border-border/60 bg-card/80 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t("admissionPanel.attentionTitle")}
+                </p>
+                <Pill tone="warning">{String(attentionCases.length)}</Pill>
               </div>
-            );
-          })}
-        </div>
-      </div>
+              {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+              {loading ? (
+                <div className="mt-3"><LoadingSkeleton rows={2} /></div>
+              ) : attentionCases.length === 0 ? (
+                <div className="mt-3">
+                  <EmptyState
+                    icon={UserPlus2}
+                    title={t("admissionPanel.noAttention")}
+                    description={t("admissionPanel.noAttentionHint")}
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {attentionCases.map((c) => (
+                    <CaseRow
+                      key={c.id}
+                      c={c}
+                      expanded={expanded}
+                      toggleExpand={toggleExpand}
+                      busyId={busyId}
+                      onSendEmail={sendEmailInvite}
+                      onShowQr={showQrSession}
+                      onRemind={remindCase}
+                      onRevoke={revokeCase}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {view !== "attention" && (
+            <div className="rounded-lg border border-border/60 bg-card/80 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t("admissionPanel.approveTitle")}
+                </p>
+                <Pill tone="success">{String(approvedCases.length)}</Pill>
+              </div>
+              {loading ? (
+                <div className="mt-3"><LoadingSkeleton rows={2} /></div>
+              ) : approvedCases.length === 0 ? (
+                <div className="mt-3">
+                  <EmptyState
+                    icon={MailCheck}
+                    title={t("admissionPanel.noApproved")}
+                    description={t("admissionPanel.noApprovedHint")}
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {approvedCases.map((c) => (
+                    <CaseRow
+                      key={c.id}
+                      c={c}
+                      expanded={expanded}
+                      toggleExpand={toggleExpand}
+                      busyId={busyId}
+                      onSendEmail={sendEmailInvite}
+                      onShowQr={showQrSession}
+                      onRemind={remindCase}
+                      onRevoke={revokeCase}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : null}
     </section>
   );
 }

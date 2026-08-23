@@ -400,7 +400,8 @@ ADMISSION_SCHEMA_SQL = """
         id              TEXT PRIMARY KEY,
         host_user_id    TEXT NOT NULL,
         patron_email    TEXT NOT NULL,
-        patron_name     TEXT,
+        first_name      TEXT,
+        last_name       TEXT,
         member_reference TEXT,
         service_purpose TEXT,
         host_notes      TEXT,
@@ -694,8 +695,10 @@ def init_db() -> None:
         # Host-led VIP admission: KYC document expiries (earliest relied-on expiry)。
         admission_cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(vip_admission_cases)").fetchall()}
-        if "patron_name" not in admission_cols:
-            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN patron_name TEXT")
+        if "first_name" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN first_name TEXT")
+        if "last_name" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN last_name TEXT")
         if "kyc_document_expiries_json" not in admission_cols:
             conn.execute(
                 "ALTER TABLE vip_admission_cases ADD COLUMN kyc_document_expiries_json TEXT")
@@ -4018,7 +4021,9 @@ def _admission_case_public(
         "hostName": _user_name(row["host_user_id"]),
         "patronEmail": row["patron_email"] if show_internal else "",
         "patronEmailMasked": mask_email(row["patron_email"]),
-        "patronName": row["patron_name"] or None,
+        "firstName": row["first_name"] or None,
+        "lastName": row["last_name"] or None,
+        "patronName": (" ".join(filter(None, [row["first_name"], row["last_name"]]))).strip() or None,
         "memberReference": row["member_reference"],
         "servicePurpose": row["service_purpose"],
         "hostNotes": row["host_notes"] if show_internal else None,
@@ -4084,7 +4089,8 @@ class HostProfileActivateIn(BaseModel):
 
 class AdmissionCaseCreateIn(BaseModel):
     patronEmail: str
-    patronName: Optional[str] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
     memberReference: Optional[str] = None
     servicePurpose: Optional[str] = None
     hostNotes: Optional[str] = None
@@ -4173,14 +4179,17 @@ def admission_case_create(
     with db() as conn:
         conn.execute(
             """INSERT INTO vip_admission_cases(
-                   id, host_user_id, patron_email, patron_name, member_reference,
-                   service_purpose, host_notes, preferred_language, route,
-                   patron_user_id, status, leader_user_id, kyc_reason_code,
-                   kyc_valid_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   id, host_user_id, patron_email, first_name, last_name,
+                   member_reference, service_purpose, host_notes,
+                   preferred_language, route, patron_user_id, status,
+                   leader_user_id, kyc_reason_code, kyc_valid_until,
+                   created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 case_id, user["id"], patron_email,
-                (body.patronName or "").strip() or None, body.memberReference,
+                (body.firstName or "").strip() or None,
+                (body.lastName or "").strip() or None,
+                body.memberReference,
                 body.servicePurpose, body.hostNotes, body.preferredLanguage,
                 body.route, None, "draft", None, None, None, now, now,
             ),
@@ -4365,6 +4374,51 @@ def admission_case_invite_email(
         "emailExpiresAt": view["emailExpiresAt"],
         "qrExpiresAt": view["qrExpiresAt"],
     }
+
+
+@app.post("/api/admission-cases/{case_id}/remind")
+def admission_case_remind(
+    case_id: str,
+    user: Any = Depends(require_role("host")),
+):
+    """Send a polite nudge email to the VIP for a case that needs their action
+    (e.g. claim not completed, KYC not submitted). Does NOT change case status
+    or issue a fresh invitation link — only a reminder."""
+    _require_active_host(user)
+    row = _admission_case_get_or_404(case_id)
+    if row["host_user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    if row["status"] in ("revoked", "expired", "rejected"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot remind a case in terminal status {row['status']}",
+        )
+    patron_name = (" ".join(filter(None, [row["first_name"], row["last_name"]]))).strip()
+    greeting = f"Dear {patron_name}," if patron_name else "Hello,"
+    action_hint = {
+        "draft": "Your Host is preparing your invitation — you will receive a link shortly.",
+        "invitation_open": "Your invitation is waiting — please check your email and claim it.",
+        "vip_claimed": "Please complete identity verification to continue.",
+        "kyc_in_progress": "Your identity verification is still in progress.",
+        "kyc_failed": "Your identity verification needs another attempt — please resubmit.",
+        "compliance_review": "Your request is under compliance review.",
+        "leader_pending": "Your request is with the approver — no action needed from you right now.",
+        "payment_precheck": "Your payment details are being pre-checked.",
+    }.get(row["status"], "Please complete the remaining steps so we can proceed.")
+    channel = send_email(
+        row["patron_email"],
+        "Reminder: your VIP request (ref {})".format(case_id[:8]),
+        f"{greeting}\n\n"
+        f"{action_hint}\n\n"
+        f"Your Host is happy to help — just reply to this email or contact your Host directly.\n"
+        f"Reference: {case_id[:8]}",
+    )
+    write_audit(
+        user["id"], "admission.remind.email", "admission_case", case_id,
+        {"caseId": case_id, "patronEmailMasked": mask_email(row["patron_email"]),
+         "status": row["status"], "emailChannel": channel},
+    )
+    return {"ok": True, "channel": channel}
 
 
 @app.post("/api/admission-cases/{case_id}/invite/qr-session")

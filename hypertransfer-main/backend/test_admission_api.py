@@ -180,14 +180,20 @@ class AdmissionCaseCreateTests(AdmissionApiTestCase):
         inactive = self._create_staff("Inactive Host", "inactive@example.test", ["host"], host_status="pending")
         payload = {
             "patronEmail": "vip@example.test",
-            "patronName": "Chen Wei",
+            "firstName": "Chen",
+            "lastName": "Wei",
             "servicePurpose": "VIP table credit",
             "route": "complete_dossier",
         }
         resp = self.client.post(f"{API}/admission-cases", json=payload, headers=self._auth(active["token"]))
         assert resp.status_code == 200, resp.text
-        assert resp.json()["case"]["patronName"] == "Chen Wei"
-        assert self._case_row(resp.json()["case"]["id"])["patron_name"] == "Chen Wei"
+        case = resp.json()["case"]
+        assert case["firstName"] == "Chen"
+        assert case["lastName"] == "Wei"
+        assert case["patronName"] == "Chen Wei"
+        row = self._case_row(case["id"])
+        assert row["first_name"] == "Chen"
+        assert row["last_name"] == "Wei"
         resp = self.client.post(f"{API}/admission-cases", json=payload, headers=self._auth(inactive["token"]))
         assert resp.status_code == 403
 
@@ -242,6 +248,35 @@ class AdmissionCaseCreateTests(AdmissionApiTestCase):
             f"{API}/admission-cases", json={}, headers=self._auth(active["token"])
         )
         assert resp.status_code == 422
+
+    def test_remind_sends_email_and_audits_without_status_change(self):
+        host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
+        case = self._create_case(host)
+        prior_status = case["status"]
+        resp = self.client.post(
+            f"{API}/admission-cases/{case['id']}/remind", headers=self._auth(host["token"])
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["ok"] is True
+        # status unchanged (remind never mutates state)
+        row = self._case_row(case["id"])
+        assert row["status"] == prior_status
+        events = self._audit_events(case["id"])
+        assert any(ev["action"] == "admission.remind.email" for ev in events)
+
+    def test_remind_rejected_for_terminal_case(self):
+        host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
+        case = self._create_case(host)
+        # force a terminal status directly in DB
+        with server.db() as conn:
+            conn.execute(
+                "UPDATE vip_admission_cases SET status='revoked' WHERE id=?", (case["id"],)
+            )
+            conn.commit()
+        resp = self.client.post(
+            f"{API}/admission-cases/{case['id']}/remind", headers=self._auth(host["token"])
+        )
+        assert resp.status_code == 409
 
     def test_create_case_writes_audit_event(self):
         host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")

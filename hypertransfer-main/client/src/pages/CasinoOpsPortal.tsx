@@ -9,7 +9,9 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
   Banknote,
+  CheckCircle2,
   KeyRound,
+  MailCheck,
   Boxes,
   Gavel,
   UserPlus2,
@@ -95,8 +97,10 @@ function OpsCard({
 function useSections() {
   const { t } = useI18n();
   return [
-    // 左侧菜单第一项 = New VIP Request(Host/RM 工作台)
-    { key: "vip", label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
+    // Host/RM 三个工作台菜单: 创建 / 待办跟进 / 已批准
+    { key: "vip-new", label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
+    { key: "vip-attention", label: t("casinoOps.vipAttention"), icon: MailCheck, roles: ["host", "rm"] },
+    { key: "vip-approved", label: t("casinoOps.vipApproved"), icon: CheckCircle2, roles: ["host", "rm"] },
     { key: "deposits", label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
     { key: "refunds", label: t("casinoOps.withdrawals"), icon: Undo2, roles: ["compliance", "ops", "custodian"] },
     { key: "leader", label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
@@ -146,7 +150,7 @@ export default function CasinoOpsPortal() {
   // 按角色落地默认工作台: Host→VIP Admissions, Manager→Leader Approval, Ops→Payment Operations
   const [activeSection, setActiveSection] = useState<string>(() => {
     const roles = new Set(user?.roles ?? []);
-    if (roles.has("host")) return "vip";
+    if (roles.has("host")) return "vip-new";
     if (roles.has("leader")) return "leader";
     if (roles.has("ops")) return "payment-ops";
     return "deposits";
@@ -250,7 +254,9 @@ export default function CasinoOpsPortal() {
 
           {activeSection === "deposits" && <DepositQueuePanel />}
           {activeSection === "refunds" && <RefundQueuePanel />}
-          {activeSection === "vip" && <AdmissionCasePanel />}
+          {activeSection === "vip-new" && <AdmissionCasePanel view="form" />}
+          {activeSection === "vip-attention" && <AdmissionCasePanel view="attention" />}
+          {activeSection === "vip-approved" && <AdmissionCasePanel view="approved" />}
           {activeSection === "leader" && <LeaderApprovalPanel />}
           {activeSection === "payment-ops" && <PaymentOperationsPanel />}
           {activeSection === "access" && <InvitationReviewPanel />}

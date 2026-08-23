@@ -230,7 +230,17 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 VIP Requests 工作台重构 Round 2（分支 `feat/ux-visual-polish`）
+
+- **姓名拆分**：`patron_name` → `first_name` + `last_name`（DDL/迁移/模型/投影/seed/测试全量；投影同时返回 `firstName`/`lastName`/`patronName` 组合串，兼容旧调用）。
+- **表单**：First name + Last name 两个必填；`Intended deposit (USD)` 标签 + placeholder `Amount in USD` + **输入千分位格式化**（50000 → 50,000，提交时去逗号）；**Note 移到表单下方大文本框**；按钮改 **"Send for approval"**（去加号图标）。
+- **列表分两区**：**Need Your Attention**（未启用：待邀请/待认领/KYC 未过/待审批/被拒/撤销等，每行新增 **Remind** 发提醒邮件按钮，不改变状态）+ **Approve VIP Request**（已 service_enabled，状态 tag 显示 **HyperTransfer active**）。
+- **左侧菜单拆三个**：New VIP Request / Need Your Attention / Approve VIP Request（`AdmissionCasePanel` 新增 `view` prop: form/attention/approved/all；host 默认落 `vip-new`）。
+- **后端新增 remind 端点**：`POST /api/admission-cases/{id}/remind`（宽松守卫，terminal 状态 409；发提醒邮件+audit，不改变状态）。
+- **验证**：Python **170/170** ✅（+2 remind 测试 + patronName 拆分断言）、tsc ✅、pnpm 39/39 ✅、build ✅；Playwright 实测（三菜单切换/千分位 50,000/两区视图/HyperTransfer active tag/first-last 落库/remind）；四角色 e2e **20/20** ✅；bob 已重部署。
+
 ### 2026-08-21 VIP Requests 工作台重构（分支 `feat/ux-visual-polish`）
+
 
 - **命名**：`VIP Admissions` → **VIP Requests**；左侧菜单第一项 **New VIP Request**（casino-ops vip 板块置顶，host/rm 落点不变）。
 - **创建表单重构**：新增 **VIP name**（创建时填姓名，后端 `vip_admission_cases.patron_name` 新列+幂等迁移，投影返回 `patronName`）；`Preferred Language` 改**下拉**（简体/繁體/English/Other，发邀请邮件用）；`Intended Service` 改 **Intended deposit（金额，存 `servicePurpose` 如 `50000 USDT`）**；长标签 "Relationship Context for the Compliance Leader Dossier" 简化为 **Note**；**移除 Route 选择**（后端默认 complete_dossier，API 兼容不变）。

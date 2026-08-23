@@ -202,12 +202,12 @@ def seed_admission_demo() -> None:
         )
         c.execute(
             """INSERT INTO vip_admission_cases(
-                  id, host_user_id, patron_email, patron_name, member_reference,
+                  id, host_user_id, patron_email, first_name, last_name, member_reference,
                   service_purpose, host_notes, preferred_language, route, patron_user_id,
                   status, leader_user_id, kyc_reason_code, kyc_valid_until,
                   leader_decision, leader_reason, leader_decided_at, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (ADM_CASE_ID, ADM_HOST_ID, ADM_PATRON_EMAIL, "Demo VIP Patron",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ADM_CASE_ID, ADM_HOST_ID, ADM_PATRON_EMAIL, "Demo", "Patron",
              "M-VIP-DEMO-001", "VIP table credit demo",
              "Demo relationship note (internal only)", "zh-Hant",
              "complete_dossier", ADM_PATRON_ID, "service_enabled", "demo-leader-id",
@@ -263,13 +263,13 @@ def seed_admission_demo() -> None:
         # 待审批演示 case(complete_dossier, 预检完成 -> leader_pending)
         c.execute(
             """INSERT INTO vip_admission_cases(
-                  id, host_user_id, patron_email, patron_name, member_reference,
+                  id, host_user_id, patron_email, first_name, last_name, member_reference,
                   service_purpose, host_notes, preferred_language, route, patron_user_id,
                   status, leader_user_id, kyc_reason_code, kyc_valid_until,
                   leader_decision, leader_reason, leader_decided_at, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ADM_PENDING_CASE_ID, ADM_HOST_ID, "vip2.admission.demo@operator.example",
-             "Second VIP Patron", "M-VIP-DEMO-002",
+             "Second", "Patron", "M-VIP-DEMO-002",
              "VIP table credit (pending approval)",
              "Second demo case awaiting the manager's approval", "en",
              "complete_dossier", ADM_PATRON_ID, "leader_pending", None,

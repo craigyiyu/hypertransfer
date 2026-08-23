@@ -545,6 +545,8 @@ export interface AdmissionCase {
   id: string;
   hostName: string;
   patronEmailMasked: string;
+  firstName?: string | null;
+  lastName?: string | null;
   patronName?: string | null;
   status: AdmissionCaseStatus;
   memberReference?: string | null;
@@ -580,7 +582,8 @@ export const admissionApi = {
   // 仅 active Host 可创建(后端强制)
   create: (p: {
     patronEmail: string;
-    patronName?: string;
+    firstName?: string;
+    lastName?: string;
     memberReference?: string;
     servicePurpose?: string;
     hostNotes?: string;
@@ -592,6 +595,7 @@ export const admissionApi = {
   patronMine: () => api.get<{ ok: boolean; case: AdmissionCase }>("/admission-cases/patron/mine"),
   get: (id: string) => api.get<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}`),
   revoke: (id: string) => api.post<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}/revoke`, {}),
+  remind: (id: string) => api.post<{ ok: boolean; channel: string }>(`/admission-cases/${id}/remind`, {}),
   // 双通道邀请(2026-08-21): 同一 case 的 email link + 动态 QR session, 均须 Email OTP 认领
   inviteEmail: (id: string) =>
     api.post<{ ok: boolean; case: AdmissionCase; emailExpiresAt: string; qrExpiresAt: string }>(
