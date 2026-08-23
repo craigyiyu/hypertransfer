@@ -230,7 +230,17 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 B4+B5 无障碍与双语（分支 `feat/ux-visual-polish`, B4+B5）
+
+- **B4 移动端 + 无障碍全量审计（axe-core + Playwright 双视口 20 路由）**：违规 **150 → 0**。
+  - 全局修复：`index.html` 移除 `maximum-scale=1`（恢复缩放）；Shell/Landing/NotFound/DemoHome/StaffLogin 根容器改 `<main>` landmark（region/landmark-one-main 全清）；全局 `--muted-foreground` 对比度达标（light 0.52→0.45 / dark 0.60→0.68）；密码眼睛按钮补 aria-label；ForgotPassword 区号 select 补 aria-label；Shell 图标按钮 32px→44px、眼睛按钮加 padding（WCAG 2.5.5 触摸目标）。
+  - **修复潜伏 TDZ bug**：`CasinoOpsPortal` 的 `useState` lazy initializer 在 `user` 声明前引用（登录用户打开 `/casino-ops` 会白屏 ReferenceError）——`useAuth()` 提前到 useState 之前，登录态渲染已用 Playwright 验证。
+- **B5 完整中英双语 i18n**：`lib/translations.ts` 重写为 en+zh 全量（约 1900 行，含 admission/journey/ops/onboarding/invite/kyc/deposit/auth 全部 section）；`I18nContext` fallback 链改 yue→zh→en（新 key 只写 en+zh，yue 继承 zh）；**Shell 头部挂 `LanguageSwitcher`**（全局切换）；**25 个页面 + 14 个组件全部接入 `useI18n`**；新增 `lib/translations.test.ts`（5 用例：en/zh key 集一致、值非空、无英文泄漏、yue 有效）。
+- **验证**：tsc ✅、pnpm test **39/39** ✅（含 5 个新 parity 用例）、build ✅；Playwright 审计 **0 违规 / 0 溢出 / 0 console error / 20 路由**；zh/en 切换实测通过（login + casino-ops 全中文渲染）；四角色 e2e **20/20** ✅；bob 已重部署。
+- **已知限制**：少量辅助文案仍英文（invitation-only 说明、staff 入口、部分动态模板、KYC provider 长解释——词典未建 key）；`demo:` 前缀 helper 文案保留英文；B5 后新页面需遵守"文案必须进词典"约定。
+
 ### 2026-08-21 UX/视觉打磨（分支 `feat/ux-visual-polish`, B+C）
+
 
 - **B1 VIP 旅程**：`lib/admission-journey.ts` + `components/AdmissionJourney.tsx`——VIP Dashboard/KYCStatus 顶部
   展示统一旅程条（Created→Invited→Claimed→KYC→KYC passed→Pre-check→Approver→Enabled + 服务启用后的

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import ThemeToggle from "@/components/ThemeToggle";
 import BrandMark from "@/components/BrandMark";
 import { staffApi, apiError } from "@/lib/api";
@@ -90,18 +91,22 @@ function OpsCard({
 
 // 左侧板块导航(tab 式)。roles=可见该板块的角色; admin 全可见。
 // 两层 RBAC: RM/Host 只看 VIP Admissions(且板块内只能操作自己的 case); marketing 看 Access Requests 审批队列。
-const SECTIONS = [
-  { key: "deposits", label: "Deposits", icon: Boxes, roles: ["compliance", "ops", "custodian"] },
-  { key: "refunds", label: "Withdrawals", icon: Undo2, roles: ["compliance", "ops", "custodian"] },
-  { key: "vip", label: "VIP Admissions", icon: UserPlus2, roles: ["host", "rm"] },
-  { key: "leader", label: "Leader Approval", icon: Gavel, roles: ["leader"] },
-  { key: "payment-ops", label: "Payment Operations", icon: Banknote, roles: ["ops", "custodian", "compliance"] },
-  { key: "access", label: "Access Requests", icon: UserPlus2, roles: ["marketing", "compliance"] },
-  { key: "staff", label: "Staff Admin", icon: UserCog, roles: [] as string[] }, // admin-only
-] as const;
+function useSections() {
+  const { t } = useI18n();
+  return [
+    { key: "deposits", label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
+    { key: "refunds", label: t("casinoOps.withdrawals"), icon: Undo2, roles: ["compliance", "ops", "custodian"] },
+    { key: "vip", label: t("casinoOps.vipAdmissions"), icon: UserPlus2, roles: ["host", "rm"] },
+    { key: "leader", label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
+    { key: "payment-ops", label: t("casinoOps.paymentOperations"), icon: Banknote, roles: ["ops", "custodian", "compliance"] },
+    { key: "access", label: t("casinoOps.accessRequests"), icon: UserPlus2, roles: ["marketing", "compliance"] },
+    { key: "staff", label: t("casinoOps.staffAdmin"), icon: UserCog, roles: [] as string[] }, // admin-only
+  ] as const;
+}
 
 function OktaLinkButton() {
   const { user, refresh } = useAuth();
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const linked = Boolean(user?.oktaLinked);
   const link = async () => {
@@ -109,7 +114,7 @@ function OktaLinkButton() {
     try {
       const { data } = await staffApi.oktaLink();
       await refresh();
-      toast.success(data.demo ? "Okta linked (demo placeholder — production uses real OIDC)." : "Okta linked.");
+      toast.success(data.demo ? "Okta linked (demo placeholder — production uses real OIDC)." : t("casinoOps.oktaLinkedToast"));
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -126,12 +131,16 @@ function OktaLinkButton() {
       }`}
     >
       <KeyRound className="h-3.5 w-3.5" />
-      {linked ? "Okta linked" : "Link Okta"}
+      {linked ? t("casinoOps.oktaLinked") : t("casinoOps.linkOkta")}
     </button>
   );
 }
 
 export default function CasinoOpsPortal() {
+  const [, navigate] = useLocation();
+  const { user, logout } = useAuth();
+  const { t } = useI18n();
+  const SECTIONS = useSections();
   // 按角色落地默认工作台: Host→VIP Admissions, Manager→Leader Approval, Ops→Payment Operations
   const [activeSection, setActiveSection] = useState<string>(() => {
     const roles = new Set(user?.roles ?? []);
@@ -140,8 +149,6 @@ export default function CasinoOpsPortal() {
     if (roles.has("ops")) return "payment-ops";
     return "deposits";
   });
-  const [, navigate] = useLocation();
-  const { user, logout } = useAuth();
   // 两层 RBAC: 侧栏只显示当前角色可见的板块(admin 全可见)。RM → 只见 Access Requests。
   const visibleSections = useMemo(() => {
     const roles = new Set(user?.roles ?? []);
@@ -180,14 +187,14 @@ export default function CasinoOpsPortal() {
             </div>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Casino Staff Operations
+                {t("casinoOps.subtitle")}
               </p>
-              <h1 className="font-display text-lg font-semibold text-foreground">VA Operations Portal</h1>
+              <h1 className="font-display text-lg font-semibold text-foreground">{t("casinoOps.title")}</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <StatusPill tone="success">Staff only</StatusPill>
+            <StatusPill tone="success">{t("casinoOps.staffOnly")}</StatusPill>
             <OktaLinkButton />
             <button
               onClick={async () => {
@@ -197,7 +204,7 @@ export default function CasinoOpsPortal() {
               className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-destructive/30 hover:text-destructive"
             >
               <LogOut className="h-3.5 w-3.5" />
-              Sign out
+              {t("casinoOps.signOut")}
             </button>
           </div>
         </div>
@@ -252,17 +259,17 @@ export default function CasinoOpsPortal() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Active deposit case
+                {t("casinoOps.activeDepositCase")}
               </p>
               <h2 className="mt-1 text-2xl font-semibold text-foreground">
                 {depositAmount > 0
                   ? `${formatAssetAmount(depositAmount, 0)} ${state.selectedAsset}`
-                  : "No active customer deposit"}
+                  : t("casinoOps.noActiveDeposit")}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {depositAmount > 0
                   ? `Estimated value ${getHKDEquivalent(depositAmount, state.selectedAsset)}`
-                  : "Complete a customer deposit session to populate the staff settlement tasks below."}
+                  : t("casinoOps.completeSession")}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
                 Staff task: review session gates, then enter the required marker reference in the deposit queue.
@@ -270,19 +277,19 @@ export default function CasinoOpsPortal() {
             </div>
             <div className="grid min-w-[320px] grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Session date</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("casinoOps.sessionDate")}</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{activeSessionDate}</p>
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Asset</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("casinoOps.asset")}</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{state.selectedAsset || "USDT"}</p>
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Network</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("casinoOps.network")}</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{formatNetworkRail(state.selectedNetwork)}</p>
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">KYT</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("casinoOps.kyt")}</p>
                 <p className="mt-1 text-sm font-semibold text-success">
                   {state.mainDepositConfirmed ? "cleared" : "pending"}
                 </p>
@@ -293,21 +300,21 @@ export default function CasinoOpsPortal() {
 
         <div className="grid gap-5 lg:grid-cols-2">
           <OpsCard
-            eyebrow="WTA settlement"
-            title="Treasury account receipt"
+            eyebrow={t("casinoOps.wtaSettlement")}
+            title={t("casinoOps.treasuryReceipt")}
             icon={<Banknote className="h-5 w-5" />}
           >
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Confirmation gate</span>
+                <span className="text-muted-foreground">{t("casinoOps.confirmationGate")}</span>
                 <span className="font-semibold text-foreground">
                   {requiredConfirmations != null ? `${requiredConfirmations} confirmations` : "— (from Hex Safe)"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Latest txHash</span>
+                <span className="text-muted-foreground">{t("casinoOps.latestTxHash")}</span>
                 <span className="max-w-[190px] truncate font-mono text-xs text-gold">
-                  {latestMainTx?.txHash || "Pending main deposit"}
+                  {latestMainTx?.txHash || t("casinoOps.pendingMainDeposit")}
                 </span>
               </div>
               <div className="rounded-lg bg-secondary/25 px-3 py-2 text-xs text-muted-foreground">
