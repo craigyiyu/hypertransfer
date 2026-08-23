@@ -11,6 +11,7 @@ import { ShieldCheck, Loader2, UserPlus2, KeyRound, Building2 } from "lucide-rea
 import { toast } from "sonner";
 import Shell from "@/components/Shell";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   apiError,
   authApi,
@@ -20,17 +21,17 @@ import {
   type StaffOnboardingRole,
 } from "@/lib/api";
 
-const ROLE_OPTIONS: { value: StaffOnboardingRole; label: string; hint: string }[] = [
-  { value: "host", label: "Host / Relationship Manager", hint: "Creates and tracks VIP admission cases" },
-  { value: "leader", label: "Manager (sole approver)", hint: "Approves VIP service admissions" },
-  { value: "ops", label: "HK Operations", hint: "Records Cage confirmation and reconciliation" },
-];
-
 type Step = "form" | "totp";
 
 export default function StaffOnboarding() {
   const [, navigate] = useLocation();
   const { setSession } = useAuth();
+  const { t } = useI18n();
+  const ROLE_OPTIONS: { value: StaffOnboardingRole; label: string; hint: string }[] = [
+    { value: "host", label: t("staffOnboard.hostRole"), hint: t("staffOnboard.hostRoleDesc") },
+    { value: "leader", label: t("staffOnboard.managerRole"), hint: t("staffOnboard.managerRoleDesc") },
+    { value: "ops", label: t("staffOnboard.opsRole"), hint: t("staffOnboard.opsRoleDesc") },
+  ];
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -49,7 +50,7 @@ export default function StaffOnboarding() {
 
   const handleStart = async () => {
     if (!canSubmit) {
-      toast.error("Complete the company email, name and a password of at least 8 characters.");
+      toast.error(t("staffOnboard.formNote"));
       return;
     }
     setSubmitting(true);
@@ -62,7 +63,7 @@ export default function StaffOnboarding() {
       });
       setResult(data);
       setStep("totp");
-      toast.success("Account created — bind your authenticator to activate it.");
+      toast.success(t("staffOnboard.accountCreatedFor"));
       if (data.demo) {
         setCode("000000");
       }
@@ -89,7 +90,7 @@ export default function StaffOnboarding() {
   };
 
   return (
-    <Shell showBack backTo="/ops" title="Staff Onboarding" subtitle="Register with your company email">
+    <Shell showBack backTo="/ops" title={t("staffOnboard.title")} subtitle={t("staffOnboard.subtitle")}>
       {step === "form" ? (
         <div className="space-y-5">
           <div className="card-wine rounded-lg p-3 flex items-start gap-2.5">
@@ -102,7 +103,7 @@ export default function StaffOnboarding() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-1">Company email</label>
+            <label className="text-sm font-medium text-foreground flex items-center gap-1">{t("staffOnboard.companyEmail")}</label>
             <input
               type="email"
               value={email}
@@ -113,29 +114,29 @@ export default function StaffOnboarding() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-1">Full name</label>
+            <label className="text-sm font-medium text-foreground flex items-center gap-1">{t("staffOnboard.fullName")}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="As shown on your company ID"
+              placeholder={t("staffOnboard.asShownOnCompanyId")}
               className="w-full px-4 py-3 rounded-lg bg-secondary/50 border border-border/50 text-sm focus:border-gold/50 focus:outline-none placeholder:text-muted-foreground/40"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-1">Password</label>
+            <label className="text-sm font-medium text-foreground flex items-center gap-1">{t("staffOnboard.password")}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={t("staffOnboard.minLength")}
               className="w-full px-4 py-3 rounded-lg bg-secondary/50 border border-border/50 text-sm focus:border-gold/50 focus:outline-none placeholder:text-muted-foreground/40"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Your role</label>
+            <label className="text-sm font-medium text-foreground">{t("staffOnboard.yourRole")}</label>
             <div className="space-y-2">
               {ROLE_OPTIONS.map((opt) => (
                 <button
@@ -170,7 +171,7 @@ export default function StaffOnboarding() {
             <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" />
             <div className="text-xs text-muted-foreground leading-relaxed">
               <p>
-                Account created for <span className="font-semibold text-foreground">{result?.email}</span>{' '}
+                {t("staffOnboard.accountCreatedFor")} <span className="font-semibold text-foreground">{result?.email}</span>{' '}
                 as <span className="font-semibold text-foreground">{result?.role}</span>. Scan the QR with
                 your authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password…).
               </p>
@@ -181,7 +182,7 @@ export default function StaffOnboarding() {
             {result?.qr_png_base64 && (
               <img
                 src={result.qr_png_base64}
-                alt="TOTP QR code"
+                alt={t("staffOnboard.totpQr")}
                 className="h-44 w-44 rounded-lg"
               />
             )}
@@ -190,7 +191,7 @@ export default function StaffOnboarding() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground flex items-center gap-1">
-              6-digit code <span className="text-destructive">*</span>
+              {t("staffOnboard.enterCode")} <span className="text-destructive">*</span>
             </label>
             <input
               inputMode="numeric"
@@ -198,11 +199,11 @@ export default function StaffOnboarding() {
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="Enter 6-digit code"
+              placeholder={t("staffOnboard.enterCode")}
               className="w-full px-4 py-3 rounded-lg bg-secondary/50 border border-border/50 text-sm focus:border-gold/50 focus:outline-none placeholder:text-muted-foreground/40"
             />
             {result?.demo && (
-              <p className="text-xs text-gold/70">Demo: any 6 digits pass (auto-filled).</p>
+              <p className="text-xs text-gold/70">{t("staffOnboard.demoAutofill")}</p>
             )}
           </div>
 

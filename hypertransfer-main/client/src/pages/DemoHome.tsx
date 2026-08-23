@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Shield, ArrowRight, Users, Building2, ShieldCheck } from "lucide-react";
 import { appBuildLabel } from "@/lib/app-version";
+import { useI18n } from "@/contexts/I18nContext";
 
 const HERO_BG =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/hero-bg-62bvwNpUn3XWmYV9fDibfk.webp";
@@ -23,34 +24,35 @@ interface EntryCard {
   icon: typeof Users;
 }
 
-const ENTRIES: EntryCard[] = [
-  {
-    key: "customer",
-    eyebrow: "Customer",
-    title: "Patron App",
-    desc: "The player-facing HyperTransfer H5: invite sign-in, KYC, compliant crypto deposit, and withdrawals.",
-    points: ["Invite-only sign-in + Email OTP", "KYC → source-wallet KYT → 1 USDT verify", "Deposit (fees / HKD) · Withdrawal to verified wallet"],
-    cta: "Open customer app",
-    to: "/welcome",
-    icon: Users,
-  },
-  {
-    key: "staff",
-    eyebrow: "Operator",
-    title: "Operations Portal",
-    desc: "Casino staff back office: access-request approvals, deposit and withdrawal queues, and marker settlement.",
-    points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Withdrawals", "Marker reference · WTA settlement"],
-    cta: "Open staff portal",
-    to: "/ops",
-    icon: Building2,
-  },
-];
-
 export default function DemoHome() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
+
+  const ENTRIES: EntryCard[] = [
+    {
+      key: "customer",
+      eyebrow: t("demoHome.customer"),
+      title: t("demoHome.patronApp"),
+      desc: "The player-facing HyperTransfer H5: invite sign-in, KYC, compliant crypto deposit, and withdrawals.",
+      points: ["Invite-only sign-in + Email OTP", "KYC → source-wallet KYT → 1 USDT verify", "Deposit (fees / HKD) · Withdrawal to verified wallet"],
+      cta: t("demoHome.openCustomerApp"),
+      to: "/welcome",
+      icon: Users,
+    },
+    {
+      key: "staff",
+      eyebrow: t("demoHome.operator"),
+      title: t("demoHome.operationsPortal"),
+      desc: "Casino staff back office: access-request approvals, deposit and withdrawal queues, and marker settlement.",
+      points: ["Sign in with Okta (demo · no 2FA)", "Access requests · Deposits · Withdrawals", "Marker reference · WTA settlement"],
+      cta: t("demoHome.openStaffPortal"),
+      to: "/ops",
+      icon: Building2,
+    },
+  ];
 
   return (
-    <div className="relative min-h-[100svh] overflow-hidden bg-background">
+    <main className="relative min-h-[100svh] overflow-hidden bg-background">
       {/* 背景 */}
       <div
         className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-20"
@@ -70,7 +72,7 @@ export default function DemoHome() {
           </div>
           <h1 className="text-2xl font-bold text-foreground sm:text-3xl">HyperTransfer</h1>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Compliant virtual-asset deposit orchestration.
+            {t("demoHome.subtitle")}
           </p>
         </motion.div>
 
@@ -123,6 +125,6 @@ export default function DemoHome() {
           {appBuildLabel}
         </p>
       </div>
-    </div>
+    </main>
   );
 }

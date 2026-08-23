@@ -12,6 +12,7 @@ import { getHKDEquivalent, formatHKD, convertToHKD, estimatedReceived, DEPOSIT_F
 import { formatNetworkRail, blockExplorerTxUrl } from "@/lib/compliance";
 import { depositApi, type DepositRecord } from "@/lib/api";
 import { ExternalLink } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   DEMO_DEPOSIT_SETTLEMENT_EVENT,
   readDemoDepositSettlement,
@@ -34,6 +35,7 @@ const FALLBACK_SETTLEMENT = {
 };
 
 export default function DepositSuccess() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [depositRecord, setDepositRecord] = useState<DepositRecord | null>(null);
@@ -58,7 +60,7 @@ export default function DepositSuccess() {
 
   // 完成页对账信息: 链上交易哈希 + reference/transaction ID(供对账 + HK marketing 出 marker)。
   const mainTx = state.transactions.find(
-    (t) => t.type === "main" && (t.status === "confirmed" || t.status === "cleared"),
+    (tx) => tx.type === "main" && (tx.status === "confirmed" || tx.status === "cleared"),
   );
   const txHash = state.hexSafeStatus?.txHash || mainTx?.txHash || demoRecord?.txHash || "";
   const referenceId = state.depositRequestId || demoRecord?.referenceId || (txHash ? "HT-" + txHash.slice(2, 12).toUpperCase() : "—");
@@ -78,8 +80,8 @@ export default function DepositSuccess() {
   const SettlementIcon = settlementSettled ? CheckCircle2 : Clock;
   const settlementClass = settlementSettled ? "text-success" : "text-gold";
   const nextStepCopy = settlementSettled
-    ? "Settlement is complete. The marker reference is now recorded for this deposit and the casino marker has been credited."
-    : "Settlement stays in progress until the marketing team records the marker reference for this deposit.";
+    ? t("depositSuccess.settledMarker")
+    : t("depositSuccess.pendingMarker");
 
   useEffect(() => {
     if (!state.depositRequestId) {
@@ -123,7 +125,7 @@ export default function DepositSuccess() {
         {/* Success illustration */}
         <motion.img
           src={SUCCESS_IMG}
-          alt="Success"
+          alt={t("depositSuccess.success")}
           className="w-24 h-24 mb-6"
           initial={{ scale: 0, rotate: -10 }}
           animate={{ scale: 1, rotate: 0 }}
@@ -136,7 +138,7 @@ export default function DepositSuccess() {
           transition={{ delay: 0.3 }}
           className="space-y-2"
         >
-          <h1 className="text-xl font-bold text-foreground">Deposit Complete</h1>
+          <h1 className="text-xl font-bold text-foreground">{t("depositSuccess.title")}</h1>
           <p className="text-sm text-muted-foreground max-w-[280px]">
             Your {displayDepositAmount} {selectedAsset} deposit has been confirmed and is being processed.
           </p>
@@ -155,7 +157,7 @@ export default function DepositSuccess() {
           {actualDiffersFromPlanned && (
             <>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Planned Amount</span>
+                <span className="text-muted-foreground">{t("depositSuccess.plannedAmount")}</span>
                 <span className="text-foreground font-semibold">
                   {displayPlannedAmount} {selectedAsset}
                 </span>
@@ -164,14 +166,14 @@ export default function DepositSuccess() {
             </>
           )}
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Amount Sent</span>
+            <span className="text-muted-foreground">{t("depositSuccess.amountSent")}</span>
             <span className="text-foreground font-semibold">
               {displayDepositAmount} {selectedAsset}
             </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Credited</span>
+            <span className="text-muted-foreground">{t("depositSuccess.credited")}</span>
             <div className="text-right">
               <span className="text-gold font-semibold">{formatAssetAmount(netReceive)} {selectedAsset}</span>
               <p className="text-[10px] text-muted-foreground">≈ {formatHKD(convertToHKD(netReceive, selectedAsset))}</p>
@@ -182,12 +184,12 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Network</span>
+            <span className="text-muted-foreground">{t("depositSuccess.network")}</span>
             <span className="text-foreground">{formatNetworkRail(selectedNetwork)}</span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="text-muted-foreground shrink-0">Transaction hash</span>
+            <span className="text-muted-foreground shrink-0">{t("depositSuccess.transactionHash")}</span>
             {explorerUrl ? (
               <a
                 href={explorerUrl}
@@ -203,19 +205,19 @@ export default function DepositSuccess() {
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="text-muted-foreground shrink-0">Reference ID</span>
+            <span className="text-muted-foreground shrink-0">{t("depositSuccess.referenceId")}</span>
             <span className="font-mono text-[11px] text-gold">{referenceId}</span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Payment Status</span>
+            <span className="text-muted-foreground">{t("depositSuccess.paymentStatus")}</span>
             <span className="text-success flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Received
+              <CheckCircle2 className="w-3 h-3" /> {t("depositSuccess.received")}
             </span>
           </div>
           <div className="h-px bg-border" />
           <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="text-muted-foreground">Settlement</span>
+            <span className="text-muted-foreground">{t("depositSuccess.settlement")}</span>
             <span className={`${settlementClass} flex min-w-0 items-center justify-end gap-1`}>
               <SettlementIcon className="w-3 h-3 shrink-0" />
               <span className="truncate">{settlementText}</span>
@@ -233,7 +235,7 @@ export default function DepositSuccess() {
           <div className="flex items-start gap-3">
             <Banknote className="w-4 h-4 text-gold shrink-0 mt-0.5" />
             <div className="text-left">
-              <p className="text-xs text-foreground font-medium">What happens next</p>
+              <p className="text-xs text-foreground font-medium">{t("depositSuccess.whatHappensNext")}</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 {nextStepCopy}
               </p>
@@ -247,7 +249,7 @@ export default function DepositSuccess() {
           onClick={() => navigate("/new-deposit")}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold"
         >
-          Make Another Deposit
+          {t("depositSuccess.makeAnotherDeposit")}
         </button>
       </div>
     </Shell>

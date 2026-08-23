@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import { DEMO_AUTOFILL_EVENT } from "@/contexts/DemoModeContext";
+import { useI18n } from "@/contexts/I18nContext";
 import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,15 +45,19 @@ type ScreeningState = "idle" | "scanning" | "passed" | "failed";
 const SYSTEM_BENEFICIARY_ROUTE = "HyperTransfer custody deposit account";
 const SYSTEM_PROVIDER_STRATEGY = "Sumsub Travel Rule adapter";
 
-const WALLET_PROVIDER_OPTIONS = [
-  "Customer self-hosted wallet",
-  "Binance",
-  "Coinbase",
-  "OKX",
-  "Crypto.com",
-  "Kraken",
-  "Other VASP",
-  "Unknown VASP",
+// Brand names (Binance / Coinbase / OKX / Crypto.com / Kraken) are kept as-is per
+// project policy; the rest of the dropdown labels are translated via i18n keys.
+// We render both value and label from this list so brand names and translated
+// names stay aligned in the same Select menu.
+const WALLET_PROVIDER_OPTIONS: { value: string; labelKey?: string }[] = [
+  { value: "Customer self-hosted wallet", labelKey: "newDeposit.customerSelfHosted" },
+  { value: "Binance" },
+  { value: "Coinbase" },
+  { value: "OKX" },
+  { value: "Crypto.com" },
+  { value: "Kraken" },
+  { value: "Other VASP", labelKey: "newDeposit.otherVasp" },
+  { value: "Unknown VASP", labelKey: "newDeposit.unknownVasp" },
 ];
 
 const TRAVEL_RULE_DEMO_VALUES = {
@@ -84,6 +89,7 @@ function formatAmountInput(value: string) {
 export default function NewDeposit() {
   const [, navigate] = useLocation();
   const { state, updateState, resetSession } = useDemo();
+  const { t } = useI18n();
   const [selectedChainId, setSelectedChainId] = useState("");
   const [networks, setNetworks] = useState<HexSafeNetwork[]>([]);
   const [netLoading, setNetLoading] = useState(true);
@@ -392,14 +398,14 @@ export default function NewDeposit() {
 
     setSubmittingTravelRule(false);
     if (usedFallback) {
-      toast.message("Travel Rule (demo adapter)", { description: fallbackNote });
+      toast.message(t("newDeposit.demoAdapter"), { description: fallbackNote });
     }
     if (canPass) {
-      toast.success("Travel Rule gate accepted", { description: providerReference });
+      toast.success(t("newDeposit.travelRuleAccepted"), { description: providerReference });
       navigate("/deposit-address");
     } else {
-      toast.error(status === "manual_review" ? "Manual review required" : "Travel Rule rejected", {
-        description: rejectionReason || "Please contact HyperTransfer support.",
+      toast.error(status === "manual_review" ? t("newDeposit.travelRuleManualReview") : t("newDeposit.travelRuleRejected"), {
+        description: rejectionReason || t("newDeposit.contactSupport"),
       });
     }
   };
@@ -410,13 +416,13 @@ export default function NewDeposit() {
   };
 
   return (
-    <Shell showBack backTo="/dashboard" title="New Deposit" subtitle="Stablecoin deposit setup">
+    <Shell showBack backTo="/dashboard" title={t("newDeposit.title")} subtitle={t("newDeposit.subtitle")}>
       <div className="space-y-5">
         <div className="card-gold rounded-xl p-4 space-y-2">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Accepted asset</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("newDeposit.acceptedAsset")}</p>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-base font-semibold text-foreground">Select asset</p>
+              <p className="text-base font-semibold text-foreground">{t("newDeposit.selectAsset")}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Phase 1 stablecoins: USDT (ERC-20 / TRC-20) and USDC (ERC-20). Deposit rails are provisioned by the custody provider.
               </p>
@@ -448,7 +454,7 @@ export default function NewDeposit() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t("newDeposit.network")}</span>
             {assetNetworks.map((net) => (
               <button
                 key={net.id}
@@ -466,13 +472,13 @@ export default function NewDeposit() {
             ))}
           </div>
           <p className="text-[10px] text-gold/70">
-            Network: {netLoading ? "loading..." : formatNetworkRail(effectiveNetwork || "demo")}
-            {!netLoading && !netConfigured && " · demo rail"}
+            {t("newDeposit.network")}: {netLoading ? "loading..." : formatNetworkRail(effectiveNetwork || "demo")}
+            {!netLoading && !netConfigured && ` · ${t("newDeposit.demoRailNote")}`}
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Deposit Amount</Label>
+          <Label className="text-xs text-muted-foreground">{t("newDeposit.depositAmount")}</Label>
           <div className="relative">
             <Input
               inputMode="decimal"
@@ -495,12 +501,12 @@ export default function NewDeposit() {
 
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Search className="w-3 h-3" /> Source Wallet Address
+            <Search className="w-3 h-3" /> {t("newDeposit.sourceWalletAddress")}
           </Label>
           <Input
             value={walletAddress}
             onChange={(e) => setWalletAddress(e.target.value)}
-            placeholder="Enter the wallet address you will send from"
+            placeholder={t("newDeposit.walletPlaceholder")}
             disabled={screening !== "idle"}
             className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl font-mono text-xs"
           />
@@ -519,9 +525,9 @@ export default function NewDeposit() {
               className="card-gold rounded-xl p-5 flex flex-col items-center text-center"
             >
               <Loader2 className="w-8 h-8 text-gold animate-spin mb-3" />
-              <p className="text-sm font-medium text-foreground">Screening Wallet</p>
+              <p className="text-sm font-medium text-foreground">{t("newDeposit.screeningWallet")}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Checking sanctions, risk score, and transaction history...
+                {t("newDeposit.checking")}
               </p>
             </motion.div>
           )}
@@ -536,10 +542,9 @@ export default function NewDeposit() {
               <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-3">
                 <Shield className="w-6 h-6 text-success" />
               </div>
-              <p className="text-sm font-semibold text-success">Wallet Approved</p>
+              <p className="text-sm font-semibold text-success">{t("newDeposit.walletApproved")}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Your wallet has passed source-wallet KYT.
-                {travelRuleRequired ? " Complete Travel Rule information below before address issuance." : " You may proceed to receive a deposit address."}
+                {travelRuleRequired ? t("newDeposit.travelRule") : " You may proceed to receive a deposit address."}
               </p>
               <div className="mt-3 px-3 py-1.5 rounded-lg bg-input">
                 <code className="font-mono text-[10px] text-muted-foreground break-all">
@@ -559,9 +564,9 @@ export default function NewDeposit() {
               <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-3">
                 <XCircle className="w-6 h-6 text-destructive" />
               </div>
-              <p className="text-sm font-semibold text-destructive">Screening Failed</p>
+              <p className="text-sm font-semibold text-destructive">{t("newDeposit.screeningFailed")}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                This wallet did not pass compliance screening. Use a different wallet or contact support.
+                {t("errors.screeningFailed")}
               </p>
             </motion.div>
           )}
@@ -574,7 +579,7 @@ export default function NewDeposit() {
             className="space-y-5"
           >
             <div className="card-gold rounded-xl px-4 py-3">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Travel Rule</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("newDeposit.travelRule")}</p>
               <p className="text-sm font-semibold text-foreground mt-1">
                 {plannedAmount.toLocaleString()} USDT on {formatNetworkRail(effectiveNetwork)}
               </p>
@@ -590,7 +595,7 @@ export default function NewDeposit() {
                   Every transfer — including the 1-unit verification transfer — carries its own
                   Travel Rule record. The exact final amount decides the field depth:{' '}
                   <span className="font-semibold text-foreground">
-                    {travelRuleDepthForHkd(plannedAmount * 7.8) === "enhanced" ? "Enhanced" : "Basic"}
+                    {travelRuleDepthForHkd(plannedAmount * 7.8) === "enhanced" ? t("newDeposit.travelRuleDepth.enhanced") : t("newDeposit.travelRuleDepth.basic")}
                   </span>{' '}
                   (HKD 8,000 threshold).
                 </p>
@@ -601,37 +606,37 @@ export default function NewDeposit() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Residential Address</Label>
+              <Label className="text-xs text-muted-foreground">{t("newDeposit.residentialAddress")}</Label>
               <Input
                 value={trAddress}
                 onChange={(e) => setTrAddress(e.target.value)}
-                placeholder="Street address"
+                placeholder={t("newDeposit.streetAddress")}
                 className="bg-input border-border h-11 rounded-xl text-sm"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">City</Label>
+                <Label className="text-xs text-muted-foreground">{t("newDeposit.city")}</Label>
                 <Input
                   value={trCity}
                   onChange={(e) => setTrCity(e.target.value)}
-                  placeholder="City"
+                  placeholder={t("newDeposit.city")}
                   className="bg-input border-border h-11 rounded-xl text-sm"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Country</Label>
+                <Label className="text-xs text-muted-foreground">{t("newDeposit.country")}</Label>
                 <Select value={trCountry} onValueChange={setTrCountry}>
                   <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                    <SelectValue placeholder="Select" />
+                    <SelectValue placeholder={t("common.select")} />
                   </SelectTrigger>
                   <SelectContent className="bg-popover border-border">
-                    <SelectItem value="hk">Hong Kong</SelectItem>
-                    <SelectItem value="mo">Macau</SelectItem>
-                    <SelectItem value="cn">China</SelectItem>
-                    <SelectItem value="sg">Singapore</SelectItem>
-                    <SelectItem value="jp">Japan</SelectItem>
+                    <SelectItem value="hk">{t("newDeposit.jurisdictions.hongKong")}</SelectItem>
+                    <SelectItem value="mo">{t("newDeposit.jurisdictions.macau")}</SelectItem>
+                    <SelectItem value="cn">{t("newDeposit.jurisdictions.china")}</SelectItem>
+                    <SelectItem value="sg">{t("newDeposit.jurisdictions.singapore")}</SelectItem>
+                    <SelectItem value="jp">{t("newDeposit.jurisdictions.japan")}</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
@@ -639,15 +644,15 @@ export default function NewDeposit() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Originating VASP / Wallet Provider</Label>
+              <Label className="text-xs text-muted-foreground">{t("newDeposit.originatingVasp")}</Label>
               <Select value={originatorVasp} onValueChange={setOriginatorVasp}>
                 <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                  <SelectValue placeholder="Select wallet provider" />
+                  <SelectValue placeholder={t("newDeposit.selectWalletProvider")} />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border">
-                  {WALLET_PROVIDER_OPTIONS.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
+                  {WALLET_PROVIDER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.labelKey ? t(option.labelKey) : option.value}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -656,20 +661,20 @@ export default function NewDeposit() {
 
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                Source of Funds
+                {t("newDeposit.sourceOfFunds")}
                 <Info className="w-3 h-3 text-muted-foreground/50" />
               </Label>
               <Select value={sourceOfFunds} onValueChange={setSourceOfFunds}>
                 <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                  <SelectValue placeholder="Select source of funds" />
+                  <SelectValue placeholder={t("newDeposit.selectSourceOfFunds")} />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border">
-                  <SelectItem value="employment">Employment Income</SelectItem>
-                  <SelectItem value="business">Business Revenue</SelectItem>
-                  <SelectItem value="investment">Investment Returns</SelectItem>
-                  <SelectItem value="savings">Personal Savings</SelectItem>
-                  <SelectItem value="inheritance">Inheritance</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="employment">{t("newDeposit.sourceFundsOptions.employment")}</SelectItem>
+                  <SelectItem value="business">{t("newDeposit.sourceFundsOptions.business")}</SelectItem>
+                  <SelectItem value="investment">{t("newDeposit.sourceFundsOptions.investment")}</SelectItem>
+                  <SelectItem value="savings">{t("newDeposit.sourceFundsOptions.savings")}</SelectItem>
+                  <SelectItem value="inheritance">{t("newDeposit.sourceFundsOptions.inheritance")}</SelectItem>
+                  <SelectItem value="other">{t("newDeposit.sourceFundsOptions.other")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -684,7 +689,7 @@ export default function NewDeposit() {
             disabled={!canScreen}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            Submit for Screening
+            {t("newDeposit.submitForScreening")}
           </button>
         )}
         {screening === "passed" && travelRuleRequired && !travelRuleGatePassed && (
@@ -693,7 +698,7 @@ export default function NewDeposit() {
             disabled={!canSubmitTravelRule || submittingTravelRule}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {submittingTravelRule ? "Submitting..." : "Submit Travel Rule Info"}
+            {submittingTravelRule ? t("newDeposit.submitting") : t("newDeposit.submitTravelRule")}
           </button>
         )}
         {screening === "passed" && (!travelRuleRequired || travelRuleGatePassed) && (
@@ -701,7 +706,7 @@ export default function NewDeposit() {
             onClick={proceedAfterWalletApproval}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
           >
-            Get Deposit Address
+            {t("newDeposit.getDepositAddress")}
             <CheckCircle2 className="w-4 h-4" />
           </button>
         )}
@@ -710,7 +715,7 @@ export default function NewDeposit() {
             onClick={handleRetryWallet}
             className="w-full rounded-xl py-4 text-sm font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all duration-200"
           >
-            Try a Different Wallet
+            {t("newDeposit.tryDifferentWallet")}
           </button>
         )}
       </div>

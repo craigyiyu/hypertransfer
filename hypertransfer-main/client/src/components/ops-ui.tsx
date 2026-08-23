@@ -4,6 +4,7 @@
  */
 import type { ComponentType, InputHTMLAttributes, ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 
 export type Tone = "success" | "warning" | "danger" | "neutral";
 
@@ -95,6 +96,7 @@ export function PanelHeader({
   onRefresh?: () => void;
   refreshing?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="flex items-start gap-3">
@@ -113,7 +115,7 @@ export function PanelHeader({
           className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-gold/30 hover:text-gold disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
+          {t("opsUi.refresh")}
         </button>
       )}
     </div>
@@ -148,8 +150,9 @@ export function EmptyState({
 
 /** 加载骨架(B3): 面板加载时的一排脉冲占位, 避免整页空白。 */
 export function LoadingSkeleton({ rows = 3 }: { rows?: number }) {
+  const { t } = useI18n();
   return (
-    <div className="space-y-3" aria-busy="true" aria-label="Loading">
+    <div className="space-y-3" aria-busy="true" aria-label={t("opsUi.loading")}>
       {Array.from({ length: rows }).map((_, i) => (
         <div
           key={i}

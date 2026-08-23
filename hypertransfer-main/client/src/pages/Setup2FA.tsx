@@ -17,6 +17,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { authApi, apiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { readPendingRegister, PendingRegister, PENDING_REGISTER_KEY } from "@/lib/authFlow";
 
 // 兼容的验证器 App。生产环境如需用各家官方 Logo,须遵守对应品牌使用规范;
@@ -41,6 +42,7 @@ function fmtClock(sec: number) {
 export default function Setup2FA() {
   const [, navigate] = useLocation();
   const { setSession } = useAuth();
+  const { t } = useI18n();
   const [pending, setPending] = useState<PendingRegister | null>(() => readPendingRegister());
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -76,7 +78,7 @@ export default function Setup2FA() {
   const handleCopy = () => {
     navigator.clipboard.writeText(pending.secret);
     setCopied(true);
-    toast.success("Secret key copied.");
+    toast.success(t("twoFA.secretCopied"));
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -84,7 +86,7 @@ export default function Setup2FA() {
     if (regenerating) return;
     // 邀请注册无手机号,不能免短信重签;过期需重走邀请链接。
     if (pending.viaEmail) {
-      toast.error("This setup session expired. Please reopen your invitation link.");
+      toast.error(t("twoFA.setupExpiredReopen"));
       navigate("/invite");
       return;
     }
@@ -101,7 +103,7 @@ export default function Setup2FA() {
       sessionStorage.setItem(PENDING_REGISTER_KEY, JSON.stringify(next));
       setPending(next);
       setCode("");
-      toast.success("New QR code generated. Please scan it again.");
+      toast.success(t("twoFA.newQrGenerated"));
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -118,7 +120,7 @@ export default function Setup2FA() {
         : await authApi.confirmTotp(pending.areaCode, pending.phoneNumber, code);
       setSession(data.token, data.user);
       sessionStorage.removeItem(PENDING_REGISTER_KEY);
-      toast.success("Two-factor authentication enabled.");
+      toast.success(t("twoFA.enabled"));
       navigate("/kyc");
     } catch (e) {
       toast.error(apiError(e));
@@ -148,19 +150,19 @@ export default function Setup2FA() {
   };
 
   return (
-    <Shell showBack backTo="/invite" title="Two-Factor Authentication" subtitle="Secure your account with an authenticator app">
+    <Shell showBack backTo="/invite" title={t("twoFA.title")} subtitle={t("twoFA.subtitle")}>
       <div className="space-y-5">
         {/* 绑定会话倒计时 */}
         <div className={`flex items-center justify-center gap-2 text-xs rounded-lg py-2 px-3
           ${expired ? "bg-destructive/10 text-destructive" : remaining <= 60 ? "bg-warning/10 text-warning" : "bg-secondary/40 text-muted-foreground"}`}>
           <Clock className="w-3.5 h-3.5" />
-          {expired ? "Setup session expired. Generate a new QR code." : <>Complete setup within <span className="font-mono font-semibold tabular-nums">{fmtClock(remaining)}</span></>}
+          {expired ? t("twoFA.setupExpired") : <>{t("twoFA.completeWithin")} <span className="font-mono font-semibold tabular-nums">{fmtClock(remaining)}</span></>}
         </div>
 
         {/* 二维码卡片 */}
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card-gold rounded-xl p-6 flex flex-col items-center">
           <div className="relative w-44 h-44 bg-white rounded-xl p-3 mb-4">
-            <img src={pending.qr} alt="TOTP QR" className={`w-full h-full object-contain transition-all ${expired ? "blur-sm opacity-40" : ""}`} />
+            <img src={pending.qr} alt={t("twoFA.totpQr")} className={`w-full h-full object-contain transition-all ${expired ? "blur-sm opacity-40" : ""}`} />
             {expired && (
               <button onClick={handleRegenerate} disabled={regenerating}
                 className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-background font-medium text-xs">
@@ -172,7 +174,7 @@ export default function Setup2FA() {
             )}
           </div>
           <p className="text-xs text-muted-foreground mb-3 text-center">
-            Scan this QR code with your authenticator app
+            {t("twoFA.scanQr")}
           </p>
 
           {/* 兼容验证器图标提示 */}
@@ -205,7 +207,7 @@ export default function Setup2FA() {
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Smartphone className="w-3.5 h-3.5" />
-            Enter the 6-digit code from your app
+            {t("twoFA.enterCodeFromApp")}
           </div>
           <div className={`flex justify-center transition-opacity ${expired ? "opacity-40 pointer-events-none" : ""}`}>
             <InputOTP maxLength={6} value={code} onChange={setCode} disabled={expired}>

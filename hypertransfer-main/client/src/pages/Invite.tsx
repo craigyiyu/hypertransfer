@@ -15,6 +15,7 @@ import { useLocation } from "wouter";
 import Shell from "@/components/Shell";
 import FormField from "@/components/FormField";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { Mail, Lock, Eye, EyeOff, User, MessageSquare, Loader2, ShieldCheck } from "lucide-react";
 import { validateFullName, validateEmail, validatePassword, ValidationResult } from "@/lib/validation";
 import { invitationApi, emailApi, inviteAuthApi, admissionClaimApi, apiError } from "@/lib/api";
@@ -46,6 +47,7 @@ function readClaimSessionFromUrl(): { sessionToken: string; channel: "email" | "
 export default function Invite() {
   const [, navigate] = useLocation();
   const { updateState } = useDemo();
+  const { t } = useI18n();
 
   const [token] = useState<string>(() => readTokenFromUrl());
   const [claimSession] = useState<{ sessionToken: string; channel: "email" | "qr" } | null>(() =>
@@ -117,7 +119,7 @@ export default function Invite() {
       setClaimMasked(data.patronEmailMasked);
       setClaimStep("otp");
       setCodeSent(true);
-      toast.success("Verification code sent to the invitation email.");
+      toast.success(t("invite.codeSentToInvite"));
       if (data.demo) {
         setClaimOtp("000000");
         toast.success("Demo: verification code auto-filled — complete the 6 digits to continue.");
@@ -173,7 +175,7 @@ export default function Invite() {
     setTouched({ ...touched, email: true });
     setErrors({ ...errors, email: v.error || "" });
     if (!token) {
-      toast.error("Missing invitation token. Please use the link from your invitation email.");
+      toast.error(t("invite.missingToken"));
       return;
     }
     if (!v.valid) return;
@@ -182,7 +184,7 @@ export default function Invite() {
       const { data } = await invitationApi.verify(token, email);
       if (data.patronName) setName(data.patronName);
       setPhase("register");
-      toast.success("Invitation verified. Please complete your account.");
+      toast.success(t("invite.verified"));
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -201,7 +203,7 @@ export default function Invite() {
         setVerificationCode("000000");
         toast.success("Demo: verification code auto-filled — just click Continue.");
       } else {
-        toast.success("Verification code sent. Please check your email.");
+        toast.success(t("invite.codeSent"));
       }
     } catch (e) {
       toast.error(apiError(e));
@@ -247,10 +249,10 @@ export default function Invite() {
   const strengthLevel: "weak" | "fair" | "strong" = passedCount === 4 ? "strong" : passedCount >= 2 ? "fair" : "weak";
   const strengthColor = strengthLevel === "strong" ? "bg-success" : strengthLevel === "fair" ? "bg-warning" : "bg-destructive";
   const strengthTextColor = strengthLevel === "strong" ? "text-success" : strengthLevel === "fair" ? "text-warning" : "text-destructive";
-  const strengthLabel = strengthLevel === "strong" ? "Strong" : strengthLevel === "fair" ? "Fair" : "Weak";
+  const strengthLabel = strengthLevel === "strong" ? t("invite.strong") : strengthLevel === "fair" ? t("invite.fair") : t("invite.weak");
 
   return (
-    <Shell showBack backTo="/" title="Accept Invitation" subtitle="Register your HyperTransfer account by invitation">
+    <Shell showBack backTo="/" title={t("invite.accept")} subtitle={t("invite.title")}>
       {/* 邀请说明 */}
       <div className="card-wine rounded-lg p-3 mb-5 flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-gold shrink-0 mt-0.5" />
@@ -266,14 +268,14 @@ export default function Invite() {
           <div className="space-y-5">
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-foreground">
-                Invitation email
+                {t("invite.invitationEmail")}
               </span>
               <div className="relative">
                 <input
                   type="email"
                   value={claimEmail}
                   onChange={(e) => setClaimEmail(e.target.value)}
-                  placeholder="The email your invitation was sent to"
+                  placeholder={t("invite.invitationEmailHint")}
                   className="w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border border-border/50 text-sm focus:border-gold/50 focus:outline-none placeholder:text-muted-foreground/40"
                 />
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
@@ -285,19 +287,19 @@ export default function Invite() {
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {claimSending && <Loader2 className="w-4 h-4 animate-spin" />}
-              Send email code
+              {t("invite.sendCode")}
             </button>
             <p className="text-xs text-muted-foreground/60">
               {claimSession.channel === "qr"
                 ? "This invitation came from a QR code shown by your Host. Entering the invitation email is still required — the code is only sent to that address."
-                : "We will send a one-time code to your invitation email. A QR scan alone does not claim your invitation."}
+                : t("invite.qrNote")}
             </p>
           </div>
         ) : claimStep === "otp" ? (
           <div className="space-y-5">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground flex items-center gap-1">
-                Invitation email <span className="text-destructive">*</span>
+                {t("invite.invitationEmail")} <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <input
@@ -313,7 +315,7 @@ export default function Invite() {
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-foreground">
-                Verification code
+                {t("invite.verificationCode")}
               </span>
               <div className="relative">
                 <input
@@ -323,37 +325,37 @@ export default function Invite() {
                   maxLength={6}
                   value={claimOtp}
                   onChange={(e) => setClaimOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="Enter 6-digit code"
+                  placeholder={t("invite.codeHint")}
                   className="w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border border-border/50 text-sm focus:border-gold/50 focus:outline-none placeholder:text-muted-foreground/40"
                 />
                 <MessageSquare className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
               </div>
             </label>
             <p className="text-xs text-muted-foreground/60">
-              Verification code sent to {claimMasked}
+              {t("invite.codeSentToInvite")} {claimMasked}
             </p>
             <button
               onClick={() => void handleClaimSendCode()}
               disabled={claimSending}
               className="w-full rounded-xl py-3 text-xs font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              {claimSending ? "Sending…" : "Resend email code"}
+              {claimSending ? "Sending…" : t("invite.resendCodeLower")}
             </button>
           </div>
         ) : (
           /* account step: heading "Set up your account" */
           <div className="space-y-5">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Set up your account</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t("invite.subtitle")}</h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 Email verified: {claimMasked}. Create your credentials to finish claiming your VIP invitation.
               </p>
             </div>
 
             <FormField
-              label="Full Legal Name" value={name}
+              label={t("invite.fullLegalName")} value={name}
               onChange={(e) => setName(e.target.value)} onBlur={() => handleFieldBlur("name")}
-              placeholder="As shown on ID" icon={<User className="w-4 h-4" />}
+              placeholder={t("invite.asShownOnId")} icon={<User className="w-4 h-4" />}
               error={touched.name ? errors.name : undefined}
               success={touched.name && nameValidation.valid} required
             />
@@ -366,14 +368,16 @@ export default function Invite() {
                   <input
                     type={showPw ? "text" : "password"} value={password}
                     onChange={(e) => setPassword(e.target.value)} onBlur={() => handleFieldBlur("password")}
-                    placeholder="Create a secure password"
+                    placeholder={t("invite.createSecurePassword")}
                     className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
                       ${errors.password && touched.password ? "border-destructive/50 focus:border-destructive" : passwordValidation.valid && touched.password ? "border-success/50 focus:border-success" : "border-border/50 focus:border-gold/50"}
                       focus:outline-none focus:ring-1 focus:ring-gold/30 placeholder:text-muted-foreground/40`}
                   />
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
                   <button type="button" onClick={() => setShowPw(!showPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold transition-colors">
+                    aria-label={showPw ? t("login.enterPassword") : t("common.password")}
+                    title={showPw ? t("login.enterPassword") : t("common.password")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-gold transition-colors">
                     {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -386,7 +390,7 @@ export default function Invite() {
                       return <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${filled ? strengthColor : "bg-border"}`} />;
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground/60">Strength: <span className={strengthTextColor}>{strengthLabel}</span></p>
+                  <p className="text-xs text-muted-foreground/60">{t("invite.strength")} <span className={strengthTextColor}>{strengthLabel}</span></p>
                 </motion.div>
               )}
               {touched.password && errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
@@ -414,9 +418,9 @@ export default function Invite() {
           {phase === "verify" ? (
             <div className="space-y-5">
               <FormField
-                label="Invitation Email" type="email" value={email}
+                label={t("invite.invitationEmail")} type="email" value={email}
                 onChange={(e) => setEmail(e.target.value)} onBlur={() => handleFieldBlur("email")}
-                placeholder="The email your invitation was sent to" icon={<Mail className="w-4 h-4" />}
+                placeholder={t("invite.invitationEmailHint")} icon={<Mail className="w-4 h-4" />}
                 error={touched.email ? errors.email : undefined}
                 success={touched.email && emailValidation.valid} required
               />
@@ -430,7 +434,7 @@ export default function Invite() {
             <div className="space-y-5">
               {/* 邮箱锁定 */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground flex items-center gap-1">Invitation Email</label>
+                <label className="text-sm font-medium text-foreground flex items-center gap-1">{t("invite.invitationEmail")}</label>
                 <div className="relative">
                   <input
                     type="email" value={email} readOnly disabled
@@ -441,9 +445,9 @@ export default function Invite() {
               </div>
 
               <FormField
-                label="Full Legal Name" value={name}
+                label={t("invite.fullLegalName")} value={name}
                 onChange={(e) => setName(e.target.value)} onBlur={() => handleFieldBlur("name")}
-                placeholder="As shown on ID" icon={<User className="w-4 h-4" />}
+                placeholder={t("invite.asShownOnId")} icon={<User className="w-4 h-4" />}
                 error={touched.name ? errors.name : undefined}
                 success={touched.name && nameValidation.valid} required
               />
@@ -453,19 +457,19 @@ export default function Invite() {
                 <button type="button" onClick={handleSendCode} disabled={sending || cooldown > 0}
                   className="w-full rounded-xl py-3 text-xs font-medium border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                   {sending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? "Resend Email Code" : "Send Email Verification Code"}
+                  {cooldown > 0 ? `Resend in ${cooldown}s` : codeSent ? t("invite.resendCode") : t("invite.sendCode")}
                 </button>
 
                 {otpVisible && (
                   <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                     <label className="text-sm font-medium text-foreground flex items-center gap-1">
-                      Verification Code <span className="text-destructive">*</span>
+                      {t("invite.verificationCode")} <span className="text-destructive">*</span>
                     </label>
                     <div className="relative">
                       <input
                         inputMode="numeric" autoComplete="one-time-code" name="otp" maxLength={6} value={verificationCode}
                         onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                        placeholder="Enter 6-digit code"
+                        placeholder={t("invite.codeHint")}
                         className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
                           ${otpEntered ? "border-success/50 focus:border-success" : "border-border/50 focus:border-gold/50"}
                           focus:outline-none focus:ring-1 focus:ring-gold/30 placeholder:text-muted-foreground/40`}
@@ -476,7 +480,7 @@ export default function Invite() {
                       )}
                     </div>
                     {codeSent ? (
-                      <p className="text-xs text-muted-foreground/60">Verification code sent to {email}</p>
+                      <p className="text-xs text-muted-foreground/60">{t("invite.codeSent")} {email}</p>
                     ) : isDev ? (
                       <p className="text-xs text-gold/70">Demo: enter any 6 digits (e.g. 000000) — no email needed.</p>
                     ) : null}
@@ -493,14 +497,16 @@ export default function Invite() {
                   <input
                     type={showPw ? "text" : "password"} value={password}
                     onChange={(e) => setPassword(e.target.value)} onBlur={() => handleFieldBlur("password")}
-                    placeholder="Create a secure password"
+                    placeholder={t("invite.createSecurePassword")}
                     className={`w-full px-4 py-3 pl-10 rounded-lg bg-secondary/50 border transition-all text-sm
                       ${errors.password && touched.password ? "border-destructive/50 focus:border-destructive" : passwordValidation.valid && touched.password ? "border-success/50 focus:border-success" : "border-border/50 focus:border-gold/50"}
                       focus:outline-none focus:ring-1 focus:ring-gold/30 placeholder:text-muted-foreground/40`}
                   />
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
                   <button type="button" onClick={() => setShowPw(!showPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold transition-colors">
+                    aria-label={showPw ? t("login.enterPassword") : t("common.password")}
+                    title={showPw ? t("login.enterPassword") : t("common.password")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-gold transition-colors">
                     {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -512,7 +518,7 @@ export default function Invite() {
                         return <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${filled ? strengthColor : "bg-border"}`} />;
                       })}
                     </div>
-                    <p className="text-xs text-muted-foreground/60">Strength: <span className={strengthTextColor}>{strengthLabel}</span></p>
+                    <p className="text-xs text-muted-foreground/60">{t("invite.strength")} <span className={strengthTextColor}>{strengthLabel}</span></p>
                   </motion.div>
                 )}
                 {touched.password && errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
@@ -529,7 +535,7 @@ export default function Invite() {
       )}
 
       <p className="text-[10px] text-muted-foreground/50 text-center mt-6">
-        Your data is encrypted end-to-end and stored securely
+        {t("invite.encrypted")}
       </p>
     </Shell>
   );

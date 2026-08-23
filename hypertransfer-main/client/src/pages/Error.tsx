@@ -6,6 +6,7 @@ import { useLocation } from "wouter";
 import Shell from "@/components/Shell";
 import { AlertTriangle, Home, RotateCcw } from "lucide-react";
 import { motion } from "framer-motion";
+import { useI18n } from "@/contexts/I18nContext";
 
 interface ErrorPageProps {
   errorCode?: string;
@@ -16,10 +17,11 @@ interface ErrorPageProps {
 
 export default function Error() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
 
   const errorCode = "500";
-  const errorMessage = "Something went wrong";
-  const errorReason = "An unexpected error occurred while processing your request. Please try again.";
+  const errorMessage = t("errors.somethingWentWrong");
+  const errorReason = t("errors.unexpected");
 
   const handleRetry = () => {
     window.location.reload();
@@ -30,7 +32,7 @@ export default function Error() {
   };
 
   return (
-    <Shell title="Error" subtitle="We encountered a problem">
+    <Shell title="Error" subtitle={t("errors.weEncountered")}>
       <div className="flex flex-col items-center justify-center py-12 space-y-6">
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
@@ -52,14 +54,14 @@ export default function Error() {
             className="w-full btn-gold rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2"
           >
             <RotateCcw className="w-4 h-4" />
-            Try Again
+            {t("errors.tryAgain")}
           </button>
           <button
             onClick={handleHome}
             className="w-full rounded-xl py-3 text-sm font-semibold text-muted-foreground hover:text-gold transition-colors border border-border/50 hover:border-gold/20"
           >
             <Home className="w-4 h-4 inline mr-2" />
-            Return to Dashboard
+            {t("errors.returnToDashboard")}
           </button>
         </div>
       </div>

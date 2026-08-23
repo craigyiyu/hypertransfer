@@ -17,7 +17,7 @@ export default function Landing() {
   const { t } = useI18n();
 
   return (
-    <div
+    <main
       className="min-h-[100svh] flex flex-col items-center justify-center relative overflow-hidden"
       style={{
         backgroundImage: `url(${HERO_BG})`,
@@ -102,6 +102,6 @@ export default function Landing() {
           <span className="underline cursor-pointer">Privacy Policy</span>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

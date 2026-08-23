@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { UserPlus2, Check, X, LinkIcon, Send, MailCheck, Copy, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/contexts/I18nContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { DEMO_AUTOFILL_EVENT, useDemoMode } from "@/contexts/DemoModeContext";
 import { apiError, invitationApi, type Invitation } from "@/lib/api";
@@ -32,6 +33,7 @@ const EMPTY_FORM = { patronEmail: "", firstName: "", lastName: "", memberId: "" 
 const PAGE_SIZE = 5;
 
 export default function InvitationReviewPanel() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { isDemoMode, getDemoValue } = useDemoMode();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -140,11 +142,11 @@ export default function InvitationReviewPanel() {
           lastName: form.lastName.trim(),
         },
       });
-      toast.success("Access request submitted for review");
+      toast.success(t("invitationPanel.submittedToast"));
       setForm({ ...EMPTY_FORM });
       await load();
     } catch (err) {
-      toast.error("Submit failed", { description: apiError(err) });
+      toast.error(t("invitationPanel.submitFailed"), { description: apiError(err) });
     } finally {
       setCreating(false);
     }
@@ -176,15 +178,15 @@ export default function InvitationReviewPanel() {
     }
   };
 
-  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), "Invite email resent (new 6h link)");
-  const emailInvite = (id: string) => runIssue(id, () => invitationApi.email(id), "Invite email sent to patron");
+  const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), t("invitationPanel.emailResent"));
+  const emailInvite = (id: string) => runIssue(id, () => invitationApi.email(id), t("invitationPanel.emailSent"));
   // RM 把被拒申请直接重新提交(rejected → submitted)
-  const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), "Resubmitted for review");
+  const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), t("invitationPanel.resubmittedToast"));
   // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
   const fullLink = (link: string) => (link.startsWith("/") ? window.location.origin + link : link);
   const copyLink = (link: string) => {
     void navigator.clipboard.writeText(fullLink(link));
-    toast.success("Invite link copied — send it to the customer");
+    toast.success(t("invitationPanel.copyLink"));
   };
 
   const expiryInfo = (inv: Invitation) => {
@@ -194,10 +196,10 @@ export default function InvitationReviewPanel() {
     return {
       expired,
       label: expired
-        ? "Expired"
+        ? t("invitationPanel.expired")
         : expMs > 0
           ? `Valid · ${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m left`
-          : "No expiry",
+          : t("invitationPanel.noExpiry"),
     };
   };
 
@@ -272,7 +274,7 @@ export default function InvitationReviewPanel() {
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
       <PanelHeader
         icon={UserPlus2}
-        eyebrow="Access Requests — Live /api/invitations"
+        eyebrow={t("invitationPanel.title")}
         title="RM submit patron → Int'l Marketing approve → issue QR + link (email to patron)"
         onRefresh={canList || canCreate ? () => void load() : undefined}
         refreshing={loading}
@@ -292,7 +294,7 @@ export default function InvitationReviewPanel() {
           </div>
           <div className="mt-2">
             <ActionBtn icon={Send} tone="neutral" disabled={creating || !form.patronEmail.trim()} onClick={() => void createInvite()}>
-              {creating ? "Submitting…" : "Submit access request"}
+              {creating ? t("opsUi.loading") : t("invitationPanel.submit")}
             </ActionBtn>
           </div>
         </div>
@@ -307,7 +309,7 @@ export default function InvitationReviewPanel() {
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
       {(canList || canCreate) && !error && invitations.length === 0 && (
         <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          {loading ? "Loading…" : canList ? "No access requests yet." : "You haven't submitted any access requests yet."}
+          {loading ? t("opsUi.loading") : canList ? t("invitationPanel.empty") : t("invitationPanel.myEmpty")}
         </p>
       )}
 
@@ -350,7 +352,7 @@ export default function InvitationReviewPanel() {
                 <div className="mt-3 flex flex-wrap items-end gap-2">
                   {inv.status === "submitted" && (
                     <ActionBtn icon={Check} tone="success" disabled={busy}
-                      onClick={() => void runIssue(inv.id, () => invitationApi.approve(inv.id), "Approved — invite QR + link issued & emailed")}>
+                      onClick={() => void runIssue(inv.id, () => invitationApi.approve(inv.id), t("invitationPanel.approve"))}>
                       Approve access request
                     </ActionBtn>
                   )}
@@ -365,7 +367,7 @@ export default function InvitationReviewPanel() {
                           className="w-56 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
                         />
                         <ActionBtn icon={X} tone="danger" disabled={busy || !(rejectDraft[inv.id] ?? "").trim()}
-                          onClick={() => void act(inv.id, () => invitationApi.reject(inv.id, (rejectDraft[inv.id] ?? "").trim()), "Access request rejected")}>
+                          onClick={() => void act(inv.id, () => invitationApi.reject(inv.id, (rejectDraft[inv.id] ?? "").trim()), t("invitationPanel.rejectedToast"))}>
                           Reject
                         </ActionBtn>
                       </div>

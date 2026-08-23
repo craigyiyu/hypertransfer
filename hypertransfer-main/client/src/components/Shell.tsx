@@ -9,7 +9,9 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import ThemeToggle from "@/components/ThemeToggle";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import BrandMark from "@/components/BrandMark";
 import { isStaffUser } from "@/lib/api";
 import type { ReactNode } from "react";
@@ -54,6 +56,7 @@ export default function Shell({
   const [location, navigate] = useLocation();
   const { state, resetAll } = useDemo();
   const { user, isAuthenticated, logout } = useAuth();
+  const { t } = useI18n();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const displayName = user?.name || state.patronName;
 
@@ -82,16 +85,16 @@ export default function Shell({
       )}
 
       {/* Main content area */}
-      <div className={`w-full max-w-[420px] mx-auto px-4 py-6 flex flex-col relative z-10 ${compactContent ? "" : "min-h-[100svh]"}`}>
+      <main className={`w-full max-w-[420px] mx-auto px-4 py-6 flex flex-col relative z-10 ${compactContent ? "" : "min-h-[100svh]"}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             {showBack && (
               <button
                 onClick={() => (backTo ? navigate(backTo) : window.history.back())}
-                aria-label={backTo === "/dashboard" ? "Back to dashboard" : "Back"}
-                title={backTo === "/dashboard" ? "Back to dashboard" : "Back"}
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
+                aria-label={backTo === "/dashboard" ? t("shell.backToDashboard") : t("shell.back")}
+                title={backTo === "/dashboard" ? t("shell.backToDashboard") : t("shell.back")}
+                className="w-11 h-11 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -104,8 +107,8 @@ export default function Shell({
                 navigate(homeTarget);
               }}
               className="flex items-center gap-2 rounded-lg text-left transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-gold/40"
-              aria-label="Go to home"
-              title="Go to home"
+              aria-label={t("shell.goToHome")}
+              title={t("shell.goToHome")}
             >
               <BrandMark size={28} />
               <span className="font-display text-sm font-semibold tracking-wide text-gold">
@@ -114,20 +117,21 @@ export default function Shell({
             </a>
           </div>
           <div className="flex items-center gap-3">
+            <LanguageSwitcher />
             <ThemeToggle />
             {isAuthenticated && (
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
-                  title="User menu"
+                  className="w-11 h-11 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-gold hover:border-gold/30 transition-all duration-200"
+                  title={t("shell.userMenu")}
                 >
                   <User className="w-4 h-4" />
                 </button>
                 {showUserMenu && (
                   <div className="absolute top-10 right-0 w-48 bg-card border border-border/50 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-border/30">
-                      <p className="text-xs text-muted-foreground">Signed in as</p>
+                      <p className="text-xs text-muted-foreground">{t("shell.signedInAs")}</p>
                       <p className="text-sm font-semibold text-foreground truncate">{displayName}</p>
                     </div>
                     <button
@@ -138,7 +142,7 @@ export default function Shell({
                       className="w-full px-4 py-2.5 text-sm text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
                     >
                       <User className="w-4 h-4" />
-                      Profile
+                      {t("settings.profile")}
                     </button>
                     <button
                       onClick={() => {
@@ -148,7 +152,7 @@ export default function Shell({
                       className="w-full px-4 py-2.5 text-sm text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
                     >
                       <Settings className="w-4 h-4" />
-                      Settings
+                      {t("common.settings")}
                     </button>
                     <button
                       onClick={async () => {
@@ -160,7 +164,7 @@ export default function Shell({
                       className="w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2 border-t border-border/30"
                     >
                       <LogOut className="w-4 h-4" />
-                      Logout
+                      {t("common.logout")}
                     </button>
                   </div>
                 )}
@@ -168,7 +172,7 @@ export default function Shell({
             )}
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              <span>Encrypted</span>
+              <span>{t("shell.encrypted")}</span>
             </div>
           </div>
         </div>
@@ -200,10 +204,10 @@ export default function Shell({
         {/* Minimal footer */}
         <div className={`${compactContent ? "" : "mt-auto"} pt-6 pb-2 text-center`}>
           <p className="text-[10px] text-muted-foreground/50">
-            Secured by HyperTransfer
+            {t("shell.securedBy")}
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

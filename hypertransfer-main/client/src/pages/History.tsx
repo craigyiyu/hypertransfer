@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { canProceedToDeposit } from "@/lib/kyc-status";
 import { formatAssetAmount } from "@/lib/currency";
 import { formatNetworkRail } from "@/lib/compliance";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   DEMO_DEPOSIT_SETTLEMENT_EVENT,
   readDemoDepositSettlement,
@@ -66,6 +67,7 @@ const demoSettlementMatchesSession = (record: DemoDepositSettlementRecord | null
 };
 
 export default function History() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const { state } = useDemo();
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
@@ -74,6 +76,20 @@ export default function History() {
     readDemoDepositSettlement(),
   );
   const canDeposit = canProceedToDeposit(state.kyc);
+
+  // Map known statuses to translated labels; fall back to English for statuses
+  // without a translation key (e.g. "pending"/"WIP", "deposit_completed").
+  const localStatusLabel = (status: HistoryStatus): string => {
+    if (status === "settled") return t("history.transferType.settled");
+    if (status === "deposit_completed") return t("history.transferType.transferred");
+    if (status === "failed") return t("history.transferType.failed");
+    return statusLabels[status];
+  };
+  const localFilterLabel = (filter: HistoryFilter): string => {
+    if (filter === "settled") return t("history.transferType.settled");
+    if (filter === "deposit_completed") return t("history.transferType.transferred");
+    return filterLabels[filter];
+  };
 
   useEffect(() => {
     const syncDemoSettlement = () => setDemoSettlement(readDemoDepositSettlement());
@@ -237,10 +253,10 @@ export default function History() {
       return;
     }
 
-    toast.error("Account on hold", {
-      description: "Complete KYC verification before making a deposit.",
+    toast.error(t("history.accountOnHold"), {
+      description: t("history.kycRequired"),
       action: {
-        label: "Start KYC",
+        label: t("history.startKyc"),
         onClick: () => navigate("/kyc"),
       },
     });
@@ -254,8 +270,8 @@ export default function History() {
       showBack
       backTo="/dashboard"
       compactContent
-      title="Transaction History"
-      subtitle={state.patronName ? `${state.patronName} · all deposit records` : "All your deposit records"}
+      title={t("history.title")}
+      subtitle={state.patronName ? `${state.patronName} · ${t("history.subtitle").toLowerCase()}` : t("history.subtitle")}
     >
       <div className="space-y-4">
         {/* Filter bar */}
@@ -268,7 +284,7 @@ export default function History() {
                 statusFilter === filter ? "bg-gold/10 text-gold" : "text-muted-foreground hover:text-gold"
               }`}
             >
-              {filterLabels[filter]}
+              {localFilterLabel(filter)}
             </button>
           ))}
         </div>
@@ -278,19 +294,19 @@ export default function History() {
           <div className="card-gold rounded-xl p-12 flex flex-col items-center text-center">
             <ArrowUpRight className="w-10 h-10 text-muted-foreground/20 mb-3" />
             <p className="text-sm text-muted-foreground">
-              {statusFilter === "all" ? "No transactions yet" : `No ${filterLabels[statusFilter]} transactions`}
+              {statusFilter === "all" ? t("history.noTransactions") : `No ${localFilterLabel(statusFilter)} transactions`}
             </p>
             <p className="text-xs text-muted-foreground/60 mt-1">
               {statusFilter === "all"
-                ? "Your deposit history will appear here"
-                : "Try another status filter"}
+                ? t("history.historyEmpty")
+                : t("history.noFilterResults")}
             </p>
             {statusFilter === "all" && (
               <button
                 onClick={handleMakeDeposit}
                 className="mt-4 px-4 py-2 rounded-lg bg-gold/10 text-gold text-xs font-medium hover:bg-gold/20 transition-colors"
               >
-                Make a Deposit
+                {t("history.makeDeposit")}
               </button>
             )}
           </div>
@@ -317,7 +333,7 @@ export default function History() {
                           {session.asset} on {formatNetworkRail(session.network)}
                         </p>
                         <span className={`text-xs font-medium ${statusColor(session.status)}`}>
-                          {statusLabels[session.status]}
+                          {localStatusLabel(session.status)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground/60 mt-0.5">
@@ -325,7 +341,7 @@ export default function History() {
                       </p>
                       {session.markerRef && (
                         <p className="mt-0.5 truncate text-xs text-gold">
-                          Marker reference: <span className="font-mono">{session.markerRef}</span>
+                          {t("history.markerRef")} <span className="font-mono">{session.markerRef}</span>
                         </p>
                       )}
                     </div>
@@ -341,7 +357,7 @@ export default function History() {
                       className="ml-2 px-3 py-1.5 rounded-lg bg-gold/10 text-gold text-xs font-medium hover:bg-gold/20 transition-colors flex items-center gap-1.5 flex-shrink-0"
                     >
                       <Play className="w-3 h-3" />
-                      Resume
+                      {t("history.resume")}
                     </button>
                   ) : (
                     <ChevronDown
@@ -364,23 +380,23 @@ export default function History() {
                     {session.testTx && (
                       <div className="space-y-2">
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                          Test Deposit
+                          {t("history.testDeposit")}
                         </p>
                         <div className="grid grid-cols-2 gap-y-2 text-xs">
                           <div>
-                            <p className="text-muted-foreground/60">Amount</p>
+                            <p className="text-muted-foreground/60">{t("history.amount")}</p>
                             <p className="text-foreground font-medium">
                               {formatSessionAmount(session.testTx.amount, true)} {session.testTx.asset}
                             </p>
                           </div>
                           <div>
-                            <p className="text-muted-foreground/60">Status</p>
+                            <p className="text-muted-foreground/60">{t("history.status")}</p>
                             <p className={`font-medium capitalize ${statusColor(session.testTx.status)}`}>
                               {session.testTx.status}
                             </p>
                           </div>
                           <div className="col-span-2">
-                            <p className="text-muted-foreground/60">Transaction Hash</p>
+                            <p className="text-muted-foreground/60">{t("history.transactionHash")}</p>
                             <p className="font-mono text-[10px] text-gold truncate">
                               {session.testTx.txHash}
                             </p>
@@ -395,38 +411,38 @@ export default function History() {
                         <div className="h-px bg-border/30" />
                         <div className="space-y-2">
                           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Main Deposit
+                            {t("history.mainDeposit")}
                           </p>
                           <div className="grid grid-cols-2 gap-y-2 text-xs">
                             <div>
-                              <p className="text-muted-foreground/60">Amount</p>
+                              <p className="text-muted-foreground/60">{t("history.amount")}</p>
                               <p className="text-foreground font-medium">
                                 {formatSessionAmount(session.mainTx.amount)} {session.mainTx.asset}
                               </p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground/60">Status</p>
+                              <p className="text-muted-foreground/60">{t("history.status")}</p>
                               <p className={`font-medium ${statusColor(session.status)}`}>
-                                {statusLabels[session.status]}
+                                {localStatusLabel(session.status)}
                               </p>
                             </div>
                             {session.referenceId && (
                               <div className="col-span-2">
-                                <p className="text-muted-foreground/60">Reference ID</p>
+                                <p className="text-muted-foreground/60">{t("history.referenceId")}</p>
                                 <p className="font-mono text-[10px] text-gold truncate">
                                   {session.referenceId}
                                 </p>
                               </div>
                             )}
                             <div className="col-span-2">
-                              <p className="text-muted-foreground/60">Transaction Hash</p>
+                              <p className="text-muted-foreground/60">{t("history.transactionHash")}</p>
                               <p className="font-mono text-[10px] text-gold truncate">
                                 {session.mainTx.txHash}
                               </p>
                             </div>
                             {session.markerRef && (
                               <div className="col-span-2">
-                                <p className="text-muted-foreground/60">Marker Reference</p>
+                                <p className="text-muted-foreground/60">{t("history.markerReference")}</p>
                                 <p className="font-mono text-[10px] text-success truncate">
                                   {session.markerRef}
                                 </p>
@@ -438,7 +454,7 @@ export default function History() {
                             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 py-2 text-xs font-semibold text-foreground transition-colors hover:border-gold/30 hover:text-gold"
                           >
                             <Undo2 className="h-3.5 w-3.5" />
-                            Request Withdrawal
+                            {t("history.requestWithdrawal")}
                           </button>
                         </div>
                       </>

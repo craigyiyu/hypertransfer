@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Boxes, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { apiError, operationsApi, type PaymentCaseView } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 import { ActionBtn, EmptyState, Field, LoadingSkeleton, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
 function legTone(leg: PaymentCaseView["transferLeg"]): Tone {
@@ -17,6 +18,7 @@ function legTone(leg: PaymentCaseView["transferLeg"]): Tone {
 }
 
 export default function PaymentOperationsPanel() {
+  const { t } = useI18n();
   const [cases, setCases] = useState<PaymentCaseView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,13 +51,13 @@ export default function PaymentOperationsPanel() {
   const recordCage = async (packId: string) => {
     const cage = (cageDrafts[packId] || "").trim();
     if (!cage) {
-      toast.error("Enter a Cage confirmation ID first.");
+      toast.error(t("opsPanel.cageRequired"));
       return;
     }
     setBusyId(packId);
     try {
       await operationsApi.cageConfirmation(packId, cage);
-      toast.success("Cage confirmation ID recorded.");
+      toast.success(t("opsPanel.cageRecorded"));
       await load();
     } catch (err) {
       toast.error(apiError(err));
@@ -67,13 +69,13 @@ export default function PaymentOperationsPanel() {
   const reconcile = async (packId: string) => {
     const ref = (reconDrafts[packId] || "").trim();
     if (!ref) {
-      toast.error("Enter a reconciliation reference first.");
+      toast.error(t("opsPanel.reconRequired"));
       return;
     }
     setBusyId(packId);
     try {
       await operationsApi.reconcile(packId, ref);
-      toast.success("Finance reconciliation recorded.");
+      toast.success(t("opsPanel.reconRecorded"));
       await load();
     } catch (err) {
       toast.error(apiError(err));
@@ -99,8 +101,8 @@ export default function PaymentOperationsPanel() {
     <section className="space-y-5">
       <PanelHeader
         icon={Boxes}
-        eyebrow="HK Operations"
-        title="Payment Operations"
+        eyebrow={t("opsPanel.hkOperations")}
+        title={t("opsPanel.title")}
         onRefresh={() => void load()}
         refreshing={loading}
       />
@@ -110,7 +112,7 @@ export default function PaymentOperationsPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <Pill tone={flags > 0 ? "danger" : "success"}>{`${flags} compliance flag(s)`}</Pill>
         <ActionBtn icon={ShieldCheck} tone="warning" onClick={runMonitoring} disabled={busyId === "monitor"}>
-          Run linked-transfer monitoring
+          {t("opsPanel.runMonitoring")}
         </ActionBtn>
       </div>
 
@@ -119,8 +121,8 @@ export default function PaymentOperationsPanel() {
       ) : cases.length === 0 ? (
         <EmptyState
           icon={Boxes}
-          title="No payment cases yet"
-          description="Transfers appear here once VIPs confirm payments after service is enabled."
+          title={t("opsPanel.noCases")}
+          description={t("opsPanel.emptyHint")}
         />
       ) : null}
 
@@ -142,27 +144,27 @@ export default function PaymentOperationsPanel() {
               </div>
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Amount">
+                <Field label={t("opsPanel.amount")}>
                   {c.actualAmount} {c.asset} · HKD {Number(c.actualHkdAmount).toLocaleString()}
                 </Field>
-                <Field label="Compliance">
+                <Field label={t("opsPanel.compliance")}>
                   KYT {c.kytStatus} · TR {c.travelRuleStatus}
                 </Field>
-                <Field label="Notabene">{c.notabeneReference || "—"}</Field>
-                <Field label="Custody / Tx">
+                <Field label={t("opsPanel.notabene")}>{c.notabeneReference || "—"}</Field>
+                <Field label={t("opsPanel.custodyTx")}>
                   <span className="block max-w-[160px] truncate">{c.custodyAddress || "—"}</span>
                   <span className="block max-w-[160px] truncate">{c.txHash || "—"}</span>
                 </Field>
               </div>
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Cage confirmation ID">{c.cageConfirmationId || "—"}</Field>
-                <Field label="Reconciliation">
+                <Field label={t("opsPanel.cageConfirmationId")}>{c.cageConfirmationId || "—"}</Field>
+                <Field label={t("opsPanel.reconciliation")}>
                   {c.reconciliationRef || "—"}
                   {c.reconciledAt ? ` · ${new Date(c.reconciledAt * 1000).toLocaleString()}` : ""}
                 </Field>
-                <Field label="Main transfer">{confirmed ? "Confirmed" : "Pending"}</Field>
-                <Field label="Retention until">
+                <Field label={t("opsPanel.mainTransfer")}>{confirmed ? t("opsPanel.confirmed") : t("opsPanel.pending")}</Field>
+                <Field label={t("opsPanel.retentionUntil")}>
                   {c.retentionUntil ? new Date(c.retentionUntil * 1000).toLocaleDateString() : "—"}
                 </Field>
               </div>
@@ -183,7 +185,7 @@ export default function PaymentOperationsPanel() {
                         onClick={() => void recordCage(c.packId)}
                         disabled={busyId === c.packId}
                       >
-                        Record Cage confirmation
+                        {t("opsPanel.recordCage")}
                       </ActionBtn>
                     </div>
                   )}
@@ -201,7 +203,7 @@ export default function PaymentOperationsPanel() {
                         onClick={() => void reconcile(c.packId)}
                         disabled={busyId === c.packId}
                       >
-                        Record reconciliation
+                        {t("opsPanel.recordReconciliation")}
                       </ActionBtn>
                     </div>
                   )}

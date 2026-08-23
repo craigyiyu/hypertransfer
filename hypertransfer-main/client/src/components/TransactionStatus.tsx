@@ -4,6 +4,7 @@
  */
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 
 interface StatusStep {
   label: string;
@@ -24,6 +25,7 @@ export default function TransactionStatus({
   estimatedTime,
   currentStatus,
 }: TransactionStatusProps) {
+  const { t } = useI18n();
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "confirmed":
@@ -43,18 +45,18 @@ export default function TransactionStatus({
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wider">
-            Transaction Status
+            {t("transactionStatus.title")}
           </p>
           <p className="text-sm font-semibold text-foreground mt-1 capitalize">
-            {currentStatus === "pending" && "Awaiting Confirmation..."}
-            {currentStatus === "confirmed" && "Confirmed"}
-            {currentStatus === "settled" && "Settled"}
-            {currentStatus === "failed" && "Failed"}
+            {currentStatus === "pending" && t("transactionStatus.awaiting")}
+            {currentStatus === "confirmed" && t("transactionStatus.confirmed")}
+            {currentStatus === "settled" && t("transactionStatus.settled")}
+            {currentStatus === "failed" && t("transactionStatus.failed")}
           </p>
         </div>
         {estimatedTime && (
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Estimated time</p>
+            <p className="text-xs text-muted-foreground">{t("transactionStatus.estimatedTime")}</p>
             <p className="text-sm font-medium text-gold mt-1">{estimatedTime}</p>
           </div>
         )}

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Boxes, Tag } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/contexts/I18nContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { apiError, depositApi, type DepositRecord } from "@/lib/api";
@@ -47,6 +48,7 @@ const formatQueueDate = (value?: number | string) => {
 };
 
 export default function DepositQueuePanel() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { state, updateState } = useDemo();
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
@@ -164,8 +166,8 @@ export default function DepositQueuePanel() {
     <section className="rounded-lg border border-border/60 bg-card/80 p-5 shadow-sm">
       <PanelHeader
         icon={Boxes}
-        eyebrow="Deposit Queue — staff tasks"
-        title="Review each deposit session and record marker settlement"
+        eyebrow={t("depositQueue.title")}
+        title={t("depositQueue.hint")}
         onRefresh={() => void load()}
         refreshing={loading}
       />
@@ -183,7 +185,7 @@ export default function DepositQueuePanel() {
       {error && <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
       {!error && deposits.length === 0 && !showDemoDeposit && (
         <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          {loading ? "Loading deposit queue…" : "No deposit requests in the queue."}
+          {loading ? t("opsUi.loading") : t("depositQueue.empty")}
         </p>
       )}
 
@@ -201,15 +203,15 @@ export default function DepositQueuePanel() {
               </Pill>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Session date">{formatQueueDate(demoSessionDate)}</Field>
-              <Field label="Asset / network">{demoAsset} · {formatNetworkRail(demoNetwork)}</Field>
-              <Field label="Amount">{demoAmount}</Field>
-              <Field label="Source wallet KYT">{demoScreeningStatus}</Field>
+              <Field label={t("depositQueue.sessionDate")}>{formatQueueDate(demoSessionDate)}</Field>
+              <Field label={t("depositQueue.assetNetwork")}>{demoAsset} · {formatNetworkRail(demoNetwork)}</Field>
+              <Field label={t("depositQueue.amount")}>{demoAmount}</Field>
+              <Field label={t("depositQueue.sourceWalletKyt")}>{demoScreeningStatus}</Field>
               <Field label="1 USDT verify">{demoVerifyStatus}</Field>
-              <Field label="Travel Rule">{demoTravelRuleStatus}</Field>
-              <Field label="Deposit address"><span className="font-mono">{shortAddr(demoDepositAddress)}</span></Field>
-              <Field label="Marker">{localSettlement.markerRef || "—"}</Field>
-              <Field label="Settlement">{localSettlement.markerRef ? "settled" : "pending marker"}</Field>
+              <Field label={t("depositQueue.travelRule")}>{demoTravelRuleStatus}</Field>
+              <Field label={t("depositQueue.depositAddress")}><span className="font-mono">{shortAddr(demoDepositAddress)}</span></Field>
+              <Field label={t("depositQueue.marker")}>{localSettlement.markerRef || "—"}</Field>
+              <Field label={t("depositQueue.settlement")}>{localSettlement.markerRef ? t("common.settled") : t("depositQueue.markerRequired")}</Field>
             </div>
 
             <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -220,8 +222,8 @@ export default function DepositQueuePanel() {
                     <input
                       value={markerDraft.__demo ?? localSettlement.markerRef ?? ""}
                       onChange={(e) => setMarkerDraft({ ...markerDraft, __demo: e.target.value })}
-                      placeholder="External marker reference"
-                      aria-label="Required marker reference"
+                      placeholder={t("depositQueue.externalMarker")}
+                      aria-label={t("depositQueue.markerRequired")}
                       className="w-52 rounded-lg border border-gold/50 bg-background px-3 py-2 text-xs font-mono text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-gold focus:ring-1 focus:ring-gold/30"
                     />
                     <ActionBtn
@@ -253,14 +255,14 @@ export default function DepositQueuePanel() {
                 <Pill tone={statusTone(displayStatus)}>{displayStatus}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Session date">{formatQueueDate(d.createdAt)}</Field>
-                <Field label="Asset / network">{d.asset} · {d.network}</Field>
-                <Field label="Amount">{d.amountDecimal || "—"}</Field>
-                <Field label="Source wallet KYT">{d.screeningStatus || "—"}</Field>
+                <Field label={t("depositQueue.sessionDate")}>{formatQueueDate(d.createdAt)}</Field>
+                <Field label={t("depositQueue.assetNetwork")}>{d.asset} · {d.network}</Field>
+                <Field label={t("depositQueue.amount")}>{d.amountDecimal || "—"}</Field>
+                <Field label={t("depositQueue.sourceWalletKyt")}>{d.screeningStatus || "—"}</Field>
                 <Field label="1 USDT verify">{d.verifyStatus}</Field>
-                <Field label="Travel Rule">{d.travelRuleRequired ? d.travelRuleStatus : "not required"}</Field>
-                <Field label="Deposit address"><span className="font-mono">{shortAddr(d.depositAddress)}</span></Field>
-                <Field label="Marker">{d.markerRef || "—"}</Field>
+                <Field label={t("depositQueue.travelRule")}>{d.travelRuleRequired ? d.travelRuleStatus : t("depositQueue.travelRuleNotRequired")}</Field>
+                <Field label={t("depositQueue.depositAddress")}><span className="font-mono">{shortAddr(d.depositAddress)}</span></Field>
+                <Field label={t("depositQueue.marker")}>{d.markerRef || "—"}</Field>
                 <Field label="Settlement">
                   {d.markerRef ? `Settled · ${d.markerRef}` : "pending marker"}
                 </Field>
@@ -274,8 +276,8 @@ export default function DepositQueuePanel() {
                     <input
                       value={markerDraft[d.id] ?? d.markerRef ?? ""}
                       onChange={(e) => setMarkerDraft({ ...markerDraft, [d.id]: e.target.value })}
-                      placeholder="External marker reference"
-                      aria-label="Required marker reference"
+                      placeholder={t("depositQueue.externalMarker")}
+                      aria-label={t("depositQueue.markerRequired")}
                       className="w-52 rounded-lg border border-gold/50 bg-background px-3 py-2 text-xs font-mono text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-gold focus:ring-1 focus:ring-gold/30"
                     />
                     <ActionBtn

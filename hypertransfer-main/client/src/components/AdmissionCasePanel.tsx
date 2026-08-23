@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { DEMO_AUTOFILL_EVENT, useDemoMode } from "@/contexts/DemoModeContext";
 import {
   admissionApi,
@@ -63,6 +64,7 @@ const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
 
 /** Host 跟进汇总(B2): 按状态聚合"需要动作"的 case, 便于 follow up。 */
 function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
+  const { t } = useI18n();
   const awaitingApproval = cases.filter((c) => c.status === "leader_pending").length;
   const kycAction = cases.filter(
     (c) => c.status === "kyc_failed" || c.status === "compliance_review",
@@ -73,17 +75,17 @@ function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
   ).length;
 
   const items = [
-    { label: "Awaiting approver", count: awaitingApproval, tone: "warning" as const },
-    { label: "KYC action needed", count: kycAction, tone: "danger" as const },
-    { label: "Rejected", count: rejected, tone: "danger" as const },
-    { label: "Cage pending", count: cagePending, tone: "warning" as const },
+    { label: t("admissionPanel.awaitingApprover"), count: awaitingApproval, tone: "warning" as const },
+    { label: t("admissionPanel.kycActionNeeded"), count: kycAction, tone: "danger" as const },
+    { label: t("common.rejected"), count: rejected, tone: "danger" as const },
+    { label: t("admissionPanel.cagePending"), count: cagePending, tone: "warning" as const },
   ].filter((i) => i.count > 0);
 
   if (items.length === 0) return null;
   return (
     <div className="rounded-lg border border-border/60 bg-card/80 p-4">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Needs your attention
+        {t("admissionPanel.needsAttention")}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {items.map((i) => (
@@ -97,13 +99,14 @@ function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
 }
 
 function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
+  const { t } = useI18n();
   const order = ADMISSION_MILESTONES.map((m) => m.key);
   const idx = order.indexOf(status);
   const current = idx >= 0 ? idx : order.length - 1;
   const terminal = isTerminalAdmissionStatus(status);
   return (
     <div className="mt-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Admission status</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t("admissionPanel.admissionStatus")}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
         {ADMISSION_MILESTONES.map((m, i) => {
           const done = terminal ? i <= current : i < current;
@@ -140,6 +143,7 @@ function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
 export default function AdmissionCasePanel() {
   const { user } = useAuth();
   const { isDemoMode, getDemoValue } = useDemoMode();
+  const { t } = useI18n();
 
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -210,7 +214,7 @@ export default function AdmissionCasePanel() {
 
   const activateProfile = async () => {
     if (!activateForm.operatingTeam.trim() || !activateForm.location.trim()) {
-      toast.error("Operating team and location are required to activate your Host profile.");
+      toast.error(t("admissionPanel.activateHostNote"));
       return;
     }
     setActivating(true);
@@ -223,7 +227,7 @@ export default function AdmissionCasePanel() {
       });
       setProfile(res.data.profile);
       if (res.data.profile.status === "active") {
-        toast.success("Host profile activated. You can now manage VIP admission cases.");
+        toast.success(t("admissionPanel.activatedToast"));
       } else {
         toast.info("Profile saved — acknowledge the customer-data handling policy to activate.");
       }
@@ -236,7 +240,7 @@ export default function AdmissionCasePanel() {
 
   const createCase = async () => {
     if (!caseForm.patronEmail.trim()) {
-      toast.error("Invitation email is required.");
+      toast.error(t("admissionPanel.invitationEmailRequired"));
       return;
     }
     setCreating(true);
@@ -249,7 +253,7 @@ export default function AdmissionCasePanel() {
         preferredLanguage: caseForm.preferredLanguage.trim() || undefined,
         route: caseForm.route,
       });
-      toast.success("VIP admission case created.");
+      toast.success(t("admissionPanel.caseCreated"));
       setCaseForm({ ...EMPTY_CASE_FORM });
       await loadCases();
     } catch (err) {
@@ -263,7 +267,7 @@ export default function AdmissionCasePanel() {
     setBusyId(caseId);
     try {
       const res = await admissionApi.inviteEmail(caseId);
-      toast.success("Email invitation sent (6-hour validity).");
+      toast.success(t("admissionPanel.emailSent"));
       await refreshCase(caseId, res.data.case);
     } catch (err) {
       toast.error(apiError(err));
@@ -276,7 +280,7 @@ export default function AdmissionCasePanel() {
     setBusyId(caseId);
     try {
       const res = await admissionApi.inviteQrSession(caseId);
-      toast.success("Dynamic QR session issued (rotates every 15 minutes).");
+      toast.success(t("admissionPanel.qrIssued"));
       await refreshCase(caseId, res.data.case);
     } catch (err) {
       toast.error(apiError(err));
@@ -289,7 +293,7 @@ export default function AdmissionCasePanel() {
     setBusyId(caseId);
     try {
       await admissionApi.revoke(caseId);
-      toast.success("Admission case revoked.");
+      toast.success(t("admissionPanel.revokedToast"));
       await loadCases();
     } catch (err) {
       toast.error(apiError(err));
@@ -315,8 +319,8 @@ export default function AdmissionCasePanel() {
     <section className="space-y-5">
       <PanelHeader
         icon={UserPlus2}
-        eyebrow="Host workspace"
-        title="VIP Admissions"
+        eyebrow={t("admissionPanel.hostWorkspace")}
+        title={t("admissionPanel.title")}
         onRefresh={() => {
           void loadProfile();
           void loadCases();
@@ -330,7 +334,7 @@ export default function AdmissionCasePanel() {
           <div className="flex items-start gap-3">
             <IdCard className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-foreground">Activate your Host profile</p>
+              <p className="text-sm font-semibold text-foreground">{t("admissionPanel.activateHost")}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Hosts are provisioned through the enterprise (Okta) identity. Complete the
                 operational fields and acknowledge the customer-data handling policy before
@@ -338,19 +342,19 @@ export default function AdmissionCasePanel() {
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <LabeledInput
-                  label="Operating team *"
-                  placeholder="e.g. Macau Table Games"
+                  label={`${t("admissionPanel.operatingTeam")} *`}
+                  placeholder={t("admissionPanel.operatingTeamPlaceholder")}
                   value={activateForm.operatingTeam}
                   onChange={(e) => setActivateForm((p) => ({ ...p, operatingTeam: e.target.value }))}
                 />
                 <LabeledInput
-                  label="Location *"
-                  placeholder="e.g. Macau Peninsula"
+                  label={`${t("admissionPanel.operatingLocation")} *`}
+                  placeholder={t("admissionPanel.operatingLocationPlaceholder")}
                   value={activateForm.location}
                   onChange={(e) => setActivateForm((p) => ({ ...p, location: e.target.value }))}
                 />
                 <LabeledInput
-                  label="Phone"
+                  label={t("admissionPanel.phone")}
                   placeholder="+853 ..."
                   value={activateForm.phone}
                   onChange={(e) => setActivateForm((p) => ({ ...p, phone: e.target.value }))}
@@ -371,7 +375,7 @@ export default function AdmissionCasePanel() {
               </label>
               <div className="mt-3">
                 <ActionBtn icon={IdCard} tone="warning" onClick={activateProfile} disabled={activating}>
-                  {activating ? "Saving…" : "Activate Host profile"}
+                  {activating ? t("opsUi.loading") : t("admissionPanel.activateProfile")}
                 </ActionBtn>
               </div>
             </div>
@@ -383,37 +387,37 @@ export default function AdmissionCasePanel() {
       {profile?.status === "active" && canManage && (
         <div className="rounded-lg border border-border/60 bg-card/80 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            New VIP admission case
+            {t("admissionPanel.newCase")}
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <LabeledInput
-              label="Invitation email *"
+              label={`${t("admissionPanel.patronEmail")} *`}
               placeholder="vip@example.test"
               value={caseForm.patronEmail}
               onChange={(e) => setCaseForm((p) => ({ ...p, patronEmail: e.target.value }))}
             />
             <LabeledInput
-              label="Member reference"
-              placeholder="M-VIP-001 (optional)"
+              label={t("admissionPanel.memberReference")}
+              placeholder={t("admissionPanel.memberRefPlaceholder")}
               value={caseForm.memberReference}
               onChange={(e) => setCaseForm((p) => ({ ...p, memberReference: e.target.value }))}
             />
             <LabeledInput
-              label="Preferred language"
-              placeholder="zh-Hant (optional)"
+              label={t("admissionPanel.preferredLanguage")}
+              placeholder={t("admissionPanel.preferredLanguagePlaceholder")}
               value={caseForm.preferredLanguage}
               onChange={(e) => setCaseForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
             />
             <LabeledInput
-              label="Intended service"
-              placeholder="VIP table credit (optional)"
+              label={t("admissionPanel.intendedService")}
+              placeholder={t("admissionPanel.intendedService")}
               containerClassName="sm:col-span-2 lg:col-span-1"
               value={caseForm.servicePurpose}
               onChange={(e) => setCaseForm((p) => ({ ...p, servicePurpose: e.target.value }))}
             />
             <LabeledInput
-              label="Host notes (internal only — never shown to the VIP)"
-              placeholder="Relationship context for the compliance/leader dossier"
+              label={t("admissionPanel.hostNotes")}
+              placeholder={t("admissionPanel.hostNotes")}
               containerClassName="sm:col-span-2"
               value={caseForm.hostNotes}
               onChange={(e) => setCaseForm((p) => ({ ...p, hostNotes: e.target.value }))}
@@ -421,7 +425,7 @@ export default function AdmissionCasePanel() {
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Route:</span>
+              <span>{t("admissionPanel.route")}</span>
               <select
                 value={caseForm.route}
                 onChange={(e) =>
@@ -432,12 +436,12 @@ export default function AdmissionCasePanel() {
                 }
                 className="rounded-lg border border-border/60 bg-background px-2 py-1.5 text-xs outline-none"
               >
-                <option value="complete_dossier">Complete dossier before leader approval</option>
-                <option value="kyc_first">KYC-first service approval</option>
+                <option value="complete_dossier">{t("admissionPanel.completeDossier")}</option>
+                <option value="kyc_first">{t("admissionPanel.kycFirstApproval")}</option>
               </select>
             </label>
             <ActionBtn icon={Plus} tone="success" onClick={createCase} disabled={creating}>
-              {creating ? "Creating…" : "Create admission case"}
+              {creating ? t("opsUi.loading") : t("admissionPanel.createCase")}
             </ActionBtn>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -454,7 +458,7 @@ export default function AdmissionCasePanel() {
       <div className="rounded-lg border border-border/60 bg-card/80 p-4">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            My admission cases
+            {t("admissionPanel.myCases")}
           </p>
           <Pill tone="neutral">{String(cases.length)}</Pill>
         </div>
@@ -467,8 +471,8 @@ export default function AdmissionCasePanel() {
           <div className="mt-3">
             <EmptyState
               icon={UserPlus2}
-              title="No admission cases yet"
-              description="Create one above to start the Host-led invitation flow."
+              title={t("admissionPanel.noCases")}
+              description={t("admissionPanel.createFirst")}
             />
           </div>
         ) : null}
@@ -516,17 +520,17 @@ export default function AdmissionCasePanel() {
                 </div>
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field label="Member reference">{c.memberReference || "—"}</Field>
-                  <Field label="Host KYC status">
-                    {c.kycHostMessage || (c.status === "kyc_passed" ? "KYC passed" : "—")}
+                  <Field label={t("admissionPanel.memberReference")}>{c.memberReference || "—"}</Field>
+                  <Field label={t("admissionPanel.kycStatus")}>
+                    {c.kycHostMessage || (c.status === "kyc_passed" ? t("admissionPanel.kycPassed") : "—")}
                   </Field>
-                  <Field label="KYC valid until">
+                  <Field label={t("admissionPanel.kycValidUntil")}>
                     {c.kycValidUntil ? (
                       <>
                         {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
                         {Date.now() / 1000 > c.kycValidUntil && (
                           <span className="ml-1 text-[10px] font-semibold text-destructive">
-                            EXPIRED
+                            {t("admissionPanel.expired")}
                           </span>
                         )}
                       </>
@@ -534,27 +538,27 @@ export default function AdmissionCasePanel() {
                       "—"
                     )}
                   </Field>
-                  <Field label="Invitation">
+                  <Field label={t("admissionPanel.invitation")}>
                     {c.invitation
                       ? `Email ${new Date(c.invitation.emailExpiresAt).toLocaleString()} · QR ${new Date(
                           c.invitation.qrExpiresAt,
                         ).toLocaleString()}`
-                      : "Not sent yet"}
+                      : t("admissionPanel.notSentYet")}
                   </Field>
                 </div>
 
                 {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
                 {c.leaderDecision === "rejected" && (
                   <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
-                    <span className="font-semibold text-destructive">Rejected by the approver</span>
+                    <span className="font-semibold text-destructive">{t("admissionPanel.rejectedByApprover")}</span>
                     {c.leaderReason && (
-                      <span className="ml-2 text-muted-foreground">Reason: {c.leaderReason}</span>
+                      <span className="ml-2 text-muted-foreground">{t("common.reason")}: {c.leaderReason}</span>
                     )}
                   </div>
                 )}
                 {c.status === "service_enabled" && c.leaderDecision === "approved" && (
                   <div className="mt-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
-                    Approved by the approver — service enabled
+                    {t("admissionPanel.approver")} — {t("admissionPanel.enabled")}
                   </div>
                 )}
 
@@ -564,11 +568,11 @@ export default function AdmissionCasePanel() {
                 {/* Payments & settlement 状态 */}
                 <div className="mt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Payments &amp; settlement
+                    {t("admissionPanel.payments")}
                   </p>
                   {(c.payments ?? []).length === 0 ? (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      No transfers yet — VIP will confirm the actual payment after service is enabled.
+                      {t("admissionPanel.noTransfersYet")}
                     </p>
                   ) : (
                     <div className="mt-1 grid gap-2 sm:grid-cols-2">
@@ -578,10 +582,10 @@ export default function AdmissionCasePanel() {
                           <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-semibold text-foreground">
-                                {p.transferLeg === "verification" ? "Verification (1 USDT)" : "Main transfer"}
+                                {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
                               </span>
                               <Pill tone={confirmed ? "success" : "warning"}>
-                                {confirmed ? "Received" : p.cageConfirmationId ? "Cage recorded" : "Pending"}
+                                {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
                               </Pill>
                             </div>
                             <p className="mt-1 text-muted-foreground">
@@ -593,7 +597,7 @@ export default function AdmissionCasePanel() {
                             <p className="mt-1 text-muted-foreground">
                               {p.cageConfirmationId
                                 ? `Cage: ${p.cageConfirmationId}`
-                                : "Cage: not recorded yet"}
+                                : t("admissionPanel.cageNotRecorded")}
                               {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
                             </p>
                           </div>
@@ -607,12 +611,12 @@ export default function AdmissionCasePanel() {
                   {c.invitation && (
                     <span className="flex items-center gap-1 text-[11px] text-success">
                       <MailCheck className="h-3 w-3" />
-                      Email link + dynamic QR issued for the same case
+                      {t("admissionPanel.dualChannelIssued")}
                     </span>
                   )}
                   {terminal && (
                     <span className="text-[11px] text-muted-foreground">
-                      Terminal for the active invitation — a controlled resubmission starts a new attempt.
+                      {t("admissionPanel.terminalNote")}
                     </span>
                   )}
                 </div>

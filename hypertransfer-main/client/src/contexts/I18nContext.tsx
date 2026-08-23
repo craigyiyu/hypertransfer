@@ -34,21 +34,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const t = (key: string): string => {
     const keys = key.split(".");
-    let value: any = translations[language];
+    // Fallback chain: language -> zh (for yue, since new keys are authored zh-first) -> en
+    const chain: Language[] =
+      language === "yue" ? ["yue", "zh", "en"] : language === "zh" ? ["zh", "en"] : ["en"];
 
-    for (const k of keys) {
-      value = value?.[k];
-    }
-
-    if (!value) {
-      // Fallback to English if translation not found
-      value = translations.en;
+    for (const lang of chain) {
+      let value: any = translations[lang];
       for (const k of keys) {
         value = value?.[k];
       }
+      if (typeof value === "string") {
+        return value;
+      }
     }
 
-    return value || key;
+    return key;
   };
 
   const availableLanguages = [

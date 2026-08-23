@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { AlertTriangle, ArrowRight, Mail } from 'lucide-react';
+import { useI18n } from "@/contexts/I18nContext";
 
 interface ErrorRecoveryProps {
   title: string;
@@ -20,6 +21,7 @@ export function ErrorRecovery({
   actions,
   supportLink = true,
 }: ErrorRecoveryProps) {
+  const { t } = useI18n();
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -71,14 +73,14 @@ export function ErrorRecovery({
           {/* Support Links */}
           {supportLink && (
             <div className="pt-4 border-t border-slate-700/50 space-y-2">
-              <p className="text-xs text-slate-400 mb-2">Need help?</p>
+              <p className="text-xs text-slate-400 mb-2">{t("errorRecovery.needHelp")}</p>
               <div className="flex gap-2">
                 <a
                   href="mailto:support@hypertransfer.io"
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 hover:bg-secondary text-foreground text-xs transition-colors"
                 >
                   <Mail className="w-3.5 h-3.5" />
-                  Contact Support
+                  {t("errorRecovery.contactSupport")}
                 </a>
               </div>
             </div>

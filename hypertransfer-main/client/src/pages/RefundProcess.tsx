@@ -27,6 +27,7 @@ import Shell from "@/components/Shell";
 import { useDemo } from "@/contexts/DemoContext";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
 import { apiError, refundApi, type VerifiedWallet } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   createRefundRequest,
   formatRefundStatus,
@@ -61,6 +62,7 @@ function shortAddr(addr: string) {
 }
 
 export default function RefundProcess() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const { state, updateState, seedRefundDemo } = useDemo();
   const [reason, setReason] = useState<RefundReason>("customer_cancelled");
@@ -104,7 +106,7 @@ export default function RefundProcess() {
           id: w.id,
           address: w.address,
           network: (isTron ? "tron" : "ethereum") as RefundWalletOption["network"],
-          chainLabel: isTron ? "TRC-20" : "ERC-20",
+          chainLabel: isTron ? t("refund.trc20") : t("refund.erc20"),
           source: "verified" as const,
         };
       });
@@ -118,13 +120,13 @@ export default function RefundProcess() {
           id: `demo:${state.sourceWallet}`,
           address: state.sourceWallet,
           network,
-          chainLabel: network === "tron" ? "TRC-20" : network === "ethereum" ? "ERC-20" : "Demo",
+          chainLabel: network === "tron" ? t("refund.trc20") : network === "ethereum" ? t("refund.erc20") : "Demo",
           source: "demo" as const,
         },
       ];
     }
     return [];
-  }, [verifiedWallets, state.sourceWallet, state.selectedNetwork]);
+  }, [verifiedWallets, state.sourceWallet, state.selectedNetwork, t]);
 
   // 资格: 有已验证原钱包(后端或 demo)即可发起。KYC 闸门在首页入口 + 后端 /api/refunds 已校验。
   const canRequestRefund = walletOptions.length > 0;
@@ -152,7 +154,7 @@ export default function RefundProcess() {
     setAmount("");
     setPickError("");
     setAmountError("");
-    toast.success("Demo verified wallet loaded", {
+    toast.success(t("refund.demoWalletLoaded"), {
       description: "A KYC-approved customer with a verified TRC-20 wallet is ready for withdrawal testing.",
     });
   };
@@ -161,11 +163,11 @@ export default function RefundProcess() {
   const createRefund = async () => {
     const picked = walletOptions.find((w) => w.id === selectedWalletId);
     if (!picked) {
-      setPickError("Select a previously verified wallet to receive the withdrawal.");
+      setPickError(t("refund.hint"));
       return;
     }
     if (parsedAmount <= 0) {
-      setAmountError("Enter the amount you want returned.");
+      setAmountError(t("refund.amountHint"));
       return;
     }
     setPickError("");
@@ -193,7 +195,7 @@ export default function RefundProcess() {
           });
           const next = submitRefundForApproval(submitRefundDestination(base, picked.address));
           updateState({ refundRequest: { ...next, id: data.requestId } });
-          toast.success("Withdrawal request submitted", {
+          toast.success(t("refund.submitted"), {
             description: `Request ${data.requestId} — compliance & treasury will review in the staff portal.`,
           });
           return;
@@ -203,10 +205,10 @@ export default function RefundProcess() {
           // 仅网络不可达 / 未部署(无响应或 404)才落回本地 demo, 保证演示不中断。
           if (status && status !== 404) {
             setPickError(apiError(err));
-            toast.error("Withdrawal request rejected", { description: apiError(err) });
+            toast.error(t("refund.rejected"), { description: apiError(err) });
             return;
           }
-          toast.message("Using local demo flow", { description: apiError(err) });
+          toast.message(t("refund.demoFlow"), { description: apiError(err) });
         }
       }
 
@@ -214,16 +216,16 @@ export default function RefundProcess() {
       const next = submitRefundDestination(base, picked.address);
       updateState({ refundRequest: next });
       if (next.status === "destination_kyt_passed") {
-        toast.success("Withdrawal wallet passed KYT", { description: next.kytResult?.reference });
+        toast.success(t("refund.kytPassed"), { description: next.kytResult?.reference });
       } else if (next.status === "manual_review") {
         toast.warning("Manual review required", { description: next.kytResult?.note });
       } else {
-        toast.error("Withdrawal wallet rejected", { description: next.kytResult?.note });
+        toast.error(t("refund.kytRejected"), { description: next.kytResult?.note });
       }
     } catch (err) {
       // createRefundRequest 的 Phase 1 资产/网络兜底校验(理论上 USDT + 已验证钱包不会触发)。
-      toast.error("Withdrawal unavailable", {
-        description: err instanceof Error ? err.message : "Unsupported asset or network.",
+      toast.error(t("refund.unavailable"), {
+        description: err instanceof Error ? err.message : t("refund.unsupported"),
       });
     } finally {
       setSubmitting(false);
@@ -234,13 +236,13 @@ export default function RefundProcess() {
     if (!request) return;
     const next = submitRefundForApproval(request);
     updateState({ refundRequest: next });
-    toast.success("Sent for treasury approval", {
-      description: "Support will notify you after review.",
+    toast.success(t("refund.sentForTreasuryApproval"), {
+      description: t("refund.supportWillNotify"),
     });
   };
 
   return (
-    <Shell showBack backTo="/dashboard" title="Request a Withdrawal" subtitle="Return funds to a verified wallet">
+    <Shell showBack backTo="/dashboard" title={t("refund.title")} subtitle={t("refund.subtitle")}>
       <div className="space-y-5">
         {!canRequestRefund && (
           <motion.div
@@ -249,7 +251,7 @@ export default function RefundProcess() {
             className="card-gold rounded-xl p-5 text-center"
           >
             <Undo2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm font-semibold text-foreground">No verified wallet on file</p>
+            <p className="text-sm font-semibold text-foreground">{t("refund.noVerifiedWallet")}</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               For your protection, withdrawals can only be returned to a wallet you previously verified during a deposit.
               Complete a deposit&apos;s 1 USDT wallet verification first, then funds can be returned to that original wallet.
@@ -258,13 +260,13 @@ export default function RefundProcess() {
               onClick={() => navigate("/dashboard")}
               className="mt-4 rounded-lg bg-gold px-4 py-2 text-xs font-semibold text-background"
             >
-              Return to Dashboard
+              {t("refund.returnToDashboard")}
             </button>
             <button
               onClick={loadDemoRefundCase}
               className="mt-3 rounded-lg border border-gold/40 px-4 py-2 text-xs font-semibold text-gold"
             >
-              Load Demo Withdrawal Case
+              {t("refund.loadDemoCase")}
             </button>
           </motion.div>
         )}
@@ -282,7 +284,7 @@ export default function RefundProcess() {
                   <div className="flex items-start gap-3">
                     <WalletCards className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
                     <div>
-                      <p className="text-sm font-semibold text-foreground">Return to a verified wallet</p>
+                      <p className="text-sm font-semibold text-foreground">{t("refund.returnToVerified")}</p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         Funds are returned only to a wallet you previously verified — new addresses cannot be entered.
                         The amount can differ from any single deposit; treasury verifies the vault balance before payout.
@@ -293,7 +295,7 @@ export default function RefundProcess() {
 
                 {/* 已验证钱包选择 */}
                 <div className="card-gold rounded-xl p-4 space-y-3">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Verified wallet</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("refund.verifiedWallet")}</p>
                   <div className="space-y-2">
                     {walletOptions.map((w) => {
                       const active = selectedWalletId === w.id;
@@ -312,7 +314,7 @@ export default function RefundProcess() {
                           <div className="min-w-0">
                             <p className="truncate font-mono text-xs text-foreground">{shortAddr(w.address)}</p>
                             <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                              {w.chainLabel} · {w.source === "verified" ? "Verified wallet" : "Deposit source wallet"}
+                              {w.chainLabel} · {w.source === "verified" ? t("refund.verifiedWallet") : t("refund.depositSource")}
                             </p>
                           </div>
                           <span
@@ -336,7 +338,7 @@ export default function RefundProcess() {
 
                 {/* 退款金额 (自由输入, 可多可少) */}
                 <div className="card-gold rounded-xl p-4 space-y-2">
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Withdrawal amount</label>
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("refund.withdrawalAmount")}</label>
                   <div className="relative">
                     <input
                       inputMode="decimal"
@@ -368,7 +370,7 @@ export default function RefundProcess() {
 
                 {/* 退款原因 (可选, 供员工端审批参考) */}
                 <div className="card-wine rounded-xl p-4 space-y-3">
-                  <label className="block text-xs font-medium text-muted-foreground">Withdrawal reason</label>
+                  <label className="block text-xs font-medium text-muted-foreground">{t("refund.withdrawalReason")}</label>
                   <select
                     value={reason}
                     onChange={(event) => setReason(event.target.value as RefundReason)}
@@ -383,7 +385,7 @@ export default function RefundProcess() {
                     disabled={submitting || parsedAmount <= 0 || !selectedWalletId}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold py-4 text-sm font-semibold text-background disabled:opacity-50"
                   >
-                    {submitting ? "Submitting…" : "Create Withdrawal Request"}
+                    {submitting ? "Submitting…" : t("refund.createRequest")}
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -396,7 +398,7 @@ export default function RefundProcess() {
                 <div className="card-gold rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Withdrawal case</p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("refund.case")}</p>
                       <p className="mt-1 font-mono text-sm font-semibold text-foreground">{request.id}</p>
                     </div>
                     <span className={`text-xs font-semibold capitalize ${statusTone(request.status)}`}>
@@ -405,21 +407,21 @@ export default function RefundProcess() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded-lg bg-secondary/20 px-3 py-2">
-                      <p className="text-muted-foreground">Amount</p>
+                      <p className="text-muted-foreground">{t("common.amount")}</p>
                       <p className="mt-1 text-foreground">
                         {formatAssetAmount(request.amount, 0)} {request.asset}
                       </p>
                     </div>
                     <div className="rounded-lg bg-secondary/20 px-3 py-2">
-                      <p className="text-muted-foreground">Destination</p>
+                      <p className="text-muted-foreground">{t("refund.destination")}</p>
                       <p className="mt-1 truncate font-mono text-foreground">{shortAddr(request.destinationAddress)}</p>
                     </div>
                     <div className="rounded-lg bg-secondary/20 px-3 py-2">
-                      <p className="text-muted-foreground">Reason</p>
+                      <p className="text-muted-foreground">{t("refund.reason")}</p>
                       <p className="mt-1 text-foreground">{REFUND_REASON_LABELS[request.reason]}</p>
                     </div>
                     <div className="rounded-lg bg-secondary/20 px-3 py-2">
-                      <p className="text-muted-foreground">Expires</p>
+                      <p className="text-muted-foreground">{t("refund.expires")}</p>
                       <p className="mt-1 text-foreground">{new Date(request.expiresAt).toLocaleDateString("en-US")}</p>
                     </div>
                   </div>
@@ -430,7 +432,7 @@ export default function RefundProcess() {
                     <div className="flex items-start gap-3">
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" />
                       <div>
-                        <p className="text-sm font-semibold text-success">Destination wallet cleared</p>
+                        <p className="text-sm font-semibold text-success">{t("refund.destinationCleared")}</p>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                           KYT reference {request.kytResult?.reference}. The case can now be submitted for treasury approval.
                         </p>
@@ -440,7 +442,7 @@ export default function RefundProcess() {
                       onClick={sendForApproval}
                       className="w-full rounded-xl bg-gold py-4 text-sm font-semibold text-background"
                     >
-                      Send for Treasury Approval
+                      {t("refund.sentForApproval")}
                     </button>
                   </div>
                 )}
@@ -455,7 +457,7 @@ export default function RefundProcess() {
                       )}
                       <div>
                         <p className="text-sm font-semibold text-foreground">
-                          {request.status === "completed" ? "Withdrawal completed" : "Treasury review in progress"}
+                          {request.status === "completed" ? t("refund.completed") : t("refund.treasuryReview")}
                         </p>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                           {request.status === "completed"
@@ -470,7 +472,7 @@ export default function RefundProcess() {
                             onClick={() => navigate("/casino-ops")}
                             className="mt-3 rounded-lg border border-gold/40 px-3 py-2 text-xs font-semibold text-gold"
                           >
-                            Open Staff Approval Demo
+                            {t("refund.openStaffApproval")}
                           </button>
                         )}
                       </div>
@@ -484,10 +486,10 @@ export default function RefundProcess() {
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                       <div>
                         <p className="text-sm font-semibold text-foreground">
-                          {request.status === "rejected" ? "Withdrawal wallet rejected" : "Manual review required"}
+                          {request.status === "rejected" ? t("refund.kytRejected") : "Manual review required"}
                         </p>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          {request.kytResult?.note || "Support will review the withdrawal destination before payout can continue."}
+                          {request.kytResult?.note || t("refund.supportReviewsDestination")}
                         </p>
                       </div>
                     </div>
@@ -497,7 +499,7 @@ export default function RefundProcess() {
             )}
 
             <div className="space-y-2">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Withdrawal process</p>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("refund.process")}</p>
               {REFUND_PROCESS_STEPS.map((step, index) => (
                 <div key={step.title} className="flex gap-3 rounded-xl border border-border/50 bg-card/50 px-3 py-3">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gold/10 text-[10px] font-semibold text-gold">

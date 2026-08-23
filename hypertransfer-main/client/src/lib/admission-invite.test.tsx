@@ -13,6 +13,7 @@ import Invite from "@/pages/Invite";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DemoProvider } from "@/contexts/DemoContext";
+import { I18nProvider } from "@/contexts/I18nContext";
 
 afterEach(() => cleanup());
 
@@ -36,11 +37,13 @@ function renderInvite(url = "/invite?qrSession=qr-session-token-123") {
   window.history.replaceState({}, "", url);
   return render(
     <ThemeProvider defaultTheme="dark">
-      <AuthProvider>
-        <DemoProvider>
-          <Invite />
-        </DemoProvider>
-      </AuthProvider>
+      <I18nProvider>
+        <AuthProvider>
+          <DemoProvider>
+            <Invite />
+          </DemoProvider>
+        </AuthProvider>
+      </I18nProvider>
     </ThemeProvider>,
   );
 }

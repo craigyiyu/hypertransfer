@@ -3,6 +3,7 @@
  * Shows SSL, KYC, Travel Rule, and custody status.
  */
 import { Shield, CheckCircle2, Lock } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 import { motion } from "framer-motion";
 
 interface ComplianceBadgesProps {
@@ -14,29 +15,30 @@ export default function ComplianceBadges({
   variant = "inline",
   showDetails = false,
 }: ComplianceBadgesProps) {
+  const { t } = useI18n();
   const badges = [
     {
       icon: Shield,
       label: "256-bit SSL",
-      description: "End-to-end encryption",
+      description: t("complianceBadges.endToEnd"),
       status: "verified",
     },
     {
       icon: CheckCircle2,
-      label: "KYC Compliant",
-      description: "Identity verification",
+      label: t("complianceBadges.kycCompliant"),
+      description: t("complianceBadges.identityVerification"),
       status: "verified",
     },
     {
       icon: Lock,
-      label: "Travel Rule",
-      description: "FATF Compliant",
+      label: t("complianceBadges.travelRule"),
+      description: t("complianceBadges.fatfCompliant"),
       status: "verified",
     },
     {
       icon: Shield,
-      label: "Secure Custody",
-      description: "Hex Trust",
+      label: t("complianceBadges.secureCustody"),
+      description: t("complianceBadges.hexTrust"),
       status: "verified",
     },
   ];
@@ -46,17 +48,17 @@ export default function ComplianceBadges({
       <div className="flex items-center justify-center gap-4 py-4 border-t border-border/30 text-[10px] text-muted-foreground/60">
         <div className="flex items-center gap-1">
           <Lock className="w-3 h-3" />
-          256-bit SSL
+          "256-bit SSL"
         </div>
         <span>&middot;</span>
         <div className="flex items-center gap-1">
           <Shield className="w-3 h-3" />
-          Secure Custody
+          {t("complianceBadges.secureCustody")}
         </div>
         <span>&middot;</span>
         <div className="flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" />
-          Hong Kong
+          {t("complianceBadges.hongKong")}
         </div>
       </div>
     );
@@ -71,7 +73,7 @@ export default function ComplianceBadges({
       >
         <div className="flex items-center gap-2 mb-3">
           <Shield className="w-4 h-4 text-gold" />
-          <p className="text-xs font-semibold text-foreground">Security & Compliance</p>
+          <p className="text-xs font-semibold text-foreground">{t("complianceBadges.title")}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

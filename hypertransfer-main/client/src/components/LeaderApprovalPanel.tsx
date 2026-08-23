@@ -16,6 +16,7 @@ import {
   leaderKycSummary,
   leaderReasonRequired,
 } from "@/lib/leader-approval";
+import { useI18n } from "@/contexts/I18nContext";
 import { ActionBtn, EmptyState, Field, LoadingSkeleton, PanelHeader, Pill, type Tone } from "@/components/ops-ui";
 
 function statusTone(status: string): Tone {
@@ -26,6 +27,7 @@ function statusTone(status: string): Tone {
 }
 
 export default function LeaderApprovalPanel() {
+  const { t } = useI18n();
   const [cases, setCases] = useState<LeaderCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -52,13 +54,13 @@ export default function LeaderApprovalPanel() {
   const decide = async (caseId: string, decision: "approved" | "rejected") => {
     const reason = (rejectReasons[caseId] || "").trim();
     if (leaderReasonRequired(decision) && !reason) {
-      toast.error("A business reason is required to reject an admission case.");
+      toast.error(t("leaderPanel.rejectionRequired"));
       return;
     }
     setBusyId(caseId);
     try {
       await leaderApi.decide(caseId, decision, reason || undefined);
-      toast.success(decision === "approved" ? "Admission approved — service enabled." : "Admission rejected.");
+      toast.success(decision === "approved" ? t("leaderPanel.approvedToast") : t("leaderPanel.rejectedToast"));
       await load();
     } catch (err) {
       toast.error(apiError(err));
@@ -71,8 +73,8 @@ export default function LeaderApprovalPanel() {
     <section className="space-y-5">
       <PanelHeader
         icon={Gavel}
-        eyebrow="Single leader"
-        title="Leader Approval"
+        eyebrow={t("leaderPanel.singleLeader")}
+        title={t("leaderPanel.title")}
         onRefresh={() => void load()}
         refreshing={loading}
       />
@@ -84,8 +86,8 @@ export default function LeaderApprovalPanel() {
       ) : cases.length === 0 ? (
         <EmptyState
           icon={Gavel}
-          title="Nothing awaiting your decision"
-          description="Cases appear here once they pass KYC and the payment pre-check."
+          title={t("leaderPanel.empty")}
+          description={t("leaderPanel.emptyHint")}
         />
       ) : null}
 
@@ -100,24 +102,24 @@ export default function LeaderApprovalPanel() {
                   <span className="text-sm font-semibold text-foreground">{c.patronEmailMasked}</span>
                   <Pill tone={statusTone(c.status)}>{c.status.replace(/_/g, " ")}</Pill>
                 </div>
-                <span className="text-xs text-muted-foreground">Host: {c.hostName}</span>
+                <span className="text-xs text-muted-foreground">{t("leaderPanel.host")}: {c.hostName}</span>
               </div>
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Business rationale">{c.servicePurpose || "—"}</Field>
-                <Field label="KYC">
-                  {kyc.passed ? `Passed · valid until ${kyc.validUntilLabel}` : "Not passed"}
+                <Field label={t("leaderPanel.businessRationale")}>{c.servicePurpose || "—"}</Field>
+                <Field label={t("leaderPanel.kycStatus")}>
+                  {kyc.passed ? `${t("leaderPanel.passed")} · ${t("leaderPanel.validUntil")} ${kyc.validUntilLabel}` : t("leaderPanel.notPassed")}
                 </Field>
-                <Field label="Intended payment">
+                <Field label={t("leaderPanel.intendedPayment")}>
                   {leaderIntendedPaymentLabel(c.intendedPayment)}
                 </Field>
-                <Field label="Route">
-                  {c.route === "complete_dossier" ? "Complete dossier" : "KYC-first"}
+                <Field label={t("leaderPanel.route")}>
+                  {c.route === "complete_dossier" ? t("leaderPanel.completeDossier") : t("leaderPanel.kycFirst")}
                 </Field>
               </div>
 
               <div className="mt-2">
-                <Field label="Host note (business context)">
+                <Field label={t("leaderPanel.hostNote")}>
                   {c.hostNotes || "—"}
                 </Field>
               </div>
@@ -129,13 +131,13 @@ export default function LeaderApprovalPanel() {
                   onClick={() => void decide(c.id, "approved")}
                   disabled={busyId === c.id}
                 >
-                  Approve
+                  {t("leaderPanel.approve")}
                 </ActionBtn>
                 <div className="flex flex-1 flex-col gap-1 sm:flex-row sm:items-end">
                   <input
                     value={rejectReasons[c.id] || ""}
                     onChange={(e) => setRejectReasons((p) => ({ ...p, [c.id]: e.target.value }))}
-                    placeholder="Rejection reason (required to reject)"
+                    placeholder={t("leaderPanel.rejectionReason")}
                     className="min-w-0 flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 text-xs outline-none focus:border-gold/50"
                   />
                   <ActionBtn
@@ -144,7 +146,7 @@ export default function LeaderApprovalPanel() {
                     onClick={() => void decide(c.id, "rejected")}
                     disabled={busyId === c.id}
                   >
-                    Reject
+                    {t("leaderPanel.reject")}
                   </ActionBtn>
                 </div>
               </div>

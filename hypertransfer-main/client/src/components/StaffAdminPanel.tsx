@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { UserCog, UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/contexts/I18nContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminApi, apiError } from "@/lib/api";
 import { ActionBtn, LabeledInput, Pill } from "@/components/ops-ui";
@@ -24,6 +25,7 @@ interface CreatedStaff {
 }
 
 export default function StaffAdminPanel() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const isAdmin = useMemo(() => (user?.roles ?? []).includes("admin"), [user]);
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -59,11 +61,11 @@ export default function StaffAdminPanel() {
         qr_png_base64: data.qr_png_base64,
         expires_in: data.expires_in,
       });
-      toast.success("Staff account created", { description: `${data.email} · ${data.roles.join(", ")}` });
+      toast.success(t("staffAdmin.createdToast"), { description: `${data.email} · ${data.roles.join(", ")}` });
       setForm({ name: "", email: "", password: "" });
       setRoles(new Set());
     } catch (err) {
-      toast.error("Create failed", { description: apiError(err) });
+      toast.error(t("staffAdmin.createFailed"), { description: apiError(err) });
     } finally {
       setBusy(false);
     }
@@ -76,8 +78,8 @@ export default function StaffAdminPanel() {
           <UserCog className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Staff Admin — Live /api/admin/staff</p>
-          <h2 className="mt-1 text-base font-semibold text-foreground">Provision staff accounts &amp; roles (admin only)</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("staffAdmin.title")}</p>
+          <h2 className="mt-1 text-base font-semibold text-foreground">{t("staffAdmin.createStaff")}</h2>
         </div>
       </div>
 
@@ -90,24 +92,24 @@ export default function StaffAdminPanel() {
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-3">
             <LabeledInput
-              label="Full name"
+              label={t("staffAdmin.fullName")}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Staff full name"
+              placeholder={t("staffAdmin.fullName")}
             />
             <LabeledInput
-              label="Email"
+              label={t("staffAdmin.email")}
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               placeholder="name@hypervelocity.hk"
             />
             <LabeledInput
-              label="Temp password"
+              label={t("staffAdmin.tempPassword")}
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="One-time password"
+              placeholder={t("staffAdmin.oneTimePassword")}
             />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -137,13 +139,13 @@ export default function StaffAdminPanel() {
                 ))}
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Account is <span className="font-semibold text-warning">pending 2FA</span>. The new staff must scan this QR
+                {t("staffAdmin.accountIs")} <span className="font-semibold text-warning">{t("staffAdmin.pending2FA")}</span>. The new staff must scan this QR
                 and confirm the TOTP code (via email) within {Math.round(created.expires_in / 60)} min to activate.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-4">
                 <img src={created.qr_png_base64} alt="TOTP QR" className="h-32 w-32 rounded-lg border border-border/50 bg-white p-1" />
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Secret (manual entry)</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("staffAdmin.secretManual")}</p>
                   <p className="mt-1 break-all font-mono text-xs text-foreground">{created.secret}</p>
                 </div>
               </div>

@@ -12,6 +12,7 @@ import { getHKDEquivalent } from "@/lib/currency";
 import { formatNetworkRail, requiresTravelRule } from "@/lib/compliance";
 import { canPassTravelRuleGate } from "@/lib/travel-rule";
 import { depositApi, transactionPackApi } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 
 const DEMO_DEPOSIT_DEFAULTS = {
   asset: "USDT",
@@ -34,6 +35,7 @@ function generateAddress(network: string): string {
 }
 
 export default function DepositAddress() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const { state, updateState } = useDemo();
   const [loading, setLoading] = useState(true);
@@ -142,7 +144,7 @@ export default function DepositAddress() {
   ]);
 
   return (
-    <Shell showBack backTo="/new-deposit" title="Deposit Verification" subtitle="Review the required first step">
+    <Shell showBack backTo="/new-deposit" title={t("depositAddress.title")} subtitle={t("depositAddress.reviewFirstStep")}>
       <div className="space-y-6">
         {/* Session info */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -165,10 +167,10 @@ export default function DepositAddress() {
               <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
               <div className="space-y-1.5">
                 <p className="text-xs text-warning font-semibold uppercase tracking-wider">
-                  Address blocked
+                  {t("depositAddress.addressBlocked")}
                 </p>
                 <p className="text-sm text-foreground font-semibold">
-                  Compliance gates must clear first
+                  {t("depositAddress.gatesMustClear")}
                 </p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   Hex Safe address issuance is blocked until KYC is approved, source-wallet KYT passes, and the Travel Rule gate is accepted when required.
@@ -188,13 +190,13 @@ export default function DepositAddress() {
             <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
             <div className="space-y-1.5">
               <p className="text-xs text-warning font-semibold uppercase tracking-wider">
-                Important
+                {t("depositAddress.important")}
               </p>
               <p className="text-sm text-foreground font-semibold">
                 Send only 1 {effectiveAsset} first
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                For payment security, we ask you to make a <span className="text-gold font-medium">1 {effectiveAsset}</span> verification deposit first (≈ {getHKDEquivalent("1", effectiveAsset)}). Please do not send your full deposit amount until the verification transfer is confirmed.
+                {t("depositAddress.forSecurity")} <span className="text-gold font-medium">1 {effectiveAsset}</span> verification deposit first (≈ {getHKDEquivalent("1", effectiveAsset)}). {t("depositAddress.afterVerification")}
               </p>
             </div>
           </div>
@@ -212,7 +214,7 @@ export default function DepositAddress() {
               <ShieldCheck className="w-4 h-4 text-gold" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">How this deposit works</p>
+              <p className="text-sm font-semibold text-foreground">{t("depositAddress.howItWorks")}</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 HyperTransfer requests the address through the Hex Safe API only after KYC, source-wallet KYT, and Travel Rule controls clear.
               </p>
@@ -223,7 +225,7 @@ export default function DepositAddress() {
             <div className="flex gap-3">
               <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">1</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Send exactly <span className="text-foreground font-medium">1 {effectiveAsset}</span> to verify the address and network.
+                {t("depositAddress.sendExactly")} <span className="text-foreground font-medium">1 {effectiveAsset}</span> {t("depositAddress.toVerify")}
               </p>
             </div>
             <div className="flex gap-3">
@@ -235,7 +237,7 @@ export default function DepositAddress() {
             <div className="flex gap-3">
               <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-[10px] font-semibold flex items-center justify-center shrink-0">3</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                After verification, enter and send your full deposit amount.
+                {t("depositAddress.afterVerification")}
               </p>
             </div>
           </div>
@@ -258,11 +260,11 @@ export default function DepositAddress() {
           >
             {loading
               ? isDemoFlow
-                ? "Preparing demo deposit session..."
-                : "Preparing Hex Safe Address..."
+                ? t("depositAddress.preparingDemo")
+                : t("depositAddress.preparingHex")
               : isDemoFlow
-              ? "Continue to Demo Deposit"
-              : "Continue to Verification Deposit"}
+              ? t("depositAddress.continueDemo")
+              : t("depositAddress.continueVerification")}
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
@@ -271,7 +273,7 @@ export default function DepositAddress() {
               onClick={() => navigate(nextGateRoute)}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              Complete Required Gate
+              {t("depositAddress.completeGate")}
               <ArrowRight className="w-4 h-4" />
             </button>
             {/* DEMO: 跳过 KYC/KYT/Travel Rule 闸门放行发址。仅 demo 占位网络(NewDeposit demoContinue)显示, 线上 demo 也生效。 */}

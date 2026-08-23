@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import Shell from '@/components/Shell';
 import { useDemo } from '@/contexts/DemoContext';
 import { admissionApi, apiError } from '@/lib/api';
+import { useI18n } from '@/contexts/I18nContext';
 import {
   formatKYCStatus,
   getStatusColor,
@@ -34,6 +35,7 @@ const iconMap = {
 };
 
 export default function KYCStatus() {
+  const { t } = useI18n();
   const { state, updateState } = useDemo();
   const [, setLocation] = useLocation();
   const [isChecking, setIsChecking] = useState(false);
@@ -170,7 +172,7 @@ export default function KYCStatus() {
             </div>
 
             <h1 className="text-3xl font-bold text-foreground mb-2">
-              Identity Verification
+              {t("kycStatus.title")}
             </h1>
             <p className="text-lg font-semibold text-gold mb-4">
               {formatKYCStatus(kycState.status)}
@@ -189,7 +191,7 @@ export default function KYCStatus() {
                   <CheckCircle className="w-6 h-6 text-success flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground mb-2">
-                      Verification Complete
+                      {t("kycStatus.verificationComplete")}
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       Your identity verification is complete. You can now continue with deposits.
@@ -212,10 +214,10 @@ export default function KYCStatus() {
                   <Clock className="w-6 h-6 text-warning flex-shrink-0 mt-1 animate-spin" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground mb-2">
-                      Review in Progress
+                      {t("kycStatus.reviewInProgress")}
                     </h3>
                     <p className="text-sm text-muted-foreground mb-3">
-                      Your information has been submitted and is being reviewed.
+                      {t("kycStatus.submittedReview")}
                     </p>
                     <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground mb-4">
                       {providerMessage || getEstimatedReviewTime()}
@@ -238,7 +240,7 @@ export default function KYCStatus() {
                   <XCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground mb-2">
-                      Verification Not Approved
+                      {t("kycStatus.verificationNotApproved")}
                     </h3>
                     <p className="text-sm text-muted-foreground mb-4">
                       We could not approve the submitted information. Please review the reason and submit again.
@@ -247,7 +249,7 @@ export default function KYCStatus() {
                     {caseStatus ? (
                       // Case-aware: 客户只拿安全重交指引, 不展示 provider 原始细节。
                       <div className="bg-muted rounded-lg p-3 mb-4">
-                        <p className="text-xs text-muted-foreground font-medium mb-1">Next steps</p>
+                        <p className="text-xs text-muted-foreground font-medium mb-1">{t("kycStatus.nextSteps")}</p>
                         <p className="text-sm text-foreground">
                           {caseEligibility.actionRequired ||
                             'Please resubmit your identity documents to continue.'}
@@ -256,7 +258,7 @@ export default function KYCStatus() {
                     ) : (
                       kycState.rejectionReason && (
                         <div className="bg-muted rounded-lg p-3 mb-4">
-                          <p className="text-xs text-muted-foreground font-medium mb-1">Reason</p>
+                          <p className="text-xs text-muted-foreground font-medium mb-1">{t("kycStatus.reason")}</p>
                           <p className="text-sm text-foreground">{kycState.rejectionReason}</p>
                         </div>
                       )
@@ -264,12 +266,12 @@ export default function KYCStatus() {
 
                     <div className="bg-accent border border-border rounded-lg p-3">
                       <p className="text-xs text-accent-foreground font-medium mb-1">
-                        Next steps
+                        {t("kycStatus.nextSteps")}
                       </p>
                       <ul className="text-sm text-accent-foreground space-y-1 list-disc list-inside">
-                        <li>Review the rejection reason</li>
-                        <li>Gather required documents</li>
-                        <li>Resubmit your KYC</li>
+                        <li>{t("kycStatus.reviewRejection")}</li>
+                        <li>{t("kycStatus.gatherDocuments")}</li>
+                        <li>{t("kycStatus.resubmitKyc")}</li>
                       </ul>
                     </div>
                   </div>
@@ -284,10 +286,10 @@ export default function KYCStatus() {
                   <AlertCircle className="w-6 h-6 text-slate-400 flex-shrink-0 mt-1" />
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground mb-2">
-                      Verification Required
+                      {t("kycStatus.verificationRequired")}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Complete identity verification before creating a deposit.
+                      {t("kycStatus.kycRequiredBeforeDeposit")}
                     </p>
                   </div>
                 </div>
@@ -297,20 +299,20 @@ export default function KYCStatus() {
             {/* Requirements Card */}
             <Card className="border-border bg-card p-6">
               <h3 className="font-semibold text-foreground mb-4">
-                Supporting Documents
+                {t("kycStatus.supportingDocuments")}
               </h3>
               <ul className="space-y-3">
                 <li className="flex items-center gap-3 text-sm text-foreground">
                   <div className="w-2 h-2 rounded-full bg-gold-400"></div>
-                  Valid government-issued ID
+                  {t("kycStatus.validGovernmentId")}
                 </li>
                 <li className="flex items-center gap-3 text-sm text-foreground">
                   <div className="w-2 h-2 rounded-full bg-gold-400"></div>
-                  Proof of address (utility bill, bank statement)
+                  {t("kycStatus.proofOfAddress")}
                 </li>
                 <li className="flex items-center gap-3 text-sm text-foreground">
                   <div className="w-2 h-2 rounded-full bg-gold-400"></div>
-                  Source of funds documentation
+                  {t("kycStatus.sourceOfFunds")}
                 </li>
               </ul>
             </Card>
@@ -322,7 +324,7 @@ export default function KYCStatus() {
                   onClick={handleProceedToDeposit}
                   className="w-full bg-gold hover:bg-gold-bright text-primary-foreground font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
                 >
-                  Back to Dashboard
+                  {t("kycStatus.backToDashboard")}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               )}
@@ -342,7 +344,7 @@ export default function KYCStatus() {
                   onClick={() => setLocation('/kyc')}
                   className="w-full bg-gold hover:bg-gold-bright text-primary-foreground font-semibold py-3 rounded-lg"
                 >
-                  Start Verification
+                  {t("kycStatus.startVerification")}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               )}
@@ -352,7 +354,7 @@ export default function KYCStatus() {
                   onClick={handleRetryKYC}
                   className="w-full bg-gold hover:bg-gold-bright text-primary-foreground font-semibold py-3 rounded-lg disabled:opacity-50"
                 >
-                  Retry Verification
+                  {t("kycStatus.retryVerification")}
                 </Button>
               )}
 
@@ -361,7 +363,7 @@ export default function KYCStatus() {
                 variant="outline"
                 className="w-full border-border text-muted-foreground hover:bg-secondary/50 py-3 rounded-lg"
               >
-                Contact Support
+                {t("kycStatus.contactSupport")}
               </Button>
             </div>
           </div>

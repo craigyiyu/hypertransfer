@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +36,7 @@ const toAssetAmountText = (value: number) => {
 export default function MainDeposit() {
   const [, navigate] = useLocation();
   const { state, updateState, addTransaction } = useDemo();
+  const { t } = useI18n();
   const [phase, setPhase] = useState<SessionPhase>(
     state.testPaymentConfirmed ? "main_input" : "verification"
   );
@@ -83,7 +85,7 @@ export default function MainDeposit() {
   const handleCopy = () => {
     navigator.clipboard.writeText(state.depositAddress);
     setCopied(true);
-    toast.success("Address copied");
+    toast.success(t("mainDeposit.addressCopied"));
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -270,7 +272,7 @@ export default function MainDeposit() {
       depositApi.main(state.depositRequestId, amount, state.travelRuleStatus).catch(() => {});
     }
     void recordMainPack(amount);
-    toast.success("No second transfer required", {
+    toast.success(t("mainDeposit.noSecondTransfer"), {
       description: `${displayVerificationAmount} ${state.selectedAsset} has already been detected.`,
     });
     recordDepositCompletion({
@@ -290,16 +292,16 @@ export default function MainDeposit() {
   // 容错: 客户忽略 1 USDT 提示、直接发全额 —— Hex Trust 到账检测仍识别并接受, 不失败。
   // 视作已验证 + 直接按已填金额(state.mainDepositAmount)进主入金监听/确认。
   const handleFullAmountDetected = () => {
-    toast.message("Full deposit detected", {
+    toast.message(t("mainDeposit.fullDepositDetected"), {
       description: "You sent the full amount without the 1 USDT test — we've detected and accepted it.",
     });
     handleVerificationSent(mainAmount || VERIFICATION_TRANSFER_AMOUNT);
   };
 
-  const shellTitle = phase === "verification" ? "Verification Deposit" : "Deposit Session";
+  const shellTitle = phase === "verification" ? t("mainDeposit.verificationDeposit") : t("mainDeposit.title");
   const shellSubtitle = phase === "verification"
-    ? `Step 1 of 2: send only 1 ${state.selectedAsset}`
-    : "Complete your deposit in one session";
+    ? `${t("mainDeposit.step1Of2")}: send only 1 ${state.selectedAsset}`
+    : t("mainDeposit.subtitle");
 
   return (
     <Shell showBack backTo="/deposit-address" title={shellTitle} subtitle={shellSubtitle}>
@@ -318,7 +320,7 @@ export default function MainDeposit() {
               <span>&middot;</span>
               <div className="flex items-center gap-1 text-success">
                 <CheckCircle2 className="w-3 h-3" />
-                <span>Verified</span>
+                <span>{t("mainDeposit.verified")}</span>
               </div>
             </>
           )}
@@ -335,10 +337,10 @@ export default function MainDeposit() {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                 <div className="space-y-1.5">
-                  <p className="text-[10px] text-warning font-semibold uppercase tracking-wider">Step 1 of 2</p>
-                  <p className="text-sm text-foreground font-semibold">Verification deposit only</p>
+                  <p className="text-[10px] text-warning font-semibold uppercase tracking-wider">{t("mainDeposit.step1Of2")}</p>
+                  <p className="text-sm text-foreground font-semibold">{t("mainDeposit.verificationOnly")}</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Recommended: send exactly <span className="text-gold font-semibold">1 {state.selectedAsset}</span> to the address below. If a different amount arrives, HyperTransfer will use the actual received amount to calculate the remaining transfer.
+                    {t("mainDeposit.recommendExact")} <span className="text-gold font-semibold">1 {state.selectedAsset}</span> to the address below. If a different amount arrives, HyperTransfer will use the actual received amount to calculate the remaining transfer.
                   </p>
                 </div>
               </div>
@@ -351,7 +353,7 @@ export default function MainDeposit() {
                   Send recommended 1 {state.selectedAsset} to this address
                 </p>
                 <span className="px-2 py-1 rounded-md bg-warning/10 text-warning text-[10px] font-semibold whitespace-nowrap">
-                  Step 1
+                  {t("mainDeposit.step1")}
                 </span>
               </div>
               <div className="flex items-center gap-2 bg-input rounded-lg px-3 py-2">
@@ -372,7 +374,7 @@ export default function MainDeposit() {
               onClick={() => handleVerificationSent()}
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              Confirm I've Sent 1&nbsp;{state.selectedAsset}
+              {t("mainDeposit.nowSend")} 1&nbsp;{state.selectedAsset}
               <ArrowRight className="w-4 h-4" />
             </button>
 
@@ -407,7 +409,7 @@ export default function MainDeposit() {
             >
               <Clock className="w-8 h-8 text-warning" />
             </motion.div>
-            <p className="text-sm font-semibold text-foreground">Verifying Transfer</p>
+            <p className="text-sm font-semibold text-foreground">{t("mainDeposit.verifyingTransfer")}</p>
             <p className="text-xs text-muted-foreground mt-1">
               Confirming the actual received amount: {displayVerificationAmount} {state.selectedAsset}...
             </p>
@@ -445,16 +447,16 @@ export default function MainDeposit() {
               >
                 <CheckCircle2 className="w-6 h-6 text-success" />
               </motion.div>
-              <p className="text-sm font-semibold text-success">Address Verified</p>
+              <p className="text-sm font-semibold text-success">{t("mainDeposit.addressVerified")}</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 Step 1 done — actual received amount is <span className="text-gold font-semibold">{displayVerificationAmount} {state.selectedAsset}</span>.
                 {displayAmount && hasRemainingTransfer
-                  ? <> Now send the <span className="text-gold font-semibold">remaining {displayRemainingAmount} {state.selectedAsset}</span> in Step 2.</>
+                  ? <> {t("mainDeposit.nowSend")} <span className="text-gold font-semibold">remaining {displayRemainingAmount} {state.selectedAsset}</span> {t("mainDeposit.inStep2")}</>
                   : <> This transfer covers the planned amount. No second transfer is required.</>}
               </p>
               {overTransferredAmount > 0 && (
                 <p className="mt-2 text-[10px] text-warning">
-                  Over planned amount by {displayOverTransferredAmount} {state.selectedAsset}; operations can review the excess during settlement.
+                  {t("mainDeposit.overPlanned")} by {displayOverTransferredAmount} {state.selectedAsset}; operations can review the excess during settlement.
                 </p>
               )}
             </motion.div>
@@ -464,8 +466,8 @@ export default function MainDeposit() {
               className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2"
             >
               {hasRemainingTransfer
-                ? `Continue — send ${displayRemainingAmount} ${state.selectedAsset}`
-                : "Continue — no second transfer needed"}
+                ? `${t("common.continue")} — ${t("mainDeposit.nowSend")} ${displayRemainingAmount} ${state.selectedAsset}`
+                : `${t("common.continue")} — ${t("mainDeposit.noSecondTransfer")}`}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
@@ -482,7 +484,7 @@ export default function MainDeposit() {
               <div className="flex items-start gap-3">
                 <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  <span className="text-foreground font-medium">Step 2: Remaining Transfer</span> — The actual Step 1 transfer counts toward the total deposit. Send only the remaining amount shown below.
+                  <span className="text-foreground font-medium">{t("mainDeposit.step2Remaining")}</span> — The actual Step 1 transfer counts toward the total deposit. Send only the remaining amount shown below.
                 </p>
               </div>
             </motion.div>
@@ -503,11 +505,11 @@ export default function MainDeposit() {
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {state.travelRuleComplete ? (
                     <>
-                      <span className="text-success font-medium">Travel Rule Complete:</span> This {displayAmount} {state.selectedAsset} deposit will use your submitted compliance information.
+                      <span className="text-success font-medium">{t("mainDeposit.travelRuleComplete")}</span> This {displayAmount} {state.selectedAsset} deposit will use your submitted compliance information.
                     </>
                   ) : (
                     <>
-                      <span className="text-foreground font-medium">Travel Rule Required:</span> Deposits of USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()} or above require additional compliance information. You will be asked to provide this before proceeding.
+                      <span className="text-foreground font-medium">{t("mainDeposit.travelRuleRequired")}</span> Deposits of USD {TRAVEL_RULE_THRESHOLD_USD.toLocaleString()} or above require additional compliance information. You will be asked to provide this before proceeding.
                     </>
                   )}
                 </p>
@@ -520,7 +522,7 @@ export default function MainDeposit() {
                       }}
                       className="text-xs font-medium text-gold hover:text-gold-bright transition-colors"
                     >
-                      Edit info
+                      {t("mainDeposit.editInfo")}
                     </button>
                   )}
                 </div>
@@ -530,7 +532,7 @@ export default function MainDeposit() {
             {/* Amount input */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <DollarSign className="w-3 h-3" /> Remaining Deposit Amount
+                <DollarSign className="w-3 h-3" /> {t("mainDeposit.remainingDepositAmount")}
               </Label>
               <div className="relative">
                 <Input
@@ -558,7 +560,7 @@ export default function MainDeposit() {
                 animate={{ opacity: 1, y: 0 }}
                 className="card-gold rounded-xl p-4 space-y-3"
               >
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Deposit Summary</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("mainDeposit.depositSummary")}</p>
                 <div className="space-y-2">
                   {/* 汇率(Hex Trust API, demo 值) —— 以 HKD 展示(非 MOP) */}
                   <div className="flex items-center justify-between text-xs">
@@ -566,26 +568,26 @@ export default function MainDeposit() {
                     <span className="text-foreground">1 {state.selectedAsset} ≈ {formatHKD(getExchangeRate(state.selectedAsset === "USDC" ? "USD" : "USDT", "HKD"))}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Total planned deposit</span>
+                    <span className="text-muted-foreground">{t("mainDeposit.totalPlanned")}</span>
                     <span className="text-foreground font-medium">
                       {state.selectedAsset} {formatAssetAmount(mainAmount)} · {formatHKD(convertToHKD(mainAmount, state.selectedAsset))}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Actual received in Step 1</span>
+                    <span className="text-muted-foreground">{t("mainDeposit.actualStep1")}</span>
                     <span className="text-foreground">
                       {state.selectedAsset} {formatAssetAmount(detectedVerificationAmount)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Remaining to send</span>
+                    <span className="text-muted-foreground">{t("mainDeposit.remainingToSend")}</span>
                     <span className="text-gold font-semibold">
                       {state.selectedAsset} {formatAssetAmount(remainingTransferAmount)}
                     </span>
                   </div>
                   {overTransferredAmount > 0 && (
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Over planned amount</span>
+                      <span className="text-muted-foreground">{t("mainDeposit.overPlanned")}</span>
                       <span className="text-warning font-medium">
                         {state.selectedAsset} {formatAssetAmount(overTransferredAmount)}
                       </span>
@@ -594,7 +596,7 @@ export default function MainDeposit() {
 
                   {/* 费用明细(确认前展示) */}
                   <div className="border-t border-border/30 pt-2 space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Fees</p>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">{t("mainDeposit.fees")}</p>
                     {computeDepositFees().map((f) => (
                       <div key={f.key} className="flex items-center justify-between text-[11px]">
                         <span className="text-muted-foreground">{f.label}</span>
@@ -607,7 +609,7 @@ export default function MainDeposit() {
                   </div>
 
                   <div className="border-t border-border/30 pt-2 flex items-center justify-between text-xs">
-                    <span className="text-foreground font-semibold">Estimated received</span>
+                    <span className="text-foreground font-semibold">{t("mainDeposit.estimatedReceived")}</span>
                     <div className="text-right">
                       <span className="text-gold font-semibold">{state.selectedAsset} {formatAssetAmount(netReceive)}</span>
                       <p className="text-[10px] text-muted-foreground">Based on actual/expected total {displayProjectedTransferredAmount} {state.selectedAsset}</p>
@@ -624,7 +626,7 @@ export default function MainDeposit() {
             {/* Deposit address reminder */}
             <div className="card-gold rounded-xl p-4 space-y-2">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Verified receiving address
+                {t("mainDeposit.verifiedReceivingAddress")}
               </p>
               <div className="bg-input rounded-lg px-3 py-2">
                 <code className="block font-mono text-[10px] text-gold break-all">
@@ -643,9 +645,9 @@ export default function MainDeposit() {
             >
               {hasRemainingTransfer
                 ? state.travelRuleComplete && isTravelRuleRequired
-                  ? `Continue with ${displayRemainingAmount} ${state.selectedAsset}`
+                  ? `${t("common.continue")} with ${displayRemainingAmount} ${state.selectedAsset}`
                   : `Proceed to Send ${displayRemainingAmount} ${state.selectedAsset}`
-                : "Continue — no second transfer needed"}
+                : `${t("common.continue")} — ${t("mainDeposit.noSecondTransfer")}`}
               <ArrowRight className="w-4 h-4" />
             </button>
           </>
@@ -676,7 +678,7 @@ export default function MainDeposit() {
               </div>
             )}
             <p className="text-sm font-semibold text-foreground">
-              {phase === "main_monitoring" ? "Waiting for Transaction" : "Confirming Deposit"}
+              {phase === "main_monitoring" ? t("mainDeposit.waitingForTx") : t("mainDeposit.confirming")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {phase === "main_monitoring"

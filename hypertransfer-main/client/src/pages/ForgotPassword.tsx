@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { authApi, apiError } from "@/lib/api";
 import { validatePhoneNumber, validatePassword } from "@/lib/validation";
+import { useI18n } from "@/contexts/I18nContext";
 
 const AREA_CODES = [
   { code: "86", label: "🇨🇳 +86" },
@@ -28,6 +29,7 @@ type Step = "phone" | "reset" | "done";
 
 export default function ForgotPassword() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
   const [step, setStep] = useState<Step>("phone");
   const [areaCode, setAreaCode] = useState("86");
   const [phone, setPhone] = useState("");
@@ -60,7 +62,7 @@ export default function ForgotPassword() {
   const level: "weak" | "fair" | "strong" = passed === 4 ? "strong" : passed >= 2 ? "fair" : "weak";
   const barColor = level === "strong" ? "bg-success" : level === "fair" ? "bg-warning" : "bg-destructive";
   const lvlText = level === "strong" ? "text-success" : level === "fair" ? "text-warning" : "text-destructive";
-  const lvlLabel = level === "strong" ? "Strong" : level === "fair" ? "Fair" : "Weak";
+  const lvlLabel = level === "strong" ? t("forgotPassword.strong") : level === "fair" ? t("forgotPassword.fair") : t("forgotPassword.weak");
 
   const handleSendCode = async () => {
     if (!phoneValid || sending || cooldown > 0) return;
@@ -71,7 +73,7 @@ export default function ForgotPassword() {
       setCooldown(data.cooldown || 60);
       // demo: 自动填重置码(后端 DEMO_BYPASS_2FA 下 verify_otp 接受任意 6 位)。
       if (data.demo) { setDemo(true); setOtp("000000"); }
-      toast.success("If this mobile number is registered, a verification code has been sent.");
+      toast.success(t("forgotPassword.ifRegistered"));
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -85,7 +87,7 @@ export default function ForgotPassword() {
     try {
       const { data } = await authApi.passwordSendOtp(areaCode, phone);
       setCooldown(data.cooldown || 60);
-      toast.success("Verification code resent.");
+      toast.success(t("forgotPassword.codeResent"));
     } catch (e) {
       toast.error(apiError(e));
     } finally {
@@ -107,7 +109,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <Shell showBack backTo="/login" title="Reset Password" subtitle="Verify your mobile number and set a new password">
+    <Shell showBack backTo="/login" title={t("forgotPassword.resetPassword")} subtitle={t("forgotPassword.subtitle")}>
       {/* 步骤指示 */}
       {step !== "done" && (
         <div className="flex items-center gap-2 mb-6">
@@ -121,7 +123,7 @@ export default function ForgotPassword() {
                   {doneStep ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
                 </div>
                 <span className={`text-xs ${active ? "text-foreground" : "text-muted-foreground"}`}>
-                  {s === "phone" ? "Verify mobile" : "Set new password"}
+                  {s === "phone" ? t("forgotPassword.verifyMobile") : t("forgotPassword.setNewPassword")}
                 </span>
                 {i === 0 && <div className="flex-1 h-px bg-border" />}
               </div>
@@ -142,17 +144,18 @@ export default function ForgotPassword() {
 
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Phone className="w-3 h-3" /> Mobile Number
+              <Phone className="w-3 h-3" /> {t("forgotPassword.mobileNumber")}
             </Label>
             <div className="flex gap-2">
               <select value={areaCode} onChange={(e) => setAreaCode(e.target.value)}
+                aria-label={t("forgotPassword.mobileNumber")}
                 className="w-[104px] shrink-0 rounded-xl bg-input border border-border px-3 text-sm text-foreground focus:outline-none focus:border-gold/50">
                 {AREA_CODES.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}
               </select>
               <Input type="tel" inputMode="numeric" value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/[^\d]/g, ""))}
                 onKeyDown={(e) => { if (e.key === "Enter" && phoneValid) handleSendCode(); }}
-                placeholder="Mobile number"
+                placeholder={t("forgotPassword.mobileNumber")}
                 className="flex-1 bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl" />
             </div>
           </div>
@@ -160,7 +163,7 @@ export default function ForgotPassword() {
           <button onClick={handleSendCode} disabled={!phoneValid || sending || cooldown > 0}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {sending && <Loader2 className="w-4 h-4 animate-spin" />}
-            {cooldown > 0 ? `Resend in ${cooldown}s` : "Send Verification Code"}
+            {cooldown > 0 ? `Resend in ${cooldown}s` : t("forgotPassword.sendVerificationCode")}
           </button>
         </motion.div>
       )}
@@ -169,13 +172,13 @@ export default function ForgotPassword() {
       {step === "reset" && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
           <p className="text-xs text-muted-foreground">
-            Verification code sent to <span className="text-foreground font-medium">+{areaCode} {phone}</span>
+            {t("forgotPassword.codeSent")} <span className="text-foreground font-medium">+{areaCode} {phone}</span>
           </p>
 
           {/* 验证码 */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <MessageSquare className="w-3 h-3" /> SMS Verification Code
+              <MessageSquare className="w-3 h-3" /> {t("forgotPassword.smsVerificationCode")}
             </Label>
             <div className="flex gap-2">
               <Input inputMode="numeric" autoComplete="one-time-code" name="otp" maxLength={6} value={otp}
@@ -184,24 +187,26 @@ export default function ForgotPassword() {
                 className="flex-1 bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl tracking-widest" />
               <button onClick={handleResend} disabled={cooldown > 0 || sending}
                 className="w-[110px] shrink-0 rounded-xl text-xs border border-border hover:border-gold/30 text-foreground hover:text-gold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                {cooldown > 0 ? `${cooldown}s` : "Resend"}
+                {cooldown > 0 ? `${cooldown}s` : t("forgotPassword.resend")}
               </button>
             </div>
-            {demo && <p className="text-[11px] text-gold/70">Demo: code auto-filled (any 6 digits pass).</p>}
+            {demo && <p className="text-[11px] text-gold/70">{t("forgotPassword.demoAutofill")}</p>}
           </div>
 
           {/* 新密码 */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Lock className="w-3 h-3" /> New Password
+              <Lock className="w-3 h-3" /> {t("forgotPassword.newPassword")}
             </Label>
             <div className="relative">
               <Input type={showPw ? "text" : "password"} value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Set a new password"
+                placeholder={t("forgotPassword.setNewPassword")}
                 className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl pr-10" />
               <button type="button" onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold transition-colors">
+                aria-label={showPw ? t("login.enterPassword") : t("common.password")}
+                title={showPw ? t("login.enterPassword") : t("common.password")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-gold transition-colors">
                 {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
@@ -213,7 +218,7 @@ export default function ForgotPassword() {
                     return <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${filled ? barColor : "bg-border"}`} />;
                   })}
                 </div>
-                <p className="text-xs text-muted-foreground/60">Strength: <span className={lvlText}>{lvlLabel}</span></p>
+                <p className="text-xs text-muted-foreground/60">{t("forgotPassword.strength")} <span className={lvlText}>{lvlLabel}</span></p>
               </div>
             )}
             {password.length > 0 && !pwValidation.valid && (
@@ -224,7 +229,7 @@ export default function ForgotPassword() {
           <button onClick={handleReset} disabled={!otpValid || !pwValidation.valid || submitting}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Reset Password
+            {t("forgotPassword.resetPassword")}
           </button>
         </motion.div>
       )}
@@ -236,7 +241,7 @@ export default function ForgotPassword() {
           <div className="w-16 h-16 rounded-full bg-success/15 flex items-center justify-center mb-5">
             <CheckCircle2 className="w-8 h-8 text-success" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-1">Password Reset</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-1">{t("forgotPassword.resetPassword")}</h2>
           <p className="text-sm text-muted-foreground mb-2 max-w-[280px]">
             Your password has been updated and all previous sessions have been signed out.
           </p>
@@ -245,7 +250,7 @@ export default function ForgotPassword() {
           </p>
           <button onClick={() => navigate("/login")}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold flex items-center justify-center gap-2">
-            Go to Sign In <ArrowRight className="w-4 h-4" />
+            {t("forgotPassword.goToSignIn")} <ArrowRight className="w-4 h-4" />
           </button>
         </motion.div>
       )}

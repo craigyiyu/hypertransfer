@@ -56,28 +56,28 @@ export default function Settings() {
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
               <User className="w-4 h-4 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Full Name</p>
+                <p className="text-xs text-muted-foreground">{t("settings.fullName")}</p>
                 <p className="text-sm font-medium text-foreground">{state.patronName || "Not provided"}</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
               <Mail className="w-4 h-4 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-xs text-muted-foreground">{t("settings.email")}</p>
                 <p className="text-sm font-medium text-foreground">{state.patronEmail || "Not provided"}</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
               <Phone className="w-4 h-4 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Mobile Number</p>
+                <p className="text-xs text-muted-foreground">{t("settings.mobileNumber")}</p>
                 <p className="text-sm font-medium text-foreground">{state.patronPhone || "Not provided"}</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/20">
               <Hash className="w-4 h-4 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Account ID</p>
+                <p className="text-xs text-muted-foreground">{t("settings.accountId")}</p>
                 <p className="text-sm font-medium text-foreground font-mono">{state.patronId}</p>
               </div>
             </div>
@@ -100,7 +100,7 @@ export default function Settings() {
               <div className="flex items-center gap-3">
                 <Shield className="w-4 h-4 text-muted-foreground group-hover:text-gold" />
                 <div className="text-left">
-                  <p className="text-sm text-foreground">Two-Factor Authentication</p>
+                  <p className="text-sm text-foreground">{t("settings.twoFactorAuth")}</p>
                   <p className="text-xs text-success mt-0.5 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" /> Enabled
                   </p>
@@ -112,8 +112,8 @@ export default function Settings() {
               <div className="flex items-center gap-3">
                 <Lock className="w-4 h-4 text-muted-foreground group-hover:text-gold" />
                 <div className="text-left">
-                  <p className="text-sm text-foreground">Change Password</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Update your password</p>
+                  <p className="text-sm text-foreground">{t("settings.changePassword")}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t("settings.updatePassword")}</p>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -174,15 +174,15 @@ export default function Settings() {
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
-              <p className="text-xs text-muted-foreground">Account Created</p>
+              <p className="text-xs text-muted-foreground">{t("settings.accountCreated")}</p>
               <p className="text-sm font-medium text-foreground">Today at 2:30 PM</p>
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
-              <p className="text-xs text-muted-foreground">Last Login</p>
+              <p className="text-xs text-muted-foreground">{t("settings.lastLogin")}</p>
               <p className="text-sm font-medium text-foreground">May 1, 2025 13:54</p>
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/20">
-              <p className="text-xs text-muted-foreground">Total Deposits</p>
+              <p className="text-xs text-muted-foreground">{t("settings.totalDeposits")}</p>
               <p className="text-sm font-medium text-foreground">{state.transactions.length} transaction{state.transactions.length !== 1 ? "s" : ""}</p>
             </div>
           </div>

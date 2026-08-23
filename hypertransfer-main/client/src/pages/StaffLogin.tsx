@@ -9,12 +9,14 @@ import { useLocation } from "wouter";
 import { ShieldCheck, Loader2, LogIn, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { authApi, apiError, isStaffUser, type AuthUser } from "@/lib/api";
 import { DEMO_STAFF_TOKEN, DEMO_STAFF_USER } from "@/lib/demo-auth";
 
 export default function StaffLogin() {
   const [, navigate] = useLocation();
   const { setSession } = useAuth();
+  const { t } = useI18n();
   const [step, setStep] = useState<"cred" | "2fa">("cred");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +28,7 @@ export default function StaffLogin() {
   const finish = (token: string, user: AuthUser) => {
     setSession(token, user);
     if (isStaffUser(user)) {
-      toast.success("Signed in to the operations portal.");
+      toast.success(t("staffLogin.signedIn"));
       navigate("/casino-ops");
     } else {
       toast.message("This is a customer account — opening the customer app.");
@@ -73,14 +75,14 @@ export default function StaffLogin() {
     "placeholder:text-muted-foreground/40 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30";
 
   return (
-    <div className="min-h-[100svh] bg-background flex items-center justify-center px-4 py-10">
+    <main className="min-h-[100svh] bg-background flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         {/* 品牌头 */}
         <div className="flex flex-col items-center text-center mb-7">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gold/15 text-gold mb-3">
             <ShieldCheck className="h-7 w-7" />
           </div>
-          <h1 className="text-xl font-bold text-foreground">VA Operations Portal</h1>
+          <h1 className="text-xl font-bold text-foreground">{t("staffLogin.title")}</h1>
           <p className="mt-1 text-xs text-muted-foreground">Staff sign-in · authorized personnel only</p>
         </div>
 
@@ -91,7 +93,7 @@ export default function StaffLogin() {
               onClick={() => navigate("/staff-onboard")}
               className="w-full rounded-xl border border-gold/40 py-2.5 text-xs font-semibold text-gold hover:bg-gold/10 transition-colors"
             >
-              New staff? Register with your company email
+              {t("staffLogin.newStaff")}
             </button>
           </div>
           {step === "cred" ? (
@@ -102,19 +104,19 @@ export default function StaffLogin() {
                 className="w-full btn-gold rounded-xl py-3.5 text-sm font-semibold flex items-center justify-center gap-2"
               >
                 <ShieldCheck className="h-4 w-4" />
-                Sign in with Okta
+                {t("staffLogin.okta")}
               </button>
-              <p className="text-center text-[10px] text-muted-foreground/60">
+              <p className="text-center text-[10px] text-muted-foreground">
                 Single sign-on · no 2FA · demo (Okta not wired)
               </p>
 
               <div className="relative py-1">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/50" /></div>
-                <div className="relative flex justify-center"><span className="bg-card px-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">or work email</span></div>
+                <div className="relative flex justify-center"><span className="bg-card px-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("staffLogin.orWorkEmail")}</span></div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">Work email</label>
+                <label className="text-sm font-medium text-foreground">{t("staffLogin.workEmail")}</label>
                 <input
                   type="email" value={email} autoComplete="username"
                   onChange={(e) => setEmail(e.target.value)}
@@ -123,7 +125,7 @@ export default function StaffLogin() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">Password</label>
+                <label className="text-sm font-medium text-foreground">{t("staffLogin.password")}</label>
                 <input
                   type="password" value={password} autoComplete="current-password"
                   onChange={(e) => setPassword(e.target.value)}
@@ -137,16 +139,16 @@ export default function StaffLogin() {
                 className="w-full rounded-xl py-3 text-xs font-semibold border border-border/60 text-muted-foreground hover:border-gold/30 hover:text-gold transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                Continue with work email
+                {t("staffLogin.enter")}
               </button>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-gold">
                 <KeyRound className="h-4 w-4" />
-                <p className="text-sm font-semibold">Two-factor verification</p>
+                <p className="text-sm font-semibold">{t("staffLogin.twoFactorVerification")}</p>
               </div>
-              <p className="text-xs text-muted-foreground">Enter the 6-digit code from your authenticator app.</p>
+              <p className="text-xs text-muted-foreground">{t("staffLogin.enterCodeFromApp")}</p>
               <input
                 inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -179,10 +181,10 @@ export default function StaffLogin() {
         </div>
 
         {/* 页脚 */}
-        <p className="mt-6 text-center text-[10px] text-muted-foreground/50">
+        <p className="mt-6 text-center text-[10px] text-muted-foreground">
           Role-based access · all actions are audited
         </p>
       </div>
-    </div>
+    </main>
   );
 }

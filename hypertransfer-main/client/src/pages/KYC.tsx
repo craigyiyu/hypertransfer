@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import { DEMO_AUTOFILL_EVENT } from "@/contexts/DemoModeContext";
+import { useI18n } from "@/contexts/I18nContext";
 import Shell from "@/components/Shell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,26 +90,47 @@ const DIAL_CODE_OPTIONS = [
   { value: "+971", label: "United Arab Emirates +971" },
 ];
 
-const OCCUPATION_OPTIONS = [
-  { value: "finance", label: "Finance" },
-  { value: "gaming_hospitality", label: "Gaming / Hospitality" },
-  { value: "technology", label: "Technology" },
-  { value: "real_estate", label: "Real Estate" },
-  { value: "professional_services", label: "Professional Services" },
-  { value: "business_owner", label: "Business Owner" },
-  { value: "retired", label: "Retired" },
-  { value: "other", label: "Other" },
-];
+const OCCUPATION_VALUES = [
+  "finance",
+  "gaming_hospitality",
+  "technology",
+  "real_estate",
+  "professional_services",
+  "business_owner",
+  "retired",
+  "other",
+] as const;
 
-const SOURCE_OF_FUNDS_OPTIONS = [
-  { value: "employment_income", label: "Employment Income" },
-  { value: "business_income", label: "Business Income" },
-  { value: "personal_savings", label: "Personal Savings" },
-  { value: "investment_proceeds", label: "Investment Proceeds" },
-  { value: "casino_winnings", label: "Casino Winnings" },
-  { value: "inheritance_gift", label: "Inheritance / Gift" },
-  { value: "other", label: "Other" },
-];
+const OCCUPATION_KEYS: Record<(typeof OCCUPATION_VALUES)[number], string> = {
+  finance: "kyc.industry.finance",
+  gaming_hospitality: "kyc.industry.gaming",
+  technology: "kyc.industry.technology",
+  real_estate: "kyc.industry.realEstate",
+  professional_services: "kyc.industry.professional",
+  business_owner: "kyc.industry.businessOwner",
+  retired: "kyc.industry.retired",
+  other: "kyc.industry.other",
+};
+
+const SOURCE_OF_FUNDS_VALUES = [
+  "employment_income",
+  "business_income",
+  "personal_savings",
+  "investment_proceeds",
+  "casino_winnings",
+  "inheritance_gift",
+  "other",
+] as const;
+
+const SOURCE_OF_FUNDS_KEYS: Record<(typeof SOURCE_OF_FUNDS_VALUES)[number], string> = {
+  employment_income: "kyc.occupation.employment",
+  business_income: "kyc.occupation.business",
+  personal_savings: "kyc.occupation.savings",
+  investment_proceeds: "kyc.occupation.investment",
+  casino_winnings: "kyc.occupation.casino",
+  inheritance_gift: "kyc.occupation.inheritance",
+  other: "kyc.occupation.other",
+};
 
 function CountrySelect({
   value,
@@ -210,6 +232,7 @@ const formatDateInput = (value: string) => {
 export default function KYC() {
   const [, navigate] = useLocation();
   const { updateState } = useDemo();
+  const { t } = useI18n();
   const [step, setStep] = useState<KYCStep>("form");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -232,7 +255,7 @@ export default function KYC() {
   const [sumsubConfig, setSumsubConfig] = useState<SumsubConfig | null>(null);
   const [sumsubLoading, setSumsubLoading] = useState(true);
   const [sumsubSubmitting, setSumsubSubmitting] = useState(false);
-  const [sumsubMessage, setSumsubMessage] = useState("Checking verification availability...");
+  const [sumsubMessage, setSumsubMessage] = useState(t("kyc.checkingAvailability"));
   const [applicantId, setApplicantId] = useState("");
   // Case-aware: VIP 被绑定的 admission case 状态(KYC 闸门在 case 上)。
   const [caseStatus, setCaseStatus] = useState<AdmissionCaseStatus | undefined>(undefined);
@@ -284,8 +307,8 @@ export default function KYC() {
         setSumsubConfig(res.data);
         setSumsubMessage(
           res.data.configured
-            ? "Identity verification is available."
-            : "Identity verification setup is pending.",
+            ? t("kyc.available")
+            : t("kyc.setupPending"),
         );
       })
       .catch((err) => {
@@ -353,15 +376,15 @@ export default function KYC() {
   const handleSubmit = async () => {
     if (!canSubmit) return;
     if (!sumsubConfig?.configured && !demoApproveAllowed) {
-      setSumsubMessage("Identity verification is not connected yet. Please contact support or try again later.");
+      setSumsubMessage(t("kyc.notConnected"));
       return;
     }
     setSumsubSubmitting(true);
-    setSumsubMessage("Submitting your verification securely...");
+    setSumsubMessage(t("kyc.submitting"));
     try {
       if (demoApproveAllowed) {
         setApplicantId(`demo-${Date.now().toString(36)}`);
-        setSumsubMessage("Verification submitted. Review status: pending.");
+        setSumsubMessage(t("kyc.submittedPending"));
         syncKycState("pending", undefined, Math.floor(Date.now() / 1000));
         return;
       }
@@ -389,7 +412,7 @@ export default function KYC() {
       });
       setApplicantId(start.data.applicantId);
       setSumsubMessage(
-        `Verification submitted. Review status: ${start.data.reviewStatus || start.data.status}.`,
+        `${t("kyc.submittedPending")} (${start.data.reviewStatus || start.data.status})`,
       );
       syncKycState(start.data.status, start.data.rejectionReason, start.data.updatedAt);
     } catch (err) {
@@ -423,7 +446,7 @@ export default function KYC() {
           return res.data.token;
         },
         onApplicantVerificationCompleted: () => {
-          setSumsubMessage("Verification completed — we are confirming your result.");
+          setSumsubMessage(t("kyc.verificationProcessing"));
           syncKycState("pending", undefined, Math.floor(Date.now() / 1000));
           setStep("pending");
         },
@@ -486,7 +509,7 @@ export default function KYC() {
   if (!caseLoading && isKycCaseBlocked(caseStatus)) {
     const eligibility = getCaseAwareKYCEligibility({ caseStatus, kycValidUntil: caseKycValidUntil });
     return (
-      <Shell title="Identity Verification" subtitle="Verification status">
+      <Shell title={t("kyc.title")} subtitle={t("kyc.verificationStatus")}>
         <div className="card-wine rounded-lg p-6 flex flex-col items-center text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-destructive/80" />
           <h2 className="text-lg font-semibold text-foreground">{eligibility.blockerMessage}</h2>
@@ -496,7 +519,7 @@ export default function KYC() {
               onClick={() => window.location.reload()}
               className="rounded-xl border border-gold/40 px-5 py-2.5 text-sm font-semibold text-gold hover:bg-gold/10 transition-colors"
             >
-              Retry verification
+              {t("kyc.retryVerification")}
             </button>
           )}
         </div>
@@ -506,7 +529,7 @@ export default function KYC() {
 
   if (step === "pending") {
     return (
-      <Shell title="Identity Verification" subtitle="Your submission is under review">
+      <Shell title={t("kyc.title")} subtitle={t("kyc.underReview")}>
         <AnimatePresence mode="wait">
           <motion.div
             key="pending"
@@ -525,20 +548,20 @@ export default function KYC() {
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                 className="h-10 w-10 rounded-full border-4 border-gold/25 border-t-gold"
-                aria-label="Verification processing"
+                aria-label={t("kyc.verificationProcessing")}
               />
             </motion.div>
 
             {/* Status */}
             <div className="space-y-2">
-              <h2 className="text-xl font-bold text-warning">KYC Pending Review</h2>
+              <h2 className="text-xl font-bold text-warning">{t("kyc.kycPending")}</h2>
             </div>
 
             {/* Review timeframe */}
             <div className="card-wine rounded-xl px-5 py-4 w-full space-y-2">
               <div className="flex items-center gap-2 justify-center">
                 <AlertCircle className="w-4 h-4 text-gold" />
-                <p className="text-sm font-semibold text-foreground">Review Timeframe</p>
+                <p className="text-sm font-semibold text-foreground">{t("kyc.reviewTimeframe")}</p>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Automated checks usually complete in under a minute. You will be notified once verification is done.
@@ -552,7 +575,7 @@ export default function KYC() {
 
   if (step === "approved") {
     return (
-      <Shell title="Identity Verification" subtitle="Verification complete">
+      <Shell title={t("kyc.title")} subtitle={t("kyc.verificationComplete")}>
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -567,9 +590,9 @@ export default function KYC() {
             <CheckCircle2 className="w-10 h-10 text-success" />
           </motion.div>
           <div className="space-y-2">
-            <h2 className="text-xl font-bold text-success">KYC Approved</h2>
+            <h2 className="text-xl font-bold text-success">{t("kyc.kycApproved")}</h2>
             <p className="text-sm text-muted-foreground">
-              Your identity has been verified. Redirecting to dashboard…
+              {t("kyc.verificationComplete")}
             </p>
           </div>
         </motion.div>
@@ -578,39 +601,39 @@ export default function KYC() {
   }
 
   return (
-    <Shell showBack backTo="/setup-2fa" title="Identity Verification" subtitle="For regulatory compliance (KYC)">
+    <Shell showBack backTo="/setup-2fa" title={t("kyc.title")} subtitle={t("kyc.subtitle")}>
       <div className="space-y-5">
         {/* Personal Info */}
         <div className="space-y-3">
-          <SectionTitle icon={User}>Personal Details</SectionTitle>
+          <SectionTitle icon={User}>{t("kyc.personalDetails")}</SectionTitle>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <FieldLabel>First Name</FieldLabel>
+              <FieldLabel>{t("kyc.firstName")}</FieldLabel>
               <Input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="As shown on ID"
+                placeholder={t("kyc.asShownOnId")}
                 className="bg-input border-border h-11 rounded-xl text-sm"
               />
             </div>
             <div className="space-y-2">
-              <FieldLabel>Last Name</FieldLabel>
+              <FieldLabel>{t("kyc.lastName")}</FieldLabel>
               <Input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="As shown on ID"
+                placeholder={t("kyc.asShownOnId")}
                 className="bg-input border-border h-11 rounded-xl text-sm"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <FieldLabel required={false}>Middle Name</FieldLabel>
+            <FieldLabel required={false}>{t("kyc.middleName")}</FieldLabel>
             <Input
               value={middleName}
               onChange={(e) => setMiddleName(e.target.value)}
-              placeholder="If applicable"
+              placeholder={t("kyc.ifApplicable")}
               className="bg-input border-border h-11 rounded-xl text-sm"
             />
           </div>
@@ -618,17 +641,17 @@ export default function KYC() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <FieldLabel>Nationality</FieldLabel>
-            <CountrySelect value={nationality} onValueChange={setNationality} />
+            <FieldLabel>{t("kyc.nationality")}</FieldLabel>
+            <CountrySelect value={nationality} onValueChange={setNationality} placeholder={t("kyc.select")} />
           </div>
           <div className="space-y-2">
-            <FieldLabel>Date of Birth</FieldLabel>
+            <FieldLabel>{t("kyc.dateOfBirth")}</FieldLabel>
             <Input
               type="text"
               inputMode="numeric"
               value={dob}
               onChange={(e) => handleDobChange(e.target.value)}
-              placeholder="YYYY-MM-DD"
+              placeholder={t("kyc.dobPlaceholder")}
               maxLength={10}
               className="bg-input border-border h-11 rounded-xl text-sm font-mono"
             />
@@ -637,10 +660,10 @@ export default function KYC() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <FieldLabel>Country Code</FieldLabel>
+            <FieldLabel>{t("kyc.countryCode")}</FieldLabel>
             <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
               <SelectTrigger className="bg-input border-border h-11 rounded-xl text-sm">
-                <SelectValue placeholder="Code" />
+                <SelectValue placeholder={t("kyc.code")} />
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 {DIAL_CODE_OPTIONS.map((option) => (
@@ -652,7 +675,7 @@ export default function KYC() {
             </Select>
           </div>
           <div className="space-y-2">
-            <FieldLabel>Mobile Number</FieldLabel>
+            <FieldLabel>{t("kyc.mobileNumber")}</FieldLabel>
             <Input
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
@@ -676,17 +699,17 @@ export default function KYC() {
 
         {/* Customer-facing upload preparation summary */}
         <div className="space-y-3">
-          <SectionTitle icon={FileText}>Supporting Documents</SectionTitle>
+          <SectionTitle icon={FileText}>{t("kyc.supportingDocuments")}</SectionTitle>
 
-          <RequirementCard icon={FileText} title="ID document photos" required>
+          <RequirementCard icon={FileText} title={t("kyc.idDocumentPhotos")} required>
             Passport, ID card, driver's license, or residence permit. Use original color photos with all corners visible and readable text. If both sides contain information, prepare front and back photos.
           </RequirementCard>
 
-          <RequirementCard icon={Camera} title="Selfie" required>
+          <RequirementCard icon={Camera} title={t("kyc.selfie")} required>
             Be ready for a selfie or face check so the provider can match you with the identity document. A liveness (head-movement) check is only required if your verification level includes one.
           </RequirementCard>
 
-          <RequirementCard icon={Home} title="Proof of address">
+          <RequirementCard icon={Home} title={t("kyc.proofOfAddress")}>
             Prepare a recent utility bill, bank statement, or official address document in case the verification level requests it.
           </RequirementCard>
         </div>
@@ -703,7 +726,7 @@ export default function KYC() {
         </label>
 
         <div className="rounded-xl border border-gold/20 bg-gold/5 p-3">
-          <p className="text-[10px] uppercase tracking-wider text-gold/80">Form note</p>
+          <p className="text-[10px] uppercase tracking-wider text-gold/80">{t("kyc.formNote")}</p>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
             Fields marked with * are mandatory. Additional information may be requested later during review; document photos and selfie/liveness are not uploaded from this page.
           </p>

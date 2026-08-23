@@ -16,6 +16,7 @@ import { LOGIN_CHALLENGE_KEY } from "@/lib/authFlow";
 import { useDemoMode } from "@/contexts/DemoModeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import {
   DEMO_AUTH_PASSWORD,
   DEMO_AUTH_TOKEN,
@@ -27,6 +28,7 @@ export default function Login() {
   const [, navigate] = useLocation();
   const { isDemoMode, getDemoValue } = useDemoMode();
   const { setSession } = useAuth();
+  const { t } = useI18n();
   const { updateState } = useDemo();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +52,7 @@ export default function Login() {
       patronPhone: DEMO_AUTH_USER.phone,
     });
     sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
-    toast.success("Signed in with the demo account.");
+    toast.success(t("login.demoSuccess"));
     navigate("/dashboard");
   };
 
@@ -68,7 +70,7 @@ export default function Login() {
         setSession(data.token, data.user);
         updateState({ patronName: data.user.name, patronEmail: data.user.email, patronPhone: data.user.phone });
         sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
-        toast.success("Signed in successfully.");
+        toast.success(t("login.success"));
         navigate(isStaffUser(data.user) ? "/casino-ops" : "/dashboard");
         return;
       }
@@ -81,7 +83,7 @@ export default function Login() {
     } catch (e) {
       const message = apiError(e);
       if (import.meta.env.DEV && message === "Incorrect email or password.") {
-        toast.info("No active local account found. Opening the demo session.");
+        toast.info(t("login.noLocalAccount"));
         completeDemoSignIn();
         return;
       }
@@ -92,11 +94,11 @@ export default function Login() {
   };
 
   return (
-    <Shell showBack backTo="/" title="Welcome Back" subtitle="Sign in to your account">
+    <Shell showBack backTo="/" title={t("login.title")} subtitle={t("login.subtitle")}>
       <div className="space-y-5">
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Mail className="w-3 h-3" /> Email
+            <Mail className="w-3 h-3" /> {t("login.email")}
           </Label>
           <Input type="email" value={identifier} onChange={(e) => setIdentifier(e.target.value.replace(/\s/g, ""))}
             placeholder="your@email.com"
@@ -105,22 +107,24 @@ export default function Login() {
 
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Lock className="w-3 h-3" /> Password
+            <Lock className="w-3 h-3" /> {t("login.password")}
           </Label>
           <div className="relative">
             <Input type={showPw ? "text" : "password"} value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) handleSubmit(); }}
-              placeholder="Enter password"
+              placeholder={t("login.enterPassword")}
               className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl pr-10" />
             <button type="button" onClick={() => setShowPw(!showPw)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold transition-colors">
+              aria-label={showPw ? t("login.enterPassword") : t("common.password")}
+              title={showPw ? t("login.enterPassword") : t("common.password")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-muted-foreground hover:text-gold transition-colors">
               {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
           <button type="button" onClick={() => navigate("/forgot-password")}
             className="text-xs text-gold hover:text-gold-bright transition-colors">
-            Forgot password?
+            {t("login.forgotPassword")}
           </button>
         </div>
       </div>
@@ -129,7 +133,7 @@ export default function Login() {
         <button onClick={handleSubmit} disabled={!canSubmit}
           className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2">
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          Sign In
+          {t("login.signIn")}
         </button>
         <button
           type="button"
@@ -140,7 +144,7 @@ export default function Login() {
           }}
           className="w-full rounded-xl py-3 text-xs font-semibold border border-gold/25 bg-gold/10 text-gold hover:bg-gold/15 transition-all"
         >
-          Use Demo Account
+          {t("login.useDemoAccount")}
         </button>
         <p className="w-full text-center text-[11px] text-muted-foreground/70 py-2">
           Invitation-only — open the link from your invitation email to register.

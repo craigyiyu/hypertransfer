@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Undo2, RefreshCw, ShieldCheck, Gavel, SendHorizontal, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/contexts/I18nContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiError, refundApi, type RefundRecord } from "@/lib/api";
 
@@ -38,6 +39,7 @@ function shortAddr(a: string | null) {
 }
 
 export default function RefundQueuePanel() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +127,7 @@ export default function RefundQueuePanel() {
 
       {!error && refunds.length === 0 && (
         <p className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-3 text-xs text-muted-foreground">
-          {loading ? "Loading withdrawal queue…" : "No withdrawal requests in the queue."}
+          {loading ? t("opsUi.loading") : t("refundQueue.empty")}
         </p>
       )}
 
@@ -144,16 +146,16 @@ export default function RefundQueuePanel() {
                 <Pill tone={statusTone(r.status)}>{r.status}</Pill>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Amount">{r.amountDecimal} {r.asset}</Field>
-                <Field label="Chain">{r.chainId}</Field>
-                <Field label="KYC" hint="Provider · 6-mo">{r.kycOk ? "ok" : "failed"}</Field>
-                <Field label="Wallet KYT" hint="Hex Safe API · mock">{r.kytStatus || "not screened"}</Field>
-                <Field label="Original wallet (verified)">
+                <Field label={t("refundQueue.amount")}>{r.amountDecimal} {r.asset}</Field>
+                <Field label={t("refundQueue.chain")}>{r.chainId}</Field>
+                <Field label={t("refundQueue.kyc")} hint="Provider · 6-mo">{r.kycOk ? "ok" : "failed"}</Field>
+                <Field label={t("refundQueue.walletKyt")} hint="Hex Safe API · mock">{r.kytStatus || "not screened"}</Field>
+                <Field label={t("refundQueue.originalWallet")}>
                   <span className="font-mono">{shortAddr(r.toAddress)}</span>
                 </Field>
-                <Field label="Reason">{r.reason || "—"}</Field>
-                <Field label="Approved by">{r.approvedBy ? r.approvedBy.slice(0, 8) + "…" : "—"}</Field>
-                <Field label="Transfer ID">{r.transferId ? r.transferId.slice(0, 12) + "…" : "—"}</Field>
+                <Field label={t("refundQueue.reason")}>{r.reason || "—"}</Field>
+                <Field label={t("refundQueue.approvedBy")}>{r.approvedBy ? r.approvedBy.slice(0, 8) + "…" : "—"}</Field>
+                <Field label={t("refundQueue.transferId")}>{r.transferId ? r.transferId.slice(0, 12) + "…" : "—"}</Field>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -175,19 +177,19 @@ export default function RefundQueuePanel() {
                 )}
                 {showApprove && (
                   <ActionBtn icon={Gavel} disabled={busy} tone="success"
-                    onClick={() => void act(r.id, () => refundApi.approve(r.id), "Withdrawal approved by management")}>
+                    onClick={() => void act(r.id, () => refundApi.approve(r.id), t("refundQueue.managementApproved"))}>
                     Approve (Management)
                   </ActionBtn>
                 )}
                 {showExecute && (
                   <ActionBtn icon={SendHorizontal} disabled={busy} tone="danger"
-                    onClick={() => void act(r.id, () => refundApi.execute(r.id), "Withdrawal payout submitted to custodian")}>
+                    onClick={() => void act(r.id, () => refundApi.execute(r.id), t("refundQueue.payoutSubmitted"))}>
                     Execute payout (Custodian)
                   </ActionBtn>
                 )}
                 {showReject && (
                   <ActionBtn icon={XCircle} disabled={busy} tone="neutral"
-                    onClick={() => void act(r.id, () => refundApi.reject(r.id), "Withdrawal rejected")}>
+                    onClick={() => void act(r.id, () => refundApi.reject(r.id), t("refundQueue.rejectedToast"))}>
                     Reject
                   </ActionBtn>
                 )}

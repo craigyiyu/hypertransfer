@@ -4,6 +4,7 @@
  */
 import { useLocation } from "wouter";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import Shell from "@/components/Shell";
 import { motion } from "framer-motion";
 import {
@@ -29,6 +30,7 @@ import type { CasePaymentView } from "@/lib/api";
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { state } = useDemo();
+  const { t } = useI18n();
   const [dismissedSessions, setDismissedSessions] = useState<string[]>([]);
   const [expandedTxId, setExpandedTxId] = useState("");
   // Case-aware: 被绑定的 admission case 决定"正确下一步"(入金只在 service_enabled + KYC 有效时)。
@@ -63,63 +65,63 @@ export default function Dashboard() {
       if (caseStatus === "kyc_passed" || caseStatus === "payment_precheck" || caseStatus === "leader_pending") {
         return {
           label: ADMISSION_STATUS_LABELS[caseStatus],
-          description: "Your VIP admission is with the leader for final approval.",
+          description: t("dashboard.withLeader"),
           icon: Clock,
           color: "text-warning",
           bg: "bg-warning/10",
-          action: "View Status",
+          action: t("dashboard.viewStatus"),
           path: "/kyc-status",
         };
       }
       return {
         label: ADMISSION_STATUS_LABELS[caseStatus],
-        description: caseEligibility.blockerMessage || "Your admission is being prepared.",
+        description: caseEligibility.blockerMessage || t("dashboard.admissionBeingPrepared"),
         icon: AlertCircle,
         color: "text-warning",
         bg: "bg-warning/10",
-        action: caseEligibility.canRetryKYC ? "Complete Verification" : "View Status",
+        action: caseEligibility.canRetryKYC ? t("dashboard.completeVerification") : t("dashboard.viewStatus"),
         path: caseEligibility.canRetryKYC ? "/kyc" : "/kyc-status",
       };
     }
     switch (state.kyc.status) {
       case "approved":
         return {
-          label: "Verified",
-          description: "Your identity verification is complete.",
+          label: t("dashboard.verified"),
+          description: t("dashboard.identityComplete"),
           icon: CheckCircle2,
           color: "text-success",
           bg: "bg-success/10",
-          action: "New Deposit",
+          action: t("dashboard.newDeposit"),
           path: "/new-deposit",
         };
       case "pending":
         return {
-          label: "Under review",
-          description: "Your documents are being reviewed.",
+          label: t("dashboard.underReview"),
+          description: t("dashboard.documentsBeingReviewed"),
           icon: Clock,
           color: "text-warning",
           bg: "bg-warning/10",
-          action: "View Review Status",
+          action: t("dashboard.viewReviewStatus"),
           path: "/kyc-status",
         };
       case "rejected":
         return {
-          label: "Rejected",
-          description: "Please update your verification information.",
+          label: t("dashboard.rejected"),
+          description: t("dashboard.updateVerificationHint"),
           icon: AlertCircle,
           color: "text-destructive",
           bg: "bg-destructive/10",
-          action: "Update KYC",
+          action: t("dashboard.updateKyc"),
           path: "/kyc",
         };
       default:
         return {
-          label: "Not verified",
-          description: "Complete identity verification before making a deposit.",
+          label: t("dashboard.notVerified"),
+          description: t("dashboard.completeVerificationHint"),
           icon: Lock,
           color: "text-destructive",
           bg: "bg-destructive/10",
-          action: "Start KYC Verification",
+          action: t("dashboard.startKyc"),
           path: "/kyc",
         };
     }
@@ -136,14 +138,14 @@ export default function Dashboard() {
       minute: "2-digit",
     });
   const transferStatusLabel = (tx: (typeof state.transactions)[number]) => {
-    if (tx.status === "failed") return "Rejected";
+    if (tx.status === "failed") return t("common.rejected");
     if (tx.status === "pending") return "WIP";
-    if (tx.type === "main" && isSettlementSettled) return "Settled";
-    return "Transferred";
+    if (tx.type === "main" && isSettlementSettled) return t("common.settled");
+    return t("common.transferred");
   };
   const transferStatusClass = (label: string) => {
-    if (label === "Settled" || label === "Transferred") return "text-success";
-    if (label === "Rejected") return "text-destructive";
+    if (label === t("common.settled") || label === t("common.transferred")) return "text-success";
+    if (label === t("common.rejected")) return "text-destructive";
     return "text-warning";
   };
   const referenceIdFromTx = (txHash: string) =>
@@ -167,7 +169,7 @@ export default function Dashboard() {
     }, []);
 
   return (
-    <Shell title={`Welcome, ${state.patronName || "User"}`} subtitle="Manage your crypto deposits">
+    <Shell title={`${t("common.welcome")}, ${state.patronName || t("dashboard.user")}`} subtitle={t("dashboard.subtitle")}>
       <div className="space-y-5">
         {caseStatus && (
           <AdmissionJourney status={caseStatus} payments={casePayments} />
@@ -201,7 +203,7 @@ export default function Dashboard() {
               <AccountStatusIcon className={`w-5 h-5 ${accountStatus.color}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Account Status</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{t("dashboard.accountStatus")}</p>
               <h2 className={`text-base font-semibold mt-1 ${accountStatus.color}`}>
                 {accountStatus.label}
               </h2>
@@ -227,7 +229,7 @@ export default function Dashboard() {
           >
             <AlertCircle className="w-4 h-4 text-warning shrink-0" />
             <p className="text-xs text-muted-foreground">
-              You have <span className="text-warning font-medium">{pendingTx} WIP</span> transfer{pendingTx > 1 ? "s" : ""} awaiting confirmation.
+              {t("dashboard.youHave")} <span className="text-warning font-medium">{pendingTx} WIP</span> transfer{pendingTx > 1 ? "s" : ""} awaiting confirmation.
             </p>
           </motion.div>
         )}
@@ -235,17 +237,21 @@ export default function Dashboard() {
         {/* Recent Activity */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-foreground">Recent Activity</h2>
+            <h2 className="text-sm font-medium text-foreground">{t("dashboard.recentActivity")}</h2>
           </div>
 
           {state.transactions.length === 0 ? (
             <div className="card-gold rounded-xl p-8 flex flex-col items-center text-center">
               <Clock className="w-8 h-8 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No transactions yet</p>
+              <p className="text-sm text-muted-foreground">{t("dashboard.noActivity")}</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {state.transactions.slice(0, 3).map((tx) => (
+              {state.transactions.slice(0, 3).map((tx) => {
+                const txStatus = transferStatusLabel(tx);
+                const txIsSuccess = txStatus === t("common.settled") || txStatus === t("common.transferred");
+                const txIsRejected = txStatus === t("common.rejected");
+                return (
                 <button
                   key={tx.id}
                   onClick={() => setExpandedTxId(expandedTxId === tx.id ? "" : tx.id)}
@@ -253,15 +259,15 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      transferStatusLabel(tx) === "Settled" || transferStatusLabel(tx) === "Transferred"
+                      txIsSuccess
                         ? "bg-success/10"
-                        : transferStatusLabel(tx) === "Rejected"
+                        : txIsRejected
                         ? "bg-destructive/10"
                         : "bg-warning/10"
                     }`}>
-                      {transferStatusLabel(tx) === "Settled" || transferStatusLabel(tx) === "Transferred" ? (
+                      {txIsSuccess ? (
                         <CheckCircle2 className="w-4 h-4 text-success" />
-                      ) : transferStatusLabel(tx) === "Rejected" ? (
+                      ) : txIsRejected ? (
                         <AlertCircle className="w-4 h-4 text-destructive" />
                       ) : (
                         <Clock className="w-4 h-4 text-warning" />
@@ -272,12 +278,12 @@ export default function Dashboard() {
                         {formatAssetAmount(tx.amount, tx.type === "test" ? 2 : 0)} {tx.asset}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Transfer date · {formatTransferDate(tx.date)}
+                        {formatTransferDate(tx.date)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className={`text-[10px] font-semibold ${transferStatusClass(transferStatusLabel(tx))}`}>
-                        {transferStatusLabel(tx)}
+                      <span className={`text-[10px] font-semibold ${transferStatusClass(txStatus)}`}>
+                        {txStatus}
                       </span>
                       <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expandedTxId === tx.id ? "rotate-180" : ""}`} />
                     </div>
@@ -285,25 +291,26 @@ export default function Dashboard() {
                   {expandedTxId === tx.id && (
                     <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border/30 pt-3 text-[11px]">
                       <div>
-                        <p className="text-muted-foreground/60">Transfer type</p>
-                        <p className="font-medium text-foreground">{tx.type === "test" ? "Verification" : "Main deposit"}</p>
+                        <p className="text-muted-foreground/60">{t("dashboard.transferType")}</p>
+                        <p className="font-medium text-foreground">{tx.type === "test" ? t("history.testDeposit") : t("dashboard.mainDeposit")}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground/60">Network</p>
+                        <p className="text-muted-foreground/60">{t("dashboard.network")}</p>
                         <p className="font-medium text-foreground">{formatNetworkRail(tx.network)}</p>
                       </div>
                       <div className="col-span-2">
-                        <p className="text-muted-foreground/60">Reference ID</p>
+                        <p className="text-muted-foreground/60">{t("dashboard.referenceId")}</p>
                         <p className="font-mono text-gold">{referenceIdFromTx(tx.txHash)}</p>
                       </div>
                       <div className="col-span-2">
-                        <p className="text-muted-foreground/60">Transaction hash</p>
+                        <p className="text-muted-foreground/60">{t("dashboard.transactionHash")}</p>
                         <p className="truncate font-mono text-gold">{tx.txHash || "WIP"}</p>
                       </div>
                     </div>
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -315,14 +322,14 @@ export default function Dashboard() {
             className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border/50 hover:border-gold/20 transition-all text-muted-foreground hover:text-gold"
           >
             <HelpCircle className="w-4 h-4" />
-            <span className="text-[10px]">Support</span>
+            <span className="text-[10px]">{t("dashboard.support")}</span>
           </button>
           <button
             onClick={() => navigate("/settings")}
             className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border/50 hover:border-gold/20 transition-all text-muted-foreground hover:text-gold"
           >
             <User className="w-4 h-4" />
-            <span className="text-[10px]">Profile</span>
+            <span className="text-[10px]">{t("dashboard.profile")}</span>
           </button>
         </div>
       </div>

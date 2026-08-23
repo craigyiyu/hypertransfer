@@ -11,12 +11,14 @@ import { toast } from "sonner";
 import { authApi, apiError, isStaffUser } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { readLoginChallenge, LOGIN_CHALLENGE_KEY } from "@/lib/authFlow";
 
 export default function Verify2FA() {
   const [, navigate] = useLocation();
   const { setSession } = useAuth();
   const { updateState } = useDemo();
+  const { t } = useI18n();
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const ch = readLoginChallenge();
@@ -41,7 +43,7 @@ export default function Verify2FA() {
       // 同步到 DemoContext,供后续页面使用
       updateState({ patronName: data.user.name, patronEmail: data.user.email, patronPhone: data.user.phone });
       sessionStorage.removeItem(LOGIN_CHALLENGE_KEY);
-      toast.success("Signed in successfully.");
+      toast.success(t("verify2FA.success"));
       navigate(isStaffUser(data.user) ? "/casino-ops" : "/dashboard");
     } catch (e) {
       toast.error(apiError(e));
@@ -52,7 +54,7 @@ export default function Verify2FA() {
   };
 
   return (
-    <Shell showBack backTo="/login" title="Two-Factor Verification" subtitle="Enter the code from your authenticator app">
+    <Shell showBack backTo="/login" title={t("verify2FA.title")} subtitle={t("verify2FA.enterCodeFromApp")}>
       <div className="space-y-6 mt-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Smartphone className="w-3.5 h-3.5" />
