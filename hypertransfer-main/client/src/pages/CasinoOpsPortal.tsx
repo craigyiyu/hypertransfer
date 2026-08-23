@@ -22,6 +22,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import ThemeToggle from "@/components/ThemeToggle";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import BrandMark from "@/components/BrandMark";
 import { staffApi, apiError } from "@/lib/api";
 import { toast } from "sonner";
@@ -193,6 +194,7 @@ export default function CasinoOpsPortal() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <LanguageSwitcher />
             <ThemeToggle />
             <StatusPill tone="success">{t("casinoOps.staffOnly")}</StatusPill>
             <OktaLinkButton />

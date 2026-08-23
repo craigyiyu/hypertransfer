@@ -6,10 +6,11 @@
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ShieldCheck, Loader2, LogIn, KeyRound } from "lucide-react";
+import { ShieldCheck, Loader2, LogIn, KeyRound, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { authApi, apiError, isStaffUser, type AuthUser } from "@/lib/api";
 import { DEMO_STAFF_TOKEN, DEMO_STAFF_USER } from "@/lib/demo-auth";
 
@@ -76,6 +77,9 @@ export default function StaffLogin() {
 
   return (
     <main className="min-h-[100svh] bg-background flex items-center justify-center px-4 py-10">
+      <div className="fixed top-4 right-4 z-40">
+        <LanguageSwitcher />
+      </div>
       <div className="w-full max-w-md">
         {/* 品牌头 */}
         <div className="flex flex-col items-center text-center mb-7">
