@@ -3999,6 +3999,31 @@ def _case_payments_view(case_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _case_kyc_records(case_row: sqlite3.Row) -> list[dict[str, Any]]:
+    """该 case 的 KYC 记录(仅安全字段: 状态/通过时间/有效期)。
+    Host/Compliance/Admin 可见; VIP 投影不调用。按通过时间倒序。"""
+    patron_user_id = case_row["patron_user_id"]
+    if not patron_user_id:
+        return []
+    rows = []
+    with db() as conn:
+        apps = conn.execute(
+            """SELECT status, review_status, approved_at, valid_until, created_at
+               FROM sumsub_kyc_applications WHERE user_id=?
+               ORDER BY created_at DESC""",
+            (patron_user_id,),
+        ).fetchall()
+    for a in apps:
+        rows.append({
+            "status": a["status"],
+            "reviewStatus": a["review_status"],
+            "approvedAt": a["approved_at"],
+            "validUntil": a["valid_until"],
+            "submittedAt": a["created_at"],
+        })
+    return rows
+
+
 def _admission_case_public(
     row: sqlite3.Row, viewer_user_id: str, viewer_roles: set[str]
 ) -> dict[str, Any]:
@@ -4038,6 +4063,7 @@ def _admission_case_public(
         "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
         "kycHostMessage": kyc_message or None,
         "kycValidUntil": row["kyc_valid_until"],
+        "kycRecords": _case_kyc_records(row) if show_internal else [],
         "invitation": _admission_case_invitation_view(row["id"]),
         "payments": _case_payments_view(row["id"]),
         "createdAt": row["created_at"],

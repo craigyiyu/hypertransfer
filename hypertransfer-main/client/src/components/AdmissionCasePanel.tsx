@@ -274,6 +274,41 @@ function CaseRow({
           {/* 状态 timeline */}
           <CaseTimeline status={c.status} />
 
+          {/* KYC 记录(仅已启用/有 KYC 数据的 case; 按通过时间倒序) */}
+          {(c.kycRecords ?? []).length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t("admissionPanel.kycRecords")}
+              </p>
+              <div className="mt-1 space-y-1.5">
+                {[...(c.kycRecords ?? [])]
+                  .sort((a, b) => (b.approvedAt ?? b.submittedAt ?? 0) - (a.approvedAt ?? a.submittedAt ?? 0))
+                  .map((r, i) => (
+                    <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/40 bg-background/40 px-3 py-1.5 text-[11px]">
+                      <Pill tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "neutral"}>
+                        {r.status === "approved" ? t("admissionPanel.kycPassed") : r.status === "rejected" ? t("admissionPanel.kycFailed") : t("admissionPanel.kycPending")}
+                      </Pill>
+                      {r.approvedAt && (
+                        <span className="text-muted-foreground">
+                          {t("admissionPanel.kycApprovedOn")} {new Date(r.approvedAt * 1000).toLocaleDateString()}
+                        </span>
+                      )}
+                      {r.validUntil && (
+                        <span className="text-muted-foreground">
+                          · {t("admissionPanel.kycValidUntil")} {new Date(r.validUntil * 1000).toLocaleDateString()}
+                        </span>
+                      )}
+                      {r.submittedAt && !r.approvedAt && (
+                        <span className="text-muted-foreground">
+                          {t("admissionPanel.kycSubmittedOn")} {new Date(r.submittedAt * 1000).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           {/* 概要字段 */}
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Field label={t("admissionPanel.intendedDeposit")}>{c.servicePurpose || "—"}</Field>
@@ -305,7 +340,7 @@ function CaseRow({
             </Field>
           </div>
 
-          {/* Payments & settlement 状态 */}
+          {/* Payments & settlement 状态 — 按到账日期倒序 */}
           <div className="mt-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t("admissionPanel.payments")}
@@ -315,19 +350,28 @@ function CaseRow({
                 {t("admissionPanel.noTransfersYet")}
               </p>
             ) : (
-              <div className="mt-1 grid gap-2 sm:grid-cols-2">
-                {(c.payments ?? []).map((p) => {
-                  const confirmed = Boolean(p.finalizedAt);
-                  return (
-                    <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-foreground">
-                          {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
-                        </span>
-                        <Pill tone={confirmed ? "success" : "warning"}>
-                          {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
-                        </Pill>
-                      </div>
+              <div className="mt-1 space-y-2">
+                {[...(c.payments ?? [])]
+                  .sort((a, b) => (b.finalizedAt ?? 0) - (a.finalizedAt ?? 0))
+                  .map((p) => {
+                    const confirmed = Boolean(p.finalizedAt);
+                    return (
+                      <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-foreground">
+                            {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {p.finalizedAt && (
+                              <span className="text-muted-foreground">
+                                {new Date(p.finalizedAt * 1000).toLocaleDateString()}
+                              </span>
+                            )}
+                            <Pill tone={confirmed ? "success" : "warning"}>
+                              {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
+                            </Pill>
+                          </span>
+                        </div>
                       <p className="mt-1 text-muted-foreground">
                         {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
                       </p>

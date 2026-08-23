@@ -556,6 +556,13 @@ export interface AdmissionCase {
   route?: "complete_dossier" | "kyc_first";
   kycHostMessage?: string;
   kycValidUntil?: number;
+  kycRecords?: {
+    status: string;
+    reviewStatus?: string | null;
+    approvedAt?: number | null;
+    validUntil?: number | null;
+    submittedAt?: number | null;
+  }[];
   leaderDecision?: "approved" | "rejected" | null;
   leaderReason?: string | null;
   leaderDecidedAt?: number | null;

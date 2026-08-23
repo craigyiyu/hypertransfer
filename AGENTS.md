@@ -230,7 +230,14 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 VIP Requests KYC 记录 + 转账日期排序（分支 `feat/ux-visual-polish`）
+
+- **KYC 记录**：后端 case 投影新增 `kycRecords`（从 `sumsub_kyc_applications` 聚合 status/reviewStatus/approvedAt/validUntil/submittedAt，仅 Host/Compliance/Admin 可见，按通过时间倒序）；已启用（HyperTransfer active）VIP 展开详情显示 **KYC records** 区块（通过日期 + 有效期）。
+- **转账按日期排序**：Host 视图中该 VIP 的 transfers（verification/main）按 `finalizedAt` **倒序排列**，每笔显示到账日期；无日期（未确认）排最后。
+- **验证**：Python 170/170 ✅、tsc ✅、pnpm 39/39 ✅、build ✅；Playwright 实测 KYC records 区块 + 排序语义；四角色 20/20 ✅；bob 已重部署。
+
 ### 2026-08-21 VIP Requests 工作台重构 Round 2（分支 `feat/ux-visual-polish`）
+
 
 - **姓名拆分**：`patron_name` → `first_name` + `last_name`（DDL/迁移/模型/投影/seed/测试全量；投影同时返回 `firstName`/`lastName`/`patronName` 组合串，兼容旧调用）。
 - **表单**：First name + Last name 两个必填；`Intended deposit (USD)` 标签 + placeholder `Amount in USD` + **输入千分位格式化**（50000 → 50,000，提交时去逗号）；**Note 移到表单下方大文本框**；按钮改 **"Send for approval"**（去加号图标）。
