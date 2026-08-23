@@ -1975,6 +1975,48 @@ def password_reset(body: PwdResetIn):
     return {"ok": True}
 
 
+# 演示一键登录: 主页四角色入口直接进入对应工作台(免输邮箱/密码)。
+# 仅 HT_DEMO_BYPASS_2FA + 非 production 生效; 生产恒 403。
+DEMO_ENTER_ROLES = {
+    "host": "host.vip.demo@operator.example",     # Host → VIP Requests
+    "leader": "leader@demo.local",                # Manager → Leader Approval
+    "ops": "ops@demo.local",                      # HK Ops → Payment Operations
+    "vip": "vip.admission.demo@operator.example", # Patron → Dashboard
+}
+
+
+class DemoEnterIn(BaseModel):
+    role: str
+
+
+@app.post("/api/demo/enter")
+def demo_enter(body: DemoEnterIn):
+    if not DEMO_BYPASS_2FA or SUMSUB_ENVIRONMENT == "production":
+        raise HTTPException(status_code=403, detail="Demo quick-login is disabled")
+    email = DEMO_ENTER_ROLES.get(body.role)
+    if not email:
+        raise HTTPException(status_code=400, detail="Unknown demo role")
+    with db() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE email=? AND status='active'", (email,)
+        ).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="Demo account not seeded — run seed_demo.py")
+    token = create_session(user["id"])
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "email": user["email"],
+            "userType": user["user_type"],
+            "roles": get_user_roles(user["id"]),
+            "oktaLinked": bool(user["okta_sub"]),
+        },
+    }
+
+
 @app.post("/api/login/start")
 def login_start(body: LoginStartIn):
     with db() as conn:

@@ -165,6 +165,10 @@ export const authApi = {
     // PR③: next='done' 时（用户未启用 2FA）直接带回 token+user，无需第二步
   }) => api.post<{ ok: boolean; challenge?: string; next: string; token?: string; user?: AuthUser; demo?: boolean }>("/login/start", p),
 
+  // 演示一键登录(主页四角色入口, 仅 demo 模式; 生产 403)
+  demoEnter: (role: "host" | "leader" | "ops" | "vip") =>
+    api.post<{ ok: boolean; token: string; user: AuthUser }>("/demo/enter", { role }),
+
   loginVerify: (challenge: string, code: string) =>
     api.post<{ ok: boolean; token: string; user: AuthUser }>("/login/verify", {
       challenge,

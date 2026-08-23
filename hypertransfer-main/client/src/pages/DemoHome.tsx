@@ -1,14 +1,29 @@
 /**
  * DemoHome — Demo 首页 / 入口枢纽(路由 "/")。
- * 一屏同时放**客户端**和**工作人员端**两个入口, 方便演示时快速切换两侧。
- * 客户端 → /welcome(patron Landing → Sign In / 邀请注册); 工作人员端 → /ops(Okta demo 登录)。
+ * 一屏同时放**客户端**和**工作人员端**两个入口 + **四角色一键演示入口**:
+ * Host / Manager / HK Ops / VIP, 点击直接以该角色登录进入对应工作台(免输邮箱密码)。
  * 纯 demo 便利页; 真实产品的客户首页仍是 /welcome(Landing)。
  */
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Shield, ArrowRight, Users, Building2, ShieldCheck } from "lucide-react";
+import {
+  Shield,
+  ArrowRight,
+  Users,
+  Building2,
+  ShieldCheck,
+  UserPlus2,
+  Gavel,
+  Banknote,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
 import { appBuildLabel } from "@/lib/app-version";
 import { useI18n } from "@/contexts/I18nContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { authApi, apiError } from "@/lib/api";
+import { toast } from "sonner";
 
 const HERO_BG =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663574945903/iTEdVVzV69Mbx6YDNWtLkk/hero-bg-62bvwNpUn3XWmYV9fDibfk.webp";
@@ -24,9 +39,39 @@ interface EntryCard {
   icon: typeof Users;
 }
 
+/** 四角色一键演示入口: role → 图标 + 落点工作台。 */
+const ROLE_ENTRIES: {
+  role: "host" | "leader" | "ops" | "vip";
+  icon: typeof Users;
+  titleKey: string;
+  descKey: string;
+  go: string;
+}[] = [
+  { role: "host", icon: UserPlus2, titleKey: "demoHome.roleHost", descKey: "demoHome.roleHostDesc", go: "/casino-ops" },
+  { role: "leader", icon: Gavel, titleKey: "demoHome.roleLeader", descKey: "demoHome.roleLeaderDesc", go: "/casino-ops" },
+  { role: "ops", icon: Banknote, titleKey: "demoHome.roleOps", descKey: "demoHome.roleOpsDesc", go: "/casino-ops" },
+  { role: "vip", icon: Sparkles, titleKey: "demoHome.roleVip", descKey: "demoHome.roleVipDesc", go: "/dashboard" },
+];
+
 export default function DemoHome() {
   const [, navigate] = useLocation();
   const { t } = useI18n();
+  const { setSession } = useAuth();
+  const [entering, setEntering] = useState<string | null>(null);
+
+  const enterRole = async (role: "host" | "leader" | "ops" | "vip", go: string) => {
+    setEntering(role);
+    try {
+      const { data } = await authApi.demoEnter(role);
+      setSession(data.token, data.user);
+      toast.success(`Signed in as ${data.user.name}`);
+      navigate(go);
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setEntering(null);
+    }
+  };
 
   const ENTRIES: EntryCard[] = [
     {
@@ -76,6 +121,39 @@ export default function DemoHome() {
           </p>
         </motion.div>
 
+        {/* 四角色一键演示入口 */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="mb-8 w-full"
+        >
+          <p className="mb-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("demoHome.quickRoles")}
+          </p>
+          <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
+            {ROLE_ENTRIES.map((r) => {
+              const Icon = r.icon;
+              const busy = entering === r.role;
+              return (
+                <motion.button
+                  key={r.role}
+                  whileHover={{ y: -2 }}
+                  onClick={() => void enterRole(r.role, r.go)}
+                  disabled={entering !== null}
+                  className="group flex flex-col items-center gap-2 rounded-2xl border border-gold/25 bg-gold/5 px-4 py-5 text-center transition-colors hover:border-gold/50 hover:bg-gold/10 disabled:opacity-60"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/15 text-gold">
+                    {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" />}
+                  </div>
+                  <span className="text-sm font-semibold text-foreground">{t(r.titleKey)}</span>
+                  <span className="text-[10px] leading-relaxed text-muted-foreground">{t(r.descKey)}</span>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+
         {/* 两个入口卡片 */}
         <div className="grid w-full gap-4 sm:grid-cols-2">
           {ENTRIES.map((e, i) => {
@@ -85,7 +163,7 @@ export default function DemoHome() {
                 key={e.key}
                 initial={{ y: 16 }}
                 animate={{ y: 0 }}
-                transition={{ delay: 0.05 + i * 0.08 }}
+                transition={{ delay: 0.1 + i * 0.08 }}
                 onClick={() => navigate(e.to)}
                 className="group flex flex-col rounded-2xl border border-border/60 bg-card/70 p-6 text-left transition-all hover:border-gold/40 hover:bg-card"
               >

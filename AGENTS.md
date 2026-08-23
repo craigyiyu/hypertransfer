@@ -230,7 +230,14 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 四角色一键演示入口（分支 `feat/ux-visual-polish`）
+
+- **主页 DemoHome 四角色一键进入**：路由 `/` 顶部新增 **One-click demo · pick a role** 四张卡片（Host / Manager / HK Operations / VIP Patron），点击直接以该角色登录并进入对应工作台——免输邮箱/密码/TOTP。
+- **后端 `POST /api/demo/enter`**：按角色查 seed demo 账号并签发**真实会话 token**（可经 /api/me 校验）；仅 `HT_DEMO_BYPASS_2FA` + 非 production 生效，生产恒 403。落点：host→VIP Requests、leader→Leader Approval、ops→Payment Operations、vip→客户 Dashboard。
+- **验证**：Python **175/175** ✅（+5 demo-enter 测试：各角色映射/真实会话/未知角色 400/旁路关 403/生产 403）、tsc ✅、pnpm 39/39 ✅、build ✅；Playwright 实测四角色一键进入全部正确；四角色 e2e 20/20 ✅；bob 已重部署。
+
 ### 2026-08-21 VIP Requests KYC 记录 + 转账日期排序（分支 `feat/ux-visual-polish`）
+
 
 - **KYC 记录**：后端 case 投影新增 `kycRecords`（从 `sumsub_kyc_applications` 聚合 status/reviewStatus/approvedAt/validUntil/submittedAt，仅 Host/Compliance/Admin 可见，按通过时间倒序）；已启用（HyperTransfer active）VIP 展开详情显示 **KYC records** 区块（通过日期 + 有效期）。
 - **转账按日期排序**：Host 视图中该 VIP 的 transfers（verification/main）按 `finalizedAt` **倒序排列**，每笔显示到账日期；无日期（未确认）排最后。
