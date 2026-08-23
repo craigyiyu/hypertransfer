@@ -1,11 +1,15 @@
 /**
- * AdmissionCasePanel — Host workspace for the Host-led VIP admission flow
- * (2026-08-21). Replaces the legacy Access-Request tab for RM/Host roles.
+ * AdmissionCasePanel — Host workspace for VIP admission requests (2026-08-21).
+ * Replaces the legacy Access-Request tab for RM/Host roles.
  *
  * Contents:
  *  - Host activation banner (operational fields + customer-data policy ack);
- *  - create-case form (no payment-source / ID / raw KYC fields);
- *  - the Host's own case list with a status timeline;
+ *  - create-request form: VIP name + invitation email + intended deposit
+ *    amount (USDT) + preferred language (affects invitation emails) + note;
+ *  - a collapsible per-customer request list: each row shows the VIP name /
+ *    email / status; expanding reveals timeline, KYC status and per-leg
+ *    transfer / settlement detail;
+ *  - "Needs your attention" pills are clickable and expand the matching rows;
  *  - dual-channel invitation delivery (email link + dynamic QR) and revoke.
  *
  * Hosts only ever see their own cases and the safe KYC category message
@@ -15,12 +19,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Ban,
+  ChevronDown,
+  ChevronRight,
   IdCard,
   Mail,
   MailCheck,
   Plus,
   QrCode,
-  Send,
   UserPlus2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,13 +48,20 @@ import {
 import { ActionBtn, EmptyState, Field, LabeledInput, LoadingSkeleton, PanelHeader, Pill } from "@/components/ops-ui";
 
 const EMPTY_CASE_FORM = {
+  patronName: "",
   patronEmail: "",
   memberReference: "",
-  servicePurpose: "",
+  intendedAmount: "",
+  preferredLanguage: "zh",
   hostNotes: "",
-  preferredLanguage: "",
-  route: "complete_dossier" as "complete_dossier" | "kyc_first",
 };
+
+const LANGUAGE_OPTIONS = [
+  { value: "zh", labelKey: "admissionPanel.langZh" },
+  { value: "zh-Hant", labelKey: "admissionPanel.langZhHant" },
+  { value: "en", labelKey: "admissionPanel.langEn" },
+  { value: "other", labelKey: "admissionPanel.langOther" },
+] as const;
 
 const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
   { key: "draft", label: "Draft" },
@@ -62,24 +74,30 @@ const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
   { key: "service_enabled", label: "Enabled" },
 ];
 
-/** Host 跟进汇总(B2): 按状态聚合"需要动作"的 case, 便于 follow up。 */
-function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
+/** Host 跟进汇总(B2, 可点击): 按状态聚合"需要动作"的 case; 点击展开对应行。 */
+function HostFollowUpSummary({
+  cases,
+  onSelect,
+}: {
+  cases: AdmissionCase[];
+  onSelect: (caseIds: string[]) => void;
+}) {
   const { t } = useI18n();
-  const awaitingApproval = cases.filter((c) => c.status === "leader_pending").length;
+  const awaitingApproval = cases.filter((c) => c.status === "leader_pending");
   const kycAction = cases.filter(
     (c) => c.status === "kyc_failed" || c.status === "compliance_review",
-  ).length;
-  const rejected = cases.filter((c) => c.status === "rejected").length;
+  );
+  const rejected = cases.filter((c) => c.status === "rejected");
   const cagePending = cases.filter((c) =>
     (c.payments ?? []).some((p) => p.transferLeg === "main" && p.finalizedAt && !p.cageConfirmationId),
-  ).length;
+  );
 
   const items = [
-    { label: t("admissionPanel.awaitingApprover"), count: awaitingApproval, tone: "warning" as const },
-    { label: t("admissionPanel.kycActionNeeded"), count: kycAction, tone: "danger" as const },
-    { label: t("common.rejected"), count: rejected, tone: "danger" as const },
-    { label: t("admissionPanel.cagePending"), count: cagePending, tone: "warning" as const },
-  ].filter((i) => i.count > 0);
+    { label: t("admissionPanel.awaitingApprover"), ids: awaitingApproval.map((c) => c.id), tone: "warning" as const },
+    { label: t("admissionPanel.kycActionNeeded"), ids: kycAction.map((c) => c.id), tone: "danger" as const },
+    { label: t("common.rejected"), ids: rejected.map((c) => c.id), tone: "danger" as const },
+    { label: t("admissionPanel.cagePending"), ids: cagePending.map((c) => c.id), tone: "warning" as const },
+  ].filter((i) => i.ids.length > 0);
 
   if (items.length === 0) return null;
   return (
@@ -89,9 +107,13 @@ function HostFollowUpSummary({ cases }: { cases: AdmissionCase[] }) {
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {items.map((i) => (
-          <Pill key={i.label} tone={i.tone}>
-            {`${i.label} · ${i.count}`}
-          </Pill>
+          <button
+            key={i.label}
+            onClick={() => onSelect(i.ids)}
+            className="transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-gold/40 rounded-full"
+          >
+            <Pill tone={i.tone}>{`${i.label} · ${i.ids.length}`}</Pill>
+          </button>
         ))}
       </div>
     </div>
@@ -161,11 +183,29 @@ export default function AdmissionCasePanel() {
   const [busyId, setBusyId] = useState("");
   const [caseForm, setCaseForm] = useState({ ...EMPTY_CASE_FORM });
   const [creating, setCreating] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const canManage = useMemo(() => {
     const roles = new Set(user?.roles ?? []);
     return roles.has("admin") || roles.has("host");
   }, [user]);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const expandMany = useCallback((ids: string[]) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
 
   const applyDemoForm = useCallback(() => {
     setCaseForm((prev) => ({
@@ -245,13 +285,19 @@ export default function AdmissionCasePanel() {
     }
     setCreating(true);
     try {
+      // Intended deposit: amount + USDT (servicePurpose 存展示串, 供 leader dossier/邮件使用)
+      const amount = caseForm.intendedAmount.trim();
+      const servicePurpose = amount
+        ? `${amount} USDT`
+        : undefined;
       await admissionApi.create({
         patronEmail: caseForm.patronEmail.trim(),
+        patronName: caseForm.patronName.trim() || undefined,
         memberReference: caseForm.memberReference.trim() || undefined,
-        servicePurpose: caseForm.servicePurpose.trim() || undefined,
+        servicePurpose,
         hostNotes: caseForm.hostNotes.trim() || undefined,
-        preferredLanguage: caseForm.preferredLanguage.trim() || undefined,
-        route: caseForm.route,
+        preferredLanguage: caseForm.preferredLanguage || undefined,
+        // route 固定走后端默认 complete_dossier(前端不再暴露)
       });
       toast.success(t("admissionPanel.caseCreated"));
       setCaseForm({ ...EMPTY_CASE_FORM });
@@ -338,7 +384,7 @@ export default function AdmissionCasePanel() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Hosts are provisioned through the enterprise (Okta) identity. Complete the
                 operational fields and acknowledge the customer-data handling policy before
-                you can create VIP admission cases.
+                you can create VIP admission requests.
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <LabeledInput
@@ -383,7 +429,7 @@ export default function AdmissionCasePanel() {
         </div>
       )}
 
-      {/* Create-case form */}
+      {/* Create-request form */}
       {profile?.status === "active" && canManage && (
         <div className="rounded-lg border border-border/60 bg-card/80 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -391,10 +437,23 @@ export default function AdmissionCasePanel() {
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <LabeledInput
+              label={`${t("admissionPanel.patronName")} *`}
+              placeholder={t("admissionPanel.patronNamePlaceholder")}
+              value={caseForm.patronName}
+              onChange={(e) => setCaseForm((p) => ({ ...p, patronName: e.target.value }))}
+            />
+            <LabeledInput
               label={`${t("admissionPanel.patronEmail")} *`}
               placeholder="vip@example.test"
               value={caseForm.patronEmail}
               onChange={(e) => setCaseForm((p) => ({ ...p, patronEmail: e.target.value }))}
+            />
+            <LabeledInput
+              label={t("admissionPanel.intendedDeposit")}
+              placeholder={t("admissionPanel.intendedDepositPlaceholder")}
+              inputMode="numeric"
+              value={caseForm.intendedAmount}
+              onChange={(e) => setCaseForm((p) => ({ ...p, intendedAmount: e.target.value.replace(/[^\d.]/g, "") }))}
             />
             <LabeledInput
               label={t("admissionPanel.memberReference")}
@@ -402,59 +461,45 @@ export default function AdmissionCasePanel() {
               value={caseForm.memberReference}
               onChange={(e) => setCaseForm((p) => ({ ...p, memberReference: e.target.value }))}
             />
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("admissionPanel.preferredLanguage")}
+              </span>
+              <select
+                value={caseForm.preferredLanguage}
+                onChange={(e) => setCaseForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
+                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
+              >
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <LabeledInput
-              label={t("admissionPanel.preferredLanguage")}
-              placeholder={t("admissionPanel.preferredLanguagePlaceholder")}
-              value={caseForm.preferredLanguage}
-              onChange={(e) => setCaseForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
-            />
-            <LabeledInput
-              label={t("admissionPanel.intendedService")}
-              placeholder={t("admissionPanel.intendedService")}
+              label={t("admissionPanel.note")}
+              placeholder={t("admissionPanel.notePlaceholder")}
               containerClassName="sm:col-span-2 lg:col-span-1"
-              value={caseForm.servicePurpose}
-              onChange={(e) => setCaseForm((p) => ({ ...p, servicePurpose: e.target.value }))}
-            />
-            <LabeledInput
-              label={t("admissionPanel.hostNotes")}
-              placeholder={t("admissionPanel.hostNotes")}
-              containerClassName="sm:col-span-2"
               value={caseForm.hostNotes}
               onChange={(e) => setCaseForm((p) => ({ ...p, hostNotes: e.target.value }))}
             />
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{t("admissionPanel.route")}</span>
-              <select
-                value={caseForm.route}
-                onChange={(e) =>
-                  setCaseForm((p) => ({
-                    ...p,
-                    route: e.target.value as "complete_dossier" | "kyc_first",
-                  }))
-                }
-                className="rounded-lg border border-border/60 bg-background px-2 py-1.5 text-xs outline-none"
-              >
-                <option value="complete_dossier">{t("admissionPanel.completeDossier")}</option>
-                <option value="kyc_first">{t("admissionPanel.kycFirstApproval")}</option>
-              </select>
-            </label>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-muted-foreground">
+              {t("admissionPanel.formNote")}
+            </p>
             <ActionBtn icon={Plus} tone="success" onClick={createCase} disabled={creating}>
               {creating ? t("opsUi.loading") : t("admissionPanel.createCase")}
             </ActionBtn>
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            No payment-source, ID or raw KYC fields are collected here. KYC runs after the VIP
-            claims the invitation with an Email OTP.
-          </p>
         </div>
       )}
 
-      {/* 需跟进汇总(B2): 让 Host 一眼看到哪些 case 需要动作 */}
-      <HostFollowUpSummary cases={cases} />
+      {/* 需跟进汇总(B2, 可点击展开): 让 Host 一眼看到哪些 case 需要动作 */}
+      <HostFollowUpSummary cases={cases} onSelect={expandMany} />
 
-      {/* Case list */}
+      {/* Request list — collapsible per customer */}
       <div className="rounded-lg border border-border/60 bg-card/80 p-4">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -477,149 +522,163 @@ export default function AdmissionCasePanel() {
           </div>
         ) : null}
 
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 space-y-2">
           {cases.map((c) => {
             const tone = admissionStatusTone(c.status);
             const terminal = isTerminalAdmissionStatus(c.status);
+            const isOpen = expanded.has(c.id);
+            const displayName = c.patronName || c.patronEmailMasked;
             return (
-              <div key={c.id} className="card-interactive rounded-lg border border-border/40 bg-background/40 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-gold">{c.id.slice(0, 8)}</span>
-                    <span className="text-sm font-semibold text-foreground">{c.patronEmailMasked}</span>
+              <div
+                key={c.id}
+                className={`rounded-lg border bg-background/40 transition-colors ${
+                  isOpen ? "border-gold/40" : "border-border/40 card-interactive"
+                }`}
+              >
+                {/* Row header — click to expand */}
+                <button
+                  onClick={() => toggleExpand(c.id)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left focus:outline-none focus:ring-1 focus:ring-gold/40 rounded-lg"
+                  aria-expanded={isOpen}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    {isOpen ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate text-sm font-semibold text-foreground">{displayName}</span>
+                    {c.patronName && (
+                      <span className="hidden text-xs text-muted-foreground sm:inline">{c.patronEmailMasked}</span>
+                    )}
                     <Pill tone={tone}>{ADMISSION_STATUS_LABELS[c.status]}</Pill>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     {!terminal && c.status !== "service_enabled" && (
                       <>
-                        <ActionBtn
-                          icon={Mail}
-                          onClick={() => void sendEmailInvite(c.id)}
-                          disabled={busyId === c.id}
-                        >
-                          Send email
+                        <ActionBtn icon={Mail} onClick={() => void sendEmailInvite(c.id)} disabled={busyId === c.id}>
+                          {t("admissionPanel.sendEmail")}
                         </ActionBtn>
-                        <ActionBtn
-                          icon={QrCode}
-                          onClick={() => void showQrSession(c.id)}
-                          disabled={busyId === c.id}
-                        >
-                          Show QR
+                        <ActionBtn icon={QrCode} onClick={() => void showQrSession(c.id)} disabled={busyId === c.id}>
+                          {t("admissionPanel.showQr")}
                         </ActionBtn>
-                        <ActionBtn
-                          icon={Ban}
-                          tone="danger"
-                          onClick={() => void revokeCase(c.id)}
-                          disabled={busyId === c.id}
-                        >
-                          Revoke
+                        <ActionBtn icon={Ban} tone="danger" onClick={() => void revokeCase(c.id)} disabled={busyId === c.id}>
+                          {t("admissionPanel.revoke")}
                         </ActionBtn>
                       </>
                     )}
                   </div>
-                </div>
+                </button>
 
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field label={t("admissionPanel.memberReference")}>{c.memberReference || "—"}</Field>
-                  <Field label={t("admissionPanel.kycStatus")}>
-                    {c.kycHostMessage || (c.status === "kyc_passed" ? t("admissionPanel.kycPassed") : "—")}
-                  </Field>
-                  <Field label={t("admissionPanel.kycValidUntil")}>
-                    {c.kycValidUntil ? (
-                      <>
-                        {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
-                        {Date.now() / 1000 > c.kycValidUntil && (
-                          <span className="ml-1 text-[10px] font-semibold text-destructive">
-                            {t("admissionPanel.expired")}
-                          </span>
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className="border-t border-border/40 px-3 pb-3 pt-2">
+                    {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
+                    {c.leaderDecision === "rejected" && (
+                      <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+                        <span className="font-semibold text-destructive">{t("admissionPanel.rejectedByApprover")}</span>
+                        {c.leaderReason && (
+                          <span className="ml-2 text-muted-foreground">{t("common.reason")}: {c.leaderReason}</span>
                         )}
-                      </>
-                    ) : (
-                      "—"
+                      </div>
                     )}
-                  </Field>
-                  <Field label={t("admissionPanel.invitation")}>
-                    {c.invitation
-                      ? `Email ${new Date(c.invitation.emailExpiresAt).toLocaleString()} · QR ${new Date(
-                          c.invitation.qrExpiresAt,
-                        ).toLocaleString()}`
-                      : t("admissionPanel.notSentYet")}
-                  </Field>
-                </div>
-
-                {/* 审批决策 + 原因(leader 落库后 Host 可见, 便于 follow up) */}
-                {c.leaderDecision === "rejected" && (
-                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
-                    <span className="font-semibold text-destructive">{t("admissionPanel.rejectedByApprover")}</span>
-                    {c.leaderReason && (
-                      <span className="ml-2 text-muted-foreground">{t("common.reason")}: {c.leaderReason}</span>
+                    {c.status === "service_enabled" && c.leaderDecision === "approved" && (
+                      <div className="mb-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
+                        {t("admissionPanel.approver")} — {t("admissionPanel.enabled")}
+                      </div>
                     )}
-                  </div>
-                )}
-                {c.status === "service_enabled" && c.leaderDecision === "approved" && (
-                  <div className="mt-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success">
-                    {t("admissionPanel.approver")} — {t("admissionPanel.enabled")}
-                  </div>
-                )}
 
-                {/* 状态 timeline */}
-                <CaseTimeline status={c.status} />
+                    {/* 状态 timeline */}
+                    <CaseTimeline status={c.status} />
 
-                {/* Payments & settlement 状态 */}
-                <div className="mt-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t("admissionPanel.payments")}
-                  </p>
-                  {(c.payments ?? []).length === 0 ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      {t("admissionPanel.noTransfersYet")}
-                    </p>
-                  ) : (
-                    <div className="mt-1 grid gap-2 sm:grid-cols-2">
-                      {(c.payments ?? []).map((p) => {
-                        const confirmed = Boolean(p.finalizedAt);
-                        return (
-                          <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-semibold text-foreground">
-                                {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
+                    {/* 概要字段 */}
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <Field label={t("admissionPanel.intendedDeposit")}>{c.servicePurpose || "—"}</Field>
+                      <Field label={t("admissionPanel.memberReference")}>{c.memberReference || "—"}</Field>
+                      <Field label={t("admissionPanel.kycStatus")}>
+                        {c.kycHostMessage || (c.status === "kyc_passed" ? t("admissionPanel.kycPassed") : "—")}
+                      </Field>
+                      <Field label={t("admissionPanel.kycValidUntil")}>
+                        {c.kycValidUntil ? (
+                          <>
+                            {new Date(c.kycValidUntil * 1000).toLocaleDateString()}
+                            {Date.now() / 1000 > c.kycValidUntil && (
+                              <span className="ml-1 text-[10px] font-semibold text-destructive">
+                                {t("admissionPanel.expired")}
                               </span>
-                              <Pill tone={confirmed ? "success" : "warning"}>
-                                {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
-                              </Pill>
-                            </div>
-                            <p className="mt-1 text-muted-foreground">
-                              {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
-                            </p>
-                            {p.txHash && (
-                              <p className="mt-0.5 max-w-[220px] truncate font-mono text-gold">{p.txHash}</p>
                             )}
-                            <p className="mt-1 text-muted-foreground">
-                              {p.cageConfirmationId
-                                ? `Cage: ${p.cageConfirmationId}`
-                                : t("admissionPanel.cageNotRecorded")}
-                              {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
-                            </p>
-                          </div>
-                        );
-                      })}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </Field>
+                      <Field label={t("admissionPanel.note")}>{c.hostNotes || "—"}</Field>
+                      <Field label={t("admissionPanel.invitation")}>
+                        {c.invitation
+                          ? `Email ${new Date(c.invitation.emailExpiresAt).toLocaleString()} · QR ${new Date(
+                              c.invitation.qrExpiresAt,
+                            ).toLocaleString()}`
+                          : t("admissionPanel.notSentYet")}
+                      </Field>
                     </div>
-                  )}
-                </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                  {c.invitation && (
-                    <span className="flex items-center gap-1 text-[11px] text-success">
-                      <MailCheck className="h-3 w-3" />
-                      {t("admissionPanel.dualChannelIssued")}
-                    </span>
-                  )}
-                  {terminal && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {t("admissionPanel.terminalNote")}
-                    </span>
-                  )}
-                </div>
+                    {/* Payments & settlement 状态 */}
+                    <div className="mt-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {t("admissionPanel.payments")}
+                      </p>
+                      {(c.payments ?? []).length === 0 ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {t("admissionPanel.noTransfersYet")}
+                        </p>
+                      ) : (
+                        <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                          {(c.payments ?? []).map((p) => {
+                            const confirmed = Boolean(p.finalizedAt);
+                            return (
+                              <div key={p.packId} className="rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-[11px]">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-semibold text-foreground">
+                                    {p.transferLeg === "verification" ? t("admissionPanel.verificationLeg") : t("admissionPanel.mainTransfer")}
+                                  </span>
+                                  <Pill tone={confirmed ? "success" : "warning"}>
+                                    {confirmed ? t("admissionPanel.received") : p.cageConfirmationId ? t("admissionPanel.cageRecorded") : t("admissionPanel.pending")}
+                                  </Pill>
+                                </div>
+                                <p className="mt-1 text-muted-foreground">
+                                  {p.actualAmount} USDT · {p.travelRuleDepth} Travel Rule · KYT {p.kytStatus}
+                                </p>
+                                {p.txHash && (
+                                  <p className="mt-0.5 max-w-[220px] truncate font-mono text-gold">{p.txHash}</p>
+                                )}
+                                <p className="mt-1 text-muted-foreground">
+                                  {p.cageConfirmationId
+                                    ? `Cage: ${p.cageConfirmationId}`
+                                    : t("admissionPanel.cageNotRecorded")}
+                                  {p.reconciliationRef ? ` · Recon: ${p.reconciliationRef}` : " · Recon: pending"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      {c.invitation && (
+                        <span className="flex items-center gap-1 text-[11px] text-success">
+                          <MailCheck className="h-3 w-3" />
+                          {t("admissionPanel.dualChannelIssued")}
+                        </span>
+                      )}
+                      {terminal && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {t("admissionPanel.terminalNote")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

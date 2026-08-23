@@ -545,9 +545,11 @@ export interface AdmissionCase {
   id: string;
   hostName: string;
   patronEmailMasked: string;
+  patronName?: string | null;
   status: AdmissionCaseStatus;
   memberReference?: string | null;
   servicePurpose?: string | null;
+  hostNotes?: string | null;
   preferredLanguage?: string | null;
   route?: "complete_dossier" | "kyc_first";
   kycHostMessage?: string;
@@ -578,6 +580,7 @@ export const admissionApi = {
   // 仅 active Host 可创建(后端强制)
   create: (p: {
     patronEmail: string;
+    patronName?: string;
     memberReference?: string;
     servicePurpose?: string;
     hostNotes?: string;

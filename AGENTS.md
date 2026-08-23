@@ -230,7 +230,15 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-21 VIP Requests 工作台重构（分支 `feat/ux-visual-polish`）
+
+- **命名**：`VIP Admissions` → **VIP Requests**；左侧菜单第一项 **New VIP Request**（casino-ops vip 板块置顶，host/rm 落点不变）。
+- **创建表单重构**：新增 **VIP name**（创建时填姓名，后端 `vip_admission_cases.patron_name` 新列+幂等迁移，投影返回 `patronName`）；`Preferred Language` 改**下拉**（简体/繁體/English/Other，发邀请邮件用）；`Intended Service` 改 **Intended deposit（金额，存 `servicePurpose` 如 `50000 USDT`）**；长标签 "Relationship Context for the Compliance Leader Dossier" 简化为 **Note**；**移除 Route 选择**（后端默认 complete_dossier，API 兼容不变）。
+- **列表重构**：My Admission Cases → **VIP Requests 折叠列表**——每客户一行（姓名/邮箱/状态 pill），点击展开 timeline + KYC + 意向金额 + Note + 逐笔转账/结算（verification/main、Cage、对账）。**Needs your attention 可点击**，点击展开对应 case 行。
+- **验证**：Python 168/168 ✅（含 patronName 断言）、tsc ✅、pnpm 39/39 ✅、build ✅；Playwright 实测（菜单第一项/表单/姓名显示/折叠展开/pill 展开/API 创建带姓名金额语言备注）；四角色 e2e 20/20 ✅；bob 已重部署。
+
 ### 2026-08-21 B4+B5 无障碍与双语（分支 `feat/ux-visual-polish`, B4+B5）
+
 
 - **B4 移动端 + 无障碍全量审计（axe-core + Playwright 双视口 20 路由）**：违规 **150 → 0**。
   - 全局修复：`index.html` 移除 `maximum-scale=1`（恢复缩放）；Shell/Landing/NotFound/DemoHome/StaffLogin 根容器改 `<main>` landmark（region/landmark-one-main 全清）；全局 `--muted-foreground` 对比度达标（light 0.52→0.45 / dark 0.60→0.68）；密码眼睛按钮补 aria-label；ForgotPassword 区号 select 补 aria-label；Shell 图标按钮 32px→44px、眼睛按钮加 padding（WCAG 2.5.5 触摸目标）。

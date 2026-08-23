@@ -83,6 +83,7 @@ describe("translations dictionary (B5 en/zh parity)", () => {
       "Microsoft",
       "Cage",
       "Host",
+      "English",
       "M-VIP-001 (optional)",
       "zh-Hant (optional)",
       "e.g. Macau Peninsula",

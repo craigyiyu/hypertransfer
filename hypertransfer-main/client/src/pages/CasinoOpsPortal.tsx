@@ -95,9 +95,10 @@ function OpsCard({
 function useSections() {
   const { t } = useI18n();
   return [
+    // 左侧菜单第一项 = New VIP Request(Host/RM 工作台)
+    { key: "vip", label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
     { key: "deposits", label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
     { key: "refunds", label: t("casinoOps.withdrawals"), icon: Undo2, roles: ["compliance", "ops", "custodian"] },
-    { key: "vip", label: t("casinoOps.vipAdmissions"), icon: UserPlus2, roles: ["host", "rm"] },
     { key: "leader", label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
     { key: "payment-ops", label: t("casinoOps.paymentOperations"), icon: Banknote, roles: ["ops", "custodian", "compliance"] },
     { key: "access", label: t("casinoOps.accessRequests"), icon: UserPlus2, roles: ["marketing", "compliance"] },

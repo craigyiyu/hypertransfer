@@ -400,6 +400,7 @@ ADMISSION_SCHEMA_SQL = """
         id              TEXT PRIMARY KEY,
         host_user_id    TEXT NOT NULL,
         patron_email    TEXT NOT NULL,
+        patron_name     TEXT,
         member_reference TEXT,
         service_purpose TEXT,
         host_notes      TEXT,
@@ -693,6 +694,8 @@ def init_db() -> None:
         # Host-led VIP admission: KYC document expiries (earliest relied-on expiry)。
         admission_cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(vip_admission_cases)").fetchall()}
+        if "patron_name" not in admission_cols:
+            conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN patron_name TEXT")
         if "kyc_document_expiries_json" not in admission_cols:
             conn.execute(
                 "ALTER TABLE vip_admission_cases ADD COLUMN kyc_document_expiries_json TEXT")
@@ -4015,6 +4018,7 @@ def _admission_case_public(
         "hostName": _user_name(row["host_user_id"]),
         "patronEmail": row["patron_email"] if show_internal else "",
         "patronEmailMasked": mask_email(row["patron_email"]),
+        "patronName": row["patron_name"] or None,
         "memberReference": row["member_reference"],
         "servicePurpose": row["service_purpose"],
         "hostNotes": row["host_notes"] if show_internal else None,
@@ -4080,6 +4084,7 @@ class HostProfileActivateIn(BaseModel):
 
 class AdmissionCaseCreateIn(BaseModel):
     patronEmail: str
+    patronName: Optional[str] = None
     memberReference: Optional[str] = None
     servicePurpose: Optional[str] = None
     hostNotes: Optional[str] = None
@@ -4168,12 +4173,14 @@ def admission_case_create(
     with db() as conn:
         conn.execute(
             """INSERT INTO vip_admission_cases(
-                   id, host_user_id, patron_email, member_reference, service_purpose,
-                   host_notes, preferred_language, route, patron_user_id, status,
-                   leader_user_id, kyc_reason_code, kyc_valid_until, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   id, host_user_id, patron_email, patron_name, member_reference,
+                   service_purpose, host_notes, preferred_language, route,
+                   patron_user_id, status, leader_user_id, kyc_reason_code,
+                   kyc_valid_until, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                case_id, user["id"], patron_email, body.memberReference,
+                case_id, user["id"], patron_email,
+                (body.patronName or "").strip() or None, body.memberReference,
                 body.servicePurpose, body.hostNotes, body.preferredLanguage,
                 body.route, None, "draft", None, None, None, now, now,
             ),

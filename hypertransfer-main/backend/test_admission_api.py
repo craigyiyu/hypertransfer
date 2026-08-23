@@ -180,11 +180,14 @@ class AdmissionCaseCreateTests(AdmissionApiTestCase):
         inactive = self._create_staff("Inactive Host", "inactive@example.test", ["host"], host_status="pending")
         payload = {
             "patronEmail": "vip@example.test",
+            "patronName": "Chen Wei",
             "servicePurpose": "VIP table credit",
             "route": "complete_dossier",
         }
         resp = self.client.post(f"{API}/admission-cases", json=payload, headers=self._auth(active["token"]))
         assert resp.status_code == 200, resp.text
+        assert resp.json()["case"]["patronName"] == "Chen Wei"
+        assert self._case_row(resp.json()["case"]["id"])["patron_name"] == "Chen Wei"
         resp = self.client.post(f"{API}/admission-cases", json=payload, headers=self._auth(inactive["token"]))
         assert resp.status_code == 403
 
