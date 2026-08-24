@@ -1,0 +1,32 @@
+{
+  "name": "@workspace/operator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Operator Demo — Pad-side crypto deposit compliance orchestration (Next.js App Router)",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "start": "next start",
+    "dev": "next dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4"
+  },
+  "dependencies": {
+    "next": "^16.2.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "zod": "^4.4.3",
+    "@workspace/ui": "*"
+  }
+}

@@ -1,0 +1,52 @@
+# Docker build context 排除项(大幅缩小 context, 避免把 node_modules/构建产物打进镜像构建)
+node_modules
+**/node_modules
+**/.next
+**/out
+**/dist
+**/build
+**/.turbo
+**/coverage
+.git
+.github
+.claude
+.tmp
+
+# 文档/业务资料(构建不需要)
+Docs
+ProjectInfo
+ProjectReference
+ClientMeetings
+CompanyPlan
+Proposal
+HANDOFF.md
+TODO.md
+AGENTS.md
+CLAUDE.md
+
+# hypertransfer-main 旧前端(已迁入 apps/web; backend 子目录由 backend 自己的 context 构建)
+hypertransfer-main/client
+hypertransfer-main/server
+hypertransfer-main/docs
+hypertransfer-main/dist
+hypertransfer-main/deploy
+hypertransfer-main/docker-compose.yml
+hypertransfer-main/Dockerfile.frontend
+hypertransfer-main/DEPLOY.md
+hypertransfer-main/AUTH_INTEGRATION.md
+hypertransfer-main/dev.sh
+hypertransfer-main/deploy.sh
+hypertransfer-main/README.md
+hypertransfer-main/.env*
+hypertransfer-main/backend/.venv
+
+# 环境/敏感/产物
+.env
+.env.*
+!.env.example
+*.db
+*.db.bak
+*.log
+*.key
+*.pem
+~$*.xlsx

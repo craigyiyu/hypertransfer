@@ -38,52 +38,59 @@
 
 ## 2. 技术栈
 
-> 注意:本仓库含**三套技术栈**——Operator Demo(Next.js)、HyperTransfer 产品前端(React+Vite,见 `hypertransfer-main/`)、认证后端(Python/FastAPI)。下表为 Operator Demo。
+> ⚠️ **2026-08 架构升级**：本仓库已重构为 **Next.js turbo monorepo（npm workspaces）**，两个前端统一设计系统（`packages/ui`，Base UI vega + emerald 主题）。
+> - **Operator Demo** → `apps/operator`（Next.js App Router，原根目录应用迁入）
+> - **HyperTransfer 产品前端** → `apps/web`（Next.js App Router，原 `hypertransfer-main/client` React+Vite+wouter 迁入，路由经 `src/lib/wouter.tsx` shim 适配，全站静态导出）
+> - 认证后端仍在 `hypertransfer-main/backend/`（Python/FastAPI，未迁移）
+>
+> 根目录 `npm run dev/build/typecheck` 走 turbo 全量；web 单独：`npm run build --workspace=web`（静态导出 `apps/web/out/`）。
+
+**apps/web（HyperTransfer 客户端，React 19 + Next.js 16 + Tailwind 4 + shadcn/ui(Base UI vega)）**：
 
 | 层 | 选型 | 版本约束 |
 |---|---|---|
-| 框架 | **Next.js** App Router | `^16.2.6` |
-| 运行时 | **React** | `^19.2.6` |
-| 语言 | **TypeScript** | `^5.8.3`，`strict: true`、`noUncheckedIndexedAccess: true` |
-| Node | — | `>=20` |
-| 校验 | **Zod** | `^4.4.3` |
-| 模块系统 | ESM（`"type": "module"`） | — |
-| 路径别名 | `@/*` → 仓库根 | 见 `tsconfig.json` |
-| 样式 | 单文件 `app/globals.css`（深色 Operator 金色风） | 无 Tailwind / CSS-in-JS |
-| 状态 | 组件内 `useState` / 顶级 mock 数据 | **暂无** Zustand / Redux / TanStack Query |
-| 数据库 | **无**（一切走 `src/data/seed.ts` mock） | 计划：Prisma + SQLite → PostgreSQL |
-| 测试 | **无**（计划补状态机、表单校验、provider mock 的最小测试） | — |
+| 框架 | **Next.js** App Router（静态导出） | `16.2.6`（react 统一 `19.2.6`，根 overrides 强制） |
+| 组件库 | **shadcn/ui vega 风格 + Base UI**（`@base-ui/react` + `shadcn` 运行时包），共享 `packages/ui` | — |
+| 路由 | App Router 目录路由 + `src/lib/wouter.tsx` shim（兼容原 wouter API） | — |
+| 主题 | emerald/olive preset（bgmJ0t5bH），Geist/Noto Sans 字体；`--gold/--wine` 为兼容别名（值=emerald） | — |
+| 校验 | Zod / 自研 validation | — |
+| 测试 | Vitest（39/39，`npm test --workspace=web`） | `vitest ^2` |
+| 后端通信 | 同源 `/api`（开发 next rewrite → localhost:8000；生产 nginx 反代） | — |
 
-**可用脚本**：
+**apps/operator（Operator Demo）**：Next.js App Router，样式已接入共享设计（`@import "@workspace/ui/globals.css"` + `className="dark"`），保留原有业务组件与 `src/domain` 领域层。
+
+**可用脚本（仓库根）**：
 
 ```bash
-npm run dev        # next dev
-npm run build      # next build
-npm run start      # next start
-npm run typecheck  # tsc --noEmit
+npm run dev        # turbo dev（web :3000 / operator :3001 并发）
+npm run build      # turbo build（web 静态导出 + operator）
+npm run typecheck  # 全部 workspace tsc
+npm test --workspace=web   # web 客户端 vitest
 ```
 
 ## 3. 目录结构（核心）
 
 ```
 VirtualAsset/
-├── app/                          # Next.js App Router（Operator Demo）
-│   ├── layout.tsx                # 根 layout，挂 globals.css
-│   ├── page.tsx                  # 首页 -> <PadDepositApp />（Pad 办理流程）
-│   ├── globals.css               # 全局样式（深色 + 金色强调，唯一样式入口）
-│   ├── kyc/page.tsx              # 客户端 KYC Pad App（独立演示流）
-│   ├── deposits/new/page.tsx     # Host 创建 deposit request 表单
-│   ├── audit/page.tsx            # 审计日志只读列表
-│   ├── treasury/page.tsx         # WTA vault 余额 + Hex Safe 集成说明
-│   ├── refunds/                  # Refund / Payout 模块
-│   └── ops/                      # 运营后台（队列 / case / 详情）
-├── src/
-│   ├── components/               # 业务组件（pad-deposit-app.tsx 等）
-│   ├── domain/                   # 领域核心：types.ts / state-machine.ts / providers.ts
-│   ├── data/seed.ts              # mock 客户 / deposit / case / audit / wtaVaults / payoutRequests
-│   ├── lib/format.ts             # 通用格式化
-│   └── index.ts                  # 老 Node 入口（残留）
-├── public/                       # 静态资产（含 operator-logo.png）
+├── apps/                          # ★两个前端（2026-08 monorepo 重构后）
+│   ├── operator/                  # ★Operator Demo（Next.js App Router，原根目录迁入）
+│   │   ├── app/                   # 页面路由（pad 首页 / kyc / ops / refunds / treasury / audit）
+│   │   ├── src/                   # 业务组件 + domain（types/state-machine/providers）+ data/seed
+│   │   └── public/                # 静态资产（含 operator-logo.png）
+│   └── web/                       # ★HyperTransfer 客户端（Next.js App Router，原 hypertransfer-main/client 迁入）
+│       ├── app/                   # App Router 路由（27 页面映射 + layout.tsx/providers.tsx）
+│       ├── src/                   # views/（27 页面组件）components/ contexts/ lib/ hooks/
+│       │   └── lib/wouter.tsx     # ★wouter→Next Router shim（useLocation/navigate/Link/Redirect）
+│       ├── vitest.config.ts       # 客户端测试（39/39，`npm test --workspace=web`）
+│       └── next.config.ts         # 静态导出 output:export + /api rewrite（仅 dev）
+├── packages/
+│   ├── ui/                        # ★共享设计系统：Base UI vega + emerald(olive) 主题 + 15 组件
+│   │   └── src/styles/globals.css # 设计令牌（--gold/--wine 兼容别名=emerald）+ 自定义组件类
+│   ├── eslint-config/             # 共享 eslint 配置
+│   └── typescript-config/         # 共享 tsconfig 配置
+├── Dockerfile.frontend · docker-compose.yml · deploy/nginx.conf · DEPLOY.md   # ★部署（monorepo 版，静态导出+nginx）
+├── .github/workflows/             # ★CI/CD：hypertransfer-check.yml(全量) + hypertransfer-deploy-hk.yml
+├── turbo.json · package.json      # npm workspaces 根
 ├── ProjectInfo/                  # 业务设计资料
 │   ├── plan.md                   # 项目实施计划
 │   ├── design.md                 # 1.4k 行完整设计文档（业务术语权威来源）
@@ -108,8 +115,8 @@ VirtualAsset/
 ├── hypertransfer-auth-demo/      # 【独立 H5 原型·早期版】注册/登录双因子 MFA（原生 JS + FastAPI，免构建）
 │   ├── server.py                 # FastAPI：send-otp/register/confirm-totp/login/me/logout
 │   └── static/index.html · requirements.txt · run.sh · README.md
-├── hypertransfer-main/           # 【真正的 HyperTransfer 产品前端】React19+Vite+Tailwind4+shadcn/ui+Wouter（非 Vue!Manus 生成）
-│   ├── client/src/               # React 应用（pages/ components/ contexts/ lib/）；黑金风 + i18n + OTP 组件
+├── hypertransfer-main/           # 【历史版本·前端已迁移】client/ 已迁入 apps/web（2026-08），仅 backend/ 继续使用
+│   ├── client/src/               # ⚠️旧 React+Vite+wouter 源码（已冻结，保留作参考/回滚；黑金风旧主题）
 │   │                             #   已接真实认证：lib/api.ts、contexts/AuthContext.tsx、components/ProtectedRoute.tsx、lib/authFlow.ts
 │   │                             #   认证页 pages/{Register,Setup2FA,Login,Verify2FA}.tsx 已接后端
 │   │   ├── lib/compliance.ts     #   ★Phase1 网络白名单 + Travel Rule threshold + 链上确认数 + HT Markets OTC fee 计算
@@ -387,7 +394,7 @@ Password: Operator#2026!
 - **TypeScript strict + `noUncheckedIndexedAccess`**：数组/对象索引访问要处理 `undefined`
 - **Next.js App Router**（Operator Demo）：默认 RSC，需要交互的组件加 `"use client"`
 - **路径**：Operator Demo 用 `@/*` 别名；HyperTransfer 前端用 `@/` → `client/src`
-- **样式**：Operator Demo 集中在 `app/globals.css`，**不要**引入 Tailwind；HyperTransfer 前端用 Tailwind 4 + shadcn/ui（两套独立,别混）
+- **样式**：两前端统一用共享 `packages/ui`（Tailwind 4 + shadcn/ui vega + emerald 令牌）。Operator Demo 的 `app/globals.css` 顶部 `@import "@workspace/ui/globals.css"` + `<html className="dark">` 强制暗色，自定义类引用共享令牌；**不要**再引入独立 Tailwind 配置或复制主题色
 - **移动端全高容器用 `100svh`，不要用 `100dvh`**（HyperTransfer 前端）：`dvh` 会随软键盘弹起实时伸缩，导致 `min-h` 容器 + `mt-auto` 贴底元素反复重排、页面上下抖动；`svh` 是固定小视口高度,键盘弹出不变 → 布局锁死。`Shell.tsx`/`Landing.tsx`/`ProtectedRoute.tsx` 已统一 `svh`。注:`body` 已 `@apply bg-background`,与全高容器同色,svh 底部不会露缝
 - **数据**：Operator Demo 演示数据放 `src/data/seed.ts`；不要在组件里再造 seed
 - **校验**：表单用 Zod / 现有 `lib/validation.ts`
@@ -411,8 +418,8 @@ Password: Operator#2026!
 
 ### 6.5 提交前自检
 
-- Operator Demo:`npm run typecheck` + `npm run build` 必须通过
-- HyperTransfer 前端:`corepack pnpm run check`（tsc）必须通过
+- 根目录 `npm run typecheck` + `npm run build`（turbo 全量）+ `npm test --workspace=web`（vitest）必须通过
+- 旧 hypertransfer-main 的 pnpm 命令不再使用（旧前端已冻结，仅 backend 仍为 Python）
 - 不要 commit `.env*` / `*.key` / `*.pem` / `*.db` / `.venv` / `node_modules`
 - diff 中**不能**出现真实 11 位手机号、18 位身份证、真实姓名（demo `Avery Chen / Morgan Lee / Taylor Wong / Iris Lau / Noah Ho / Mia Chan` 是虚构演示名，允许）。
   注:一次性联调测试手机号不要写进任何提交。
@@ -445,7 +452,7 @@ Password: Operator#2026!
 | 产品名 | **HyperTransfer** |
 | 产品站点 | `https://h5.hypercypto.com` |
 | 线上 demo 登录 | `demo.user@hypercrypto.com` / `Demo@12345`；也可在 `/login` 点 `Use Demo Account`。用户自己注册的线上账号不保存明文密码，忘记只能走 `Forgot password?` |
-| HyperTransfer **实际**技术栈 | **React 19 + Vite + Tailwind 4 + shadcn/ui + Wouter（前端，见 `hypertransfer-main/`）+ Python/FastAPI（认证后端）+ SQLite**。⚠️ 早期商业方案写的"Vue 3 + Python"是**规划口径**;落地的真实前端代码是 **React**,以此为准 |
+| HyperTransfer **实际**技术栈 | **React 19 + Next.js 16 + Tailwind 4 + shadcn/ui(Base UI vega, emerald) + App Router（前端 `apps/web`，2026-08 起；旧 Vite+wouter 见 `hypertransfer-main/` 已冻结）+ Python/FastAPI（认证后端）+ SQLite**。⚠️ 早期商业方案写的"Vue 3 + Python"是**规划口径**;落地前端是 **React**,以此为准 |
 | 最新报价（Phase 1） | **USD 146,250**（325 人天 × USD 450/人天），另 10% 年维护费 USD 14,625 |
 | 报价文件 | `ClientMeetings/HyperTransfer-Development-Quotation.xlsx` |
 | 最新客户会议纪要 | `ClientMeetings/2026-06-05-Crypto-Compliance-KYC-Rollout-Meeting-Notes.md`（2026-06-05 Granola 摘要整理；涉及 Hex Trust / KYC / Travel Rule / testing timeline；具体细节以该文件为准） |
@@ -499,10 +506,10 @@ Password: Operator#2026!
 | 用户说"动手 / 开干 / 做吧" | 直接执行 |
 | 用户说"提交 / commit" | 才能 `git add` + `git commit`；**不要直接提交到 `main`**，从最新 `main` 新建任务分支（`feature/` `fix/` `docs/` `ops/` `codex/<scope>`）再提交 |
 | 用户说"推送 / push" | 才能 `git push`；remote 已配 `origin → github.com/eason36/Hyper-Transfer`；**经 GitHub PR + Squash merge 合并 `main`**，别直推。完整分支/PR/GitHub 保护策略见 `AGENTS.md`「代码管理策略」 |
-| 合并前自检 | diff 无 `.env*`/DB/Office 临时文件/node_modules/日志/真实手机号/PII/密钥；HyperTransfer 至少过 `corepack pnpm run check`；动到术语/TR/Hex Trust/报价/纪要时相关文档已同步 |
+| 合并前自检 | diff 无 `.env*`/DB/Office 临时文件/node_modules/日志/真实手机号/PII/密钥；至少过根目录 `npm run typecheck` + `npm run build` + `npm test --workspace=web`；动到术语/TR/Hex Trust/报价/纪要时相关文档已同步 |
 | 完成可测试批次 | 在 `AGENTS.md`「Release Notes」追加该版本入口/功能/文件/验证/已知限制 |
 | 修改业务流 / 术语 | 同步检查并更新 `ProjectInfo/design.md`、本 `CLAUDE.md`「业务术语」表、以及 `AGENTS.md` |
-| 新增依赖 | Operator Demo 用 `npm install`；HyperTransfer 用 `corepack pnpm add`；不要手写版本号 |
+| 新增依赖 | 根目录 `npm install <pkg>`（workspace 包用 `npm install <pkg> -w web` / `-w @workspace/ui`）；不要手写版本号 |
 | 改文件 ≥ 3 处 / 改 ≥ 3 个文件 | 先 `TodoWrite` 列计划 |
 
 ## 10. 更新机制
@@ -533,7 +540,8 @@ Password: Operator#2026!
 
 ---
 
-*最后更新：2026-08-21（周六·四角色一键演示入口, 分支 feat/ux-visual-polish）(主页 DemoHome 顶部新增 One-click demo·pick a role 四张卡片 Host/Manager/HK Ops/VIP Patron, 点击直接以该角色登录进入对应工作台, 免输邮箱密码; 后端 POST /api/demo/enter 按角色查 seed demo 账号签发真实会话 token(可经 /api/me 校验), 仅 HT_DEMO_BYPASS_2FA+非 production, 生产恒 403; 落点 host→VIP Requests/leader→Leader Approval/ops→Payment Operations/vip→客户 Dashboard; Python 175/175 ✅(+5 demo-enter 测试) tsc ✅ pnpm 39/39 ✅ build ✅, Playwright 四角色一键实测全对, 四角色 20/20 ✅, bob 已重部署。早前历史见下。）*
+*最后更新：2026-08-25（周一·统一设计 monorepo 重构, 分支 feat/unified-monorepo）(按 `shadcn init --preset bgmJ0t5bH --template next --monorepo --rtl --pointer` 把仓库重构为 Next.js turbo monorepo(npm workspaces): Operator Demo 迁入 apps/operator, HyperTransfer 客户端(原 hypertransfer-main/client React+Vite+wouter)迁入 apps/web(Next App Router 全站静态导出, wouter→Next shim `src/lib/wouter.tsx`, 27 路由), 共享 packages/ui(Base UI vega + emerald 主题, `--gold/--wine` 别名重映射为 emerald 色板, Geist/Noto 字体); 两应用 typecheck/build 全绿, vitest 39/39, 部署已上移仓库根(Dockerfile.frontend/docker-compose/nginx.conf/DEPLOY.md, docker 本地实测), GitHub Actions check/deploy 已适配。旧 hypertransfer-main/client 冻结保留。早前历史见下。）*
+*历史：2026-08-21（周六·四角色一键演示入口, 分支 feat/ux-visual-polish）(主页 DemoHome 顶部新增 One-click demo·pick a role 四张卡片 Host/Manager/HK Ops/VIP Patron, 点击直接以该角色登录进入对应工作台, 免输邮箱密码; 后端 POST /api/demo/enter 按角色查 seed demo 账号签发真实会话 token(可经 /api/me 校验), 仅 HT_DEMO_BYPASS_2FA+非 production, 生产恒 403; 落点 host→VIP Requests/leader→Leader Approval/ops→Payment Operations/vip→客户 Dashboard; Python 175/175 ✅(+5 demo-enter 测试) tsc ✅ pnpm 39/39 ✅ build ✅, Playwright 四角色一键实测全对, 四角色 20/20 ✅, bob 已重部署。早前历史见下。）*
 *历史：2026-08-21（周六·USDC 支持 + 审批队列可达, feedback round 2）（补 `AGENTS.md` 2026-08-21 release note: ①开放 USDC(USDT on ERC-20/TRC-20 + USDC on ERC-20), NewDeposit 资产/网络选择器, 后端 asset 门 USDT+USDC; ②修审批队列演示缺口: complete_dossier 建 intent 即 payment_precheck、实际确认后 leader_pending, kyc_first KYC 通过自动进队列; per-transfer pack 仅 service_enabled 后可建; ③seed 增 ADM-DEMO-0002(leader_pending, USDC 预检 intent)。验证: Python 168/168 ✅、pnpm 28/28 ✅、check/build ✅, bob 已重部署。早前历史见下。）*
 *历史：2026-08-21（周六·多角色 onboarding + 审批/结算 visibility + KYC 减摩擦, feedback round）（补 `AGENTS.md` 2026-08-21 release note: ①员工公司邮箱自助注册(`/staff-onboard`, host/leader/ops 三角色, TOTP 激活, 登录按角色落工作台) + Okta 绑定 demo 占位(生产 503 fail closed); ②leader 决策/拒批原因落库并给 Host 看, leader dossier 含 Host note + KYC 状态, Host case 视图聚合到账/Cage/对账 + timeline; ③KYC 表单收敛为 level 必填(姓名/出生日期/国籍/电话+同意), 证件/住址/财务改由 Sumsub 按其 level 收集, 配置存在时提供 WebSDK 启动(未配置走 demo approve), liveness 仅在 level 含该步骤时执行。验证: Python 160/160 ✅、pnpm test 28/28 ✅、check/build ✅。早前历史见下。）*
 *历史：2026-08-21（周六·Host-led VIP admission + per-transfer compliance packs，分支 `docs/host-led-vip-admission-plan`，Task 1–9 每 Task 独立 commit）（新增口径：Host 企业身份激活（staff 会话=Okta 边界，生产无配置 fail closed）→ 同一 case 双通道邀请（email link 6h / 动态 QR 15min，均须邀请邮箱 + Email OTP 认领，认领后同案 session 全作废 410，错误邮箱中性 400 不枚举）→ case-aware KYC（`valid_until=min(通过日+6 日历月,最早证件到期日)`，日历月算法废除固定 `180*86400`；KYC 只从 `kyc_in_progress` 移出；受限结果走 `compliance_review` 中性文案；Host 只见安全原因分类，绝无证件号/原始 detail）→ 单一 leader 准入审批（`leader` 角色 + 可选 `HT_LEADER_USER_ID` 白名单，生产未配 503；`approved->service_enabled` / `rejected` 必填业务原因；Host/Compliance/Marketing/Admin 不能决策；审批/拒绝/重交通知走 `send_email` 并留 audit）→ 每笔转账独立不可变 Transaction Compliance Pack（HKD 8,000 只切 basic/enhanced 字段深度，绝非豁免，废除 `not_required`；实际确认指纹变更作废旧 pack、强制重验、阻发地址）→ KYT+TR 双通过才发托管地址（production 缺 Notabene/Hex Safe 503 fail closed；**不声称真实接 Okta/Notabene/Hex Trust/KYT**）→ HK Operations 手动录 Cage confirmation ID（legacy deposit 仍 Marker ref 原样保留）→ Finance reconciliation → settled（retention≥5 年 + demo monitor 标记关联转账给 Compliance）。验证：Python unittest discover **143/143** ✅、`corepack pnpm test` ✅、`check` ✅、`build` ✅（仅 chunk warning）、`seed_demo.py` 幂等。详见 `AGENTS.md` 2026-08-21 release note。早前历史见下。）*

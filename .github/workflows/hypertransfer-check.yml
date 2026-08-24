@@ -9,34 +9,29 @@ on:
       - main
 
 jobs:
-  typecheck:
-    name: HyperTransfer Typecheck
+  check:
+    name: Monorepo Typecheck + Build + Test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: hypertransfer-main
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.4.1 --activate
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: pnpm
-          cache-dependency-path: hypertransfer-main/pnpm-lock.yaml
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Typecheck
-        run: pnpm run check
+        run: npm run typecheck
 
       - name: Build
-        run: pnpm run build
+        run: npm run build
+
+      - name: Test (web client)
+        run: npm test --workspace=web

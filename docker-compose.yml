@@ -1,0 +1,64 @@
+# HyperTransfer 一键部署(monorepo 版): 前端(Next 静态导出 + nginx 反代) + 后端(FastAPI) + SQLite 持久化卷
+# 用法:  docker compose up -d --build
+# 访问:  http://<服务器IP>:${WEB_PORT:-8090}
+# 说明:  web 构建上下文为仓库根(monorepo), 只构建 apps/web 并静态导出到 nginx html。
+#        后端代码仍在 hypertransfer-main/backend(独立 context 构建)。
+
+services:
+  backend:
+    build:
+      context: ./hypertransfer-main/backend
+    restart: unless-stopped
+    environment:
+      # SQLite 落在持久化卷,容器重建数据不丢
+      HT_DB_PATH: /data/hypertransfer_auth.db
+      # 生产环境请在 .env 中收窄到正式域名,例如 https://h5.hypercypto.com
+      HT_ALLOWED_ORIGINS: "${HT_ALLOWED_ORIGINS:-*}"
+      # 本地默认仍使用 QA 短信网关;生产通过 .env / GitHub Secrets 注入正式配置
+      SMS_API_URL: "${SMS_API_URL:-https://hv-test.hypervelocity.cn/api/sms/simpleSend}"
+      SMS_SIGN_CN: "${SMS_SIGN_CN:-【武汉极数信息技术】}"
+      SMS_SIGN_INTL: "${SMS_SIGN_INTL:-[Hypervelocity]}"
+      # 演示旁路(仅非生产生效): OTP 自动填码 + 2FA 任意 6 位通过; 生产务必留空
+      HT_DEMO_BYPASS_2FA: "${HT_DEMO_BYPASS_2FA:-}"
+      # 邀请链接 / QR 落地页前缀(未配则用相对路径)
+      HT_INVITE_BASE_URL: "${HT_INVITE_BASE_URL:-}"
+      # Host-led VIP admission: 单一 leader 用户 id(可选; production 必配否则 leader 决策 503)
+      HT_LEADER_USER_ID: "${HT_LEADER_USER_ID:-}"
+      # Sumsub provider secrets are optional locally; set these to enable live WebSDK/API calls.
+      SUMSUB_BASE_URL: "${SUMSUB_BASE_URL:-https://api.sumsub.com}"
+      SUMSUB_ENVIRONMENT: "${SUMSUB_ENVIRONMENT:-sandbox}"
+      SUMSUB_APP_TOKEN: "${SUMSUB_APP_TOKEN:-}"
+      SUMSUB_SECRET_KEY: "${SUMSUB_SECRET_KEY:-}"
+      SUMSUB_WEBHOOK_SECRET_KEY: "${SUMSUB_WEBHOOK_SECRET_KEY:-}"
+      SUMSUB_KYC_LEVEL_NAME: "${SUMSUB_KYC_LEVEL_NAME:-basic-kyc-level}"
+      SUMSUB_TR_LEVEL_NAME: "${SUMSUB_TR_LEVEL_NAME:-travel-rule-basic}"
+      SUMSUB_WEBSDK_TTL: "${SUMSUB_WEBSDK_TTL:-600}"
+      # Staff RBAC 种子 admin（留空不创建）
+      HT_ADMIN_EMAIL: "${HT_ADMIN_EMAIL:-}"
+      HT_ADMIN_PASSWORD: "${HT_ADMIN_PASSWORD:-}"
+    volumes:
+      - ht-db:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 不对外暴露端口,仅通过内部网络被 nginx 访问
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Build-time only: Next.js 静态导出时注入版本号(首页 footer 展示 v<version>+<sha>)
+        NEXT_PUBLIC_APP_VERSION: "${NEXT_PUBLIC_APP_VERSION:-}"
+        NEXT_PUBLIC_GIT_COMMIT: "${NEXT_PUBLIC_GIT_COMMIT:-local}"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8090}:80"
+
+volumes:
+  ht-db:

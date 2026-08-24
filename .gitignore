@@ -32,3 +32,10 @@ __pycache__/
 
 # 含真实凭据的本地文档(不入库)
 Docs/SMTP-Config.md
+
+# turbo / workspace
+.turbo
+coverage
+out/
+.vercel
+*.tsbuildinfo

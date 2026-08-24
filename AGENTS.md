@@ -230,6 +230,18 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-25 统一设计 monorepo 重构（分支 `feat/unified-monorepo`）
+
+**一句话**：按 `shadcn init --preset bgmJ0t5bH --template next --monorepo --rtl --pointer` 把仓库重构为 **Next.js turbo monorepo（npm workspaces）**，两个前端统一到同一套 emerald 设计系统；部署/CI 全部适配新结构并 docker 实测。
+
+- **新结构**：`apps/operator`（Operator Demo，原根目录 `app/`+`src/` 迁入）+ `apps/web`（HyperTransfer 客户端，原 `hypertransfer-main/client` 迁入）+ `packages/ui`（共享设计系统）+ `packages/{eslint,typescript}-config`；根目录 `turbo.json` + npm workspaces。
+- **apps/web 迁移**：Next.js 16 App Router，**全站静态导出**（`output:export`，27 路由全部 `○` 预渲染）；wouter→Next 经 `src/lib/wouter.tsx` shim（`useLocation/navigate/Link/Redirect`），28 个文件仅改 import；SSR 安全（localStorage/sessionStorage/window 守卫）、Base UI Select `null` 适配、`src/pages`→`src/views`（避开 Pages Router 目录名）、`import.meta.env`→`NEXT_PUBLIC_*`。
+- **统一设计**：preset emerald/olive（vega 风格，Base UI + `shadcn` 运行时包，Geist/Noto Sans 字体）；旧 `--gold/--wine` 令牌名保留、值重映射为 emerald 色板（`packages/ui/src/styles/globals.css`），页面零类名改动完成换肤；Operator Demo 同样接入共享设计（`@import "@workspace/ui/globals.css"` + `<html className="dark">`）。
+- **部署（上移仓库根）**：`Dockerfile.frontend`（npm ci + build web 静态导出 → nginx）、`docker-compose.yml`（web 反代 /api → backend:8000，backend 仍用 `hypertransfer-main/backend`）、`deploy/nginx.conf`（`try_files $uri $uri.html $uri/ /index.html` + `/_next/static` 缓存）、`.dockerignore`、`DEPLOY.md`；`hypertransfer-check.yml` 改为根目录全量（npm ci + typecheck + build + web vitest），`hypertransfer-deploy-hk.yml` 触发路径/rsync excludes/env 路径/版本 build arg（`NEXT_PUBLIC_GIT_COMMIT`）全部适配。
+- **Bob 公网部署（2026-08-25，已上线可点）**：**http://43.128.111.182:8080**（Bob 公网 IP；8080 为安全组已开放端口）。`docker compose up -d`（根目录 `.env`：`WEB_PORT=8080` + `HT_DEMO_BYPASS_2FA=true`），后端已跑 `seed_demo.py` 灌入演示账号；DemoHome 四角色一键入口（host/leader/ops/vip）实测全部 200，`/api/health` 经容器 nginx 反代正常。旧 `hypertransfer-main` 栈已停（容器移除、卷 `hypertransfer-main_ht-db` 保留，`docker compose -f hypertransfer-main/docker-compose.yml up -d` 可随时恢复）。
+- **验证**：`npm run typecheck`（turbo 3/3）✅、`npm run build`（2/2，web 27 路由静态导出 + operator）✅、`npm test --workspace=web` **39/39** ✅、`docker compose up -d --build` 全栈实测（backend healthy，nginx 反代 `/api/health` 返回 `{"ok":true,...}`，页面 200）✅。
+- **已知限制 / 待办**：① 旧 `hypertransfer-main/client` 已冻结保留（回滚参考），正式切换前需在真机/香港服务器复验新前端（视觉走查 emerald 换肤、邀请/入金全链路、demo 便利）；② `apps/web` 静态导出下 `/api` 由 nginx 反代，`next.config` rewrite 仅 dev 生效；③ 根 `overrides` 强制 react 19.2.6（避免三副本）；④ vitest 的页面渲染测试 mock 了 `next/navigation`（wouter shim 依赖）；⑤ Operator Demo 未做业务级视觉走查（token 映射后按钮/卡片颜色已变 emerald）。
+
 ### 2026-08-21 四角色一键演示入口（分支 `feat/ux-visual-polish`）
 
 - **主页 DemoHome 四角色一键进入**：路由 `/` 顶部新增 **One-click demo · pick a role** 四张卡片（Host / Manager / HK Operations / VIP Patron），点击直接以该角色登录并进入对应工作台——免输邮箱/密码/TOTP。
