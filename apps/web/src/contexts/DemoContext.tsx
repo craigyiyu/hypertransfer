@@ -35,6 +35,7 @@ interface DemoState {
   selectedMinConfirmations: number | null;   // Hex Safe 真实确认数(选网络时存); null=未知/未走真实
   sourceWallet: string;
   screeningPassed: boolean;
+  screeningExpiredDemo: boolean;   // Gate 2A demo (TC-WS-05): 模拟筛查已超过 24h → 发址前强制重查
   depositRequestId: string;   // ③ 后端入金编排单 id(DR-...); 空=未走真实后端(纯 demo)
   paymentIntentId: string;    // ⑦ payment intent id; 空=未走新 pack 流程
   compliancePackId: string;   // ⑦ 当前 transfer leg 的 compliance pack id
@@ -113,6 +114,7 @@ const defaultState: DemoState = {
   selectedMinConfirmations: null,
   sourceWallet: "",
   screeningPassed: false,
+  screeningExpiredDemo: false,
   depositRequestId: "",
   paymentIntentId: "",
   compliancePackId: "",
@@ -247,6 +249,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       selectedMinConfirmations: null,
       sourceWallet: "",
       screeningPassed: false,
+      screeningExpiredDemo: false,
       depositRequestId: "",
       travelRuleComplete: false,
       travelRuleStatus: "travel_rule_required",

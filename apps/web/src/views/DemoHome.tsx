@@ -94,6 +94,16 @@ export default function DemoHome() {
       to: "/ops",
       icon: Building2,
     },
+    {
+      key: "vipInvite",
+      eyebrow: "VIP",
+      title: "VIP login (invite link)",
+      desc: "Claim your account with the invite link from the email you received: paste the link, verify with an email OTP, then start KYC.",
+      points: ["Paste invite link from email", "Email OTP verification", "Pending approval → Start KYC"],
+      cta: "Open VIP invite login",
+      to: "/invite",
+      icon: Sparkles,
+    },
   ];
 
   return (
@@ -155,7 +165,7 @@ export default function DemoHome() {
         </motion.div>
 
         {/* 两个入口卡片 */}
-        <div className="grid w-full gap-4 sm:grid-cols-2">
+        <div className="grid w-full gap-4 sm:grid-cols-3">
           {ENTRIES.map((e, i) => {
             const Icon = e.icon;
             return (

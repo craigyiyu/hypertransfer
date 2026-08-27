@@ -264,6 +264,10 @@ export const invitationApi = {
   email: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation; inviteLink: string; qrPngBase64: string; emailChannel?: string; emailTo?: string }>(`/invitations/${id}/email`, {}),
 
+  // 演示: 查看该邀请实际发出的邮件内容(主题+正文, 与实发一致)
+  emailPreview: (id: string) =>
+    api.get<{ ok: boolean; to: string; subject: string; text: string; link: string }>(`/invitations/${id}/email-preview`),
+
   // RM 把被拒申请直接重新提交(rejected → submitted, 清除拒绝原因)
   resubmit: (id: string) =>
     api.post<{ ok: boolean; invitation: Invitation }>(`/invitations/${id}/resubmit`, {}),
@@ -527,7 +531,6 @@ export interface AdmissionInvitationView {
   emailExpiresAt: string;
   qrExpiresAt: string;
 }
-
 export interface CasePaymentView {
   packId: string;
   transferLeg: "verification" | "main";
@@ -570,6 +573,20 @@ export interface AdmissionCase {
   leaderDecision?: "approved" | "rejected" | null;
   leaderReason?: string | null;
   leaderDecidedAt?: number | null;
+  intendedDepositUsd?: string | null;
+  invitedAt?: number | null;
+  emailSentAt?: number | null;
+  remindedAt?: number | null;
+  qrIssuedAt?: number | null;
+  claimedAt?: number | null;
+  usedAt?: number | null;
+  kycSubmittedAt?: number | null;
+  kycApprovedAt?: number | null;
+  kycRejectedAt?: number | null;
+  approvalAt?: number | null;
+  rejectedAt?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
   invitation?: AdmissionInvitationView | null;
   payments?: CasePaymentView[];
 }
@@ -597,6 +614,7 @@ export const admissionApi = {
     lastName?: string;
     memberReference?: string;
     servicePurpose?: string;
+    intendedDepositUsd?: string;
     hostNotes?: string;
     preferredLanguage?: string;
     route?: "complete_dossier" | "kyc_first";
@@ -694,12 +712,16 @@ export interface LeaderCase {
   kycValidUntil: number | null;
   leaderDecision: "approved" | "rejected" | null;
   leaderReason: string | null;
+  leaderDecidedAt: number | null;
   intendedPayment: LeaderIntendedPayment | null;
 }
 
 export const leaderApi = {
-  // 只读 leader_pending 队列(仅 leader 角色; 生产需配置 HT_LEADER_USER_ID)
-  cases: () => api.get<{ ok: boolean; cases: LeaderCase[] }>("/leader/admission-cases"),
+  // 准入审批工作台: scope=pending 待办队列 / scope=past 已决策历史(仅 leader 角色)
+  cases: (scope?: "pending" | "past") =>
+    api.get<{ ok: boolean; cases: LeaderCase[] }>("/leader/admission-cases", {
+      params: scope ? { scope } : undefined,
+    }),
   // approved -> service_enabled; rejected 必填业务原因
   decide: (caseId: string, decision: "approved" | "rejected", reason?: string) =>
     api.post<{ ok: boolean; case: LeaderCase }>(`/admission-cases/${caseId}/leader-decision`, {

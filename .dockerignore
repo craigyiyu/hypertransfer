@@ -50,3 +50,4 @@ hypertransfer-main/backend/.venv
 *.key
 *.pem
 ~$*.xlsx
+.docker-buildx

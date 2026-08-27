@@ -39,3 +39,4 @@ coverage
 out/
 .vercel
 *.tsbuildinfo
+.docker-buildx

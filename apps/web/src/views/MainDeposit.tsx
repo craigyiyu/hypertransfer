@@ -4,7 +4,7 @@
  * Travel Rule is expected to be cleared before address issuance; this screen keeps a
  * defensive check in case the amount changes later.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "@/lib/wouter";
 import { useDemo } from "@/contexts/DemoContext";
 import { useI18n } from "@/contexts/I18nContext";
@@ -24,7 +24,7 @@ import {
 import { depositApi, paymentApi, transactionPackApi } from "@/lib/api";
 import { writeDemoDepositSettlement } from "@/lib/demo-deposit-settlement";
 
-type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "main_input" | "main_monitoring" | "main_confirming";
+type SessionPhase = "verification" | "verification_monitoring" | "verification_confirmed" | "verification_blocked" | "main_input" | "main_monitoring" | "main_confirming";
 
 const VERIFICATION_TRANSFER_AMOUNT = 1;
 
@@ -47,7 +47,27 @@ export default function MainDeposit() {
   const [detectedVerificationTxHash, setDetectedVerificationTxHash] = useState(state.verificationTxHash || "");
   const [copied, setCopied] = useState(false);
   const [confirmations, setConfirmations] = useState(0);
+  // TC-AD-05 / TC-WI-05: 地址交付 QR(后端 /api/qr 生成 data URI)。
+  const [qrDataUri, setQrDataUri] = useState("");
+  // TC-AD-07 demo: 模拟验证款来自未声明钱包 → Gate 3 停止。
+  const [demoMismatchFrom, setDemoMismatchFrom] = useState(false);
   const sessionId = useState(() => "sess-" + Date.now())[0];
+
+  useEffect(() => {
+    if (!state.depositAddress) return;
+    let alive = true;
+    fetch(`/api/qr?text=${encodeURIComponent(state.depositAddress)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (alive && data && data.qr) setQrDataUri(data.qr);
+      })
+      .catch(() => {
+        /* 后端不可用 → 不展示 QR */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [state.depositAddress]);
 
   // 确认数用 Hex Safe 真实 minBlockConfirmation(选网络时存); 无则回退(仅 demo bypass 路径)。
   const requiredConfirmations = state.selectedMinConfirmations ?? getRequiredConfirmations(state.selectedNetwork);
@@ -158,6 +178,12 @@ export default function MainDeposit() {
 
   // Handle verification step confirmation. Demo can pass any actual on-chain amount.
   const handleVerificationSent = (actualAmount = VERIFICATION_TRANSFER_AMOUNT) => {
+    // Gate 3 demo (TC-AD-07): 模拟验证款来自未声明钱包 → 停止 + 告警, 不确认。
+    if (demoMismatchFrom && !state.depositRequestId) {
+      setPhase("verification_blocked");
+      toast.error("The verification transfer did not originate from your declared wallet; the deposit has been stopped.");
+      return;
+    }
     const detectedAmount = Number.isFinite(actualAmount) && actualAmount > 0
       ? actualAmount
       : VERIFICATION_TRANSFER_AMOUNT;
@@ -364,6 +390,16 @@ export default function MainDeposit() {
                   {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
+              {/* TC-AD-05: 地址 QR(QR 与页面文本同一持久地址) */}
+              {qrDataUri && (
+                <div className="flex justify-center py-1">
+                  <img
+                    src={qrDataUri}
+                    alt="Deposit address QR"
+                    className="w-36 h-36 rounded-lg bg-white p-1.5"
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 pt-1">
                 <span>{formatNetworkRail(state.selectedNetwork)} rail only</span>
                 <span>≈ {getHKDEquivalent("1", state.selectedAsset)}</span>
@@ -385,6 +421,18 @@ export default function MainDeposit() {
               Demo: simulate user sent 100&nbsp;{state.selectedAsset}
             </button>
 
+            {/* TC-AD-07 demo: 从未声明钱包发送验证款 → Gate 3 停止 */}
+            <button
+              onClick={() => setDemoMismatchFrom((v) => !v)}
+              className={`w-full rounded-xl border border-dashed py-2.5 text-[11px] font-medium transition-colors ${
+                demoMismatchFrom
+                  ? "border-destructive/50 bg-destructive/10 text-destructive"
+                  : "border-border/60 bg-transparent text-muted-foreground/70 hover:text-foreground"
+              }`}
+            >
+              {demoMismatchFrom ? "✓ " : ""}Demo: simulate the 1 {state.selectedAsset} arriving from an undeclared wallet
+            </button>
+
             {/* 容错: 忽略提示直接发全额也能被识别接受, 不失败 */}
             <button
               onClick={handleFullAmountDetected}
@@ -393,6 +441,40 @@ export default function MainDeposit() {
               Sent the full amount already? We&apos;ll still detect &amp; accept it →
             </button>
           </>
+        )}
+
+        {/* Gate 3 blocked (TC-AD-07): 验证款来自未声明钱包 → 停止 + 告警 */}
+        {phase === "verification_blocked" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="card-wine rounded-xl px-4 py-5 border-destructive/40 space-y-4"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-destructive font-semibold uppercase tracking-wider">
+                  Deposit stopped
+                </p>
+                <p className="text-sm text-foreground font-semibold">
+                  The verification transfer did not originate from your declared wallet
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  The deposit has been stopped and flagged for review. If you believe this is an error,
+                  contact your representative for assistance — do not send further funds to this address.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setDemoMismatchFrom(false);
+                setPhase("verification");
+              }}
+              className="w-full rounded-xl border border-gold/30 bg-gold/5 py-3 text-xs font-semibold text-gold transition-colors hover:bg-gold/10"
+            >
+              Demo: retry from the declared wallet
+            </button>
+          </motion.div>
         )}
 
         {/* Verification monitoring */}

@@ -242,6 +242,8 @@ export default function KYC() {
   const [phoneCountryCode, setPhoneCountryCode] = useState("+852");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [idType, setIdType] = useState("");
+  // KYC-03 (护照必填): 计划要求有效护照为必选项, 其他证件只能附加、不能替代。
+  const [passportConfirmed, setPassportConfirmed] = useState(false);
   const [idNumber, setIdNumber] = useState("");
   const [documentCountry, setDocumentCountry] = useState("");
   const [documentExpiry, setDocumentExpiry] = useState("");
@@ -271,6 +273,7 @@ export default function KYC() {
     && dob.length === 10
     && phoneNumber.trim()
     && consentAccepted
+    && passportConfirmed
   );
   // 演示环境(非 production)自动通过, 生产环境等待真实 provider 回调。
   const demoApproveAllowed = sumsubConfig ? sumsubConfig.environment !== "production" : false;
@@ -367,6 +370,7 @@ export default function KYC() {
       setOccupation("finance");
       setSourceOfFunds("employment_income");
       setConsentAccepted(true);
+      setPassportConfirmed(true);
     };
 
     window.addEventListener(DEMO_AUTOFILL_EVENT, handleDemoFill);
@@ -704,6 +708,19 @@ export default function KYC() {
           <RequirementCard icon={FileText} title={t("kyc.idDocumentPhotos")} required>
             Passport, ID card, driver's license, or residence permit. Use original color photos with all corners visible and readable text. If both sides contain information, prepare front and back photos.
           </RequirementCard>
+
+          {/* KYC-03: 护照必填 — 其他证件只能附加、不能替代护照 */}
+          <label className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3">
+            <Checkbox
+              checked={passportConfirmed}
+              onCheckedChange={(checked) => setPassportConfirmed(checked === true)}
+              className="mt-0.5"
+            />
+            <span className="text-[11px] leading-relaxed text-muted-foreground">
+              Passport is mandatory for this programme: a valid passport must be supplied. A national ID,
+              HKID or driver's licence may be provided in addition, but cannot replace it. <MandatoryMark />
+            </span>
+          </label>
 
           <RequirementCard icon={Camera} title={t("kyc.selfie")} required>
             Be ready for a selfie or face check so the provider can match you with the identity document. A liveness (head-movement) check is only required if your verification level includes one.

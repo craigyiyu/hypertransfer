@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Host · VIP invite — mockup (iteration 4)</title>
+<!--
+  Mockup v4 — Host "VIP invite" form (one step at a time).
+  NOT wired to the app; standalone HTML for review only.
+  Design tokens copied from packages/ui globals.css (dark emerald/gold).
+  v4 changes (per review): flow condensed to 4 steps (email+link → OTP+password →
+    KYC → KYC passed + final approval → enabled/deposits), wording polished.
+  v3 changes: flow wording tightened; removed KYC-hint / list-note / mockup banner.
+  v2 changes: flow section placeholder tag removed; select height fixed (40px).
+  Changes vs current AdmissionCasePanel (v1 base):
+    1. Panel title: "VIP Requests" → "VIP invite"
+    2. Box title:   "New VIP Request" → "New VIP invite"
+    3. Note field:  placeholder "Anything the approver should know" REMOVED
+    4. Button:      "Send for approval" → "Send invitation"
+    5. NEW: flow explainer box — what happens after sending
+  Todo later: list sections ("Need your attention" / "Approve VIP request" →
+  suggest renaming to "... VIP invite").
+-->
+<style>
+  :root {
+    --background: oklch(0.153 0.006 107.1);
+    --foreground: oklch(0.988 0.003 106.5);
+    --card: oklch(0.228 0.013 107.4);
+    --muted-foreground: oklch(0.737 0.021 106.9);
+    --border: oklch(1 0 0 / 10%);
+    --input-bg: oklch(1 0 0 / 6%);
+    --gold: oklch(0.7 0.15 162);
+    --gold-bright: oklch(0.8 0.16 160);
+    --gold-dim: oklch(0.55 0.11 163);
+    --success: oklch(0.723 0.219 149.579);
+    --warning: oklch(0.75 0.14 85);
+    --destructive: oklch(0.704 0.191 22.216);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .page { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+
+  /* ---- panel header ---- */
+  .panel-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .panel-icon {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: color-mix(in oklab, var(--gold) 15%, transparent);
+    color: var(--gold); display: flex; align-items: center; justify-content: center;
+  }
+  .panel-eyebrow {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-foreground);
+  }
+  .panel-title { font-size: 17px; font-weight: 700; margin: 2px 0 0; }
+
+  /* ---- cards ---- */
+  .card {
+    background: color-mix(in oklab, var(--card) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-foreground); margin: 0 0 12px;
+  }
+
+  /* ---- form grid ---- */
+  .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label {
+    font-size: 10px; font-weight: 500; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted-foreground);
+  }
+  .req { color: var(--destructive); }
+  input, select, textarea {
+    width: 100%;
+    background: var(--input-bg);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    color: var(--foreground);
+    outline: none;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { border-color: color-mix(in oklab, var(--gold) 50%, transparent); }
+  /* 修复: select 与其他输入框高度不一致(浅灰色高度不同) */
+  input, select { height: 40px; }
+  textarea { resize: vertical; min-height: 88px; }
+
+  /* ---- flow explainer (placeholder) ---- */
+  .flow-box {
+    margin-top: 12px;
+    border: 1px dashed color-mix(in oklab, var(--gold) 45%, transparent);
+    background: color-mix(in oklab, var(--gold) 5%, transparent);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .flow-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--gold);
+  }
+  .flow-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+  .flow-steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: var(--muted-foreground); }
+  .step-num {
+    flex: 0 0 20px; height: 20px; border-radius: 50%;
+    background: color-mix(in oklab, var(--gold) 12%, transparent);
+    color: var(--gold); font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; margin-top: 1px;
+  }
+  /* ---- form footer ---- */
+  .form-footer {
+    margin-top: 12px; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+  }
+  .btn-gold {
+    border: none; cursor: pointer;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+    color: oklch(0.99 0 0); font-weight: 600; font-size: 14px;
+    padding: 12px 20px; border-radius: 12px;
+    transition: all 180ms cubic-bezier(0.23, 1, 0.32, 1);
+    font-family: inherit;
+  }
+  .btn-gold:hover { background: linear-gradient(135deg, var(--gold-dim), var(--gold-dim)); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Panel header: title renamed VIP Requests → VIP invite -->
+  <div class="panel-header">
+    <div class="panel-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <div>
+      <p class="panel-eyebrow">Host workspace</p>
+      <h1 class="panel-title">VIP invite</h1>
+    </div>
+  </div>
+
+  <!-- New VIP invite form -->
+  <div class="card">
+    <p class="section-label">New VIP invite</p>
+
+    <div class="form-grid">
+      <div class="field">
+        <label class="field-label">First name <span class="req">*</span></label>
+        <input type="text" placeholder="Given name" />
+      </div>
+      <div class="field">
+        <label class="field-label">Last name <span class="req">*</span></label>
+        <input type="text" placeholder="Family name" />
+      </div>
+      <div class="field">
+        <label class="field-label">Invitation email <span class="req">*</span></label>
+        <input type="email" placeholder="vip@example.test" />
+      </div>
+      <div class="field">
+        <label class="field-label">Intended deposit (USD)</label>
+        <input type="text" inputmode="numeric" placeholder="Amount in USD" />
+      </div>
+      <div class="field">
+        <label class="field-label">Member reference</label>
+        <input type="text" placeholder="M-VIP-001 (optional)" />
+      </div>
+      <div class="field">
+        <label class="field-label">Preferred language</label>
+        <select>
+          <option value="zh">简体中文 (Simplified Chinese)</option>
+          <option value="zh-Hant">繁體中文 (Traditional Chinese)</option>
+          <option value="en" selected>English</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Note: placeholder "Anything the approver should know" REMOVED -->
+    <div class="field" style="margin-top: 10px;">
+      <label class="field-label">Note</label>
+      <textarea placeholder=""></textarea>
+    </div>
+
+    <!-- NEW: flow explainer (placeholder wording) — for the Host; can also be shown to the VIP -->
+    <div class="flow-box">
+      <p class="flow-title">How the invitation works</p>
+      <ul class="flow-steps">
+        <li><span class="step-num">1</span><span>An invitation email containing a sign-in link will be sent to the patron.</span></li>
+        <li><span class="step-num">2</span><span>The patron will create their account using a one-time passcode (OTP) and set a personalized password.</span></li>
+        <li><span class="step-num">3</span><span>The patron will then be asked to complete the required KYC information.</span></li>
+        <li><span class="step-num">4</span><span>Once KYC passes and final approval is granted, the service will be enabled and the patron can initiate deposits.</span></li>
+      </ul>
+    </div>
+
+    <div class="form-footer">
+      <button class="btn-gold">Send invitation</button>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

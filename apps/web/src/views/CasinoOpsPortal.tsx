@@ -19,6 +19,8 @@ import {
   Undo2,
   UserCog,
   Vault,
+  Archive,
+  History,
 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -101,9 +103,11 @@ function useSections() {
     { key: "vip-new", label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
     { key: "vip-attention", label: t("casinoOps.vipAttention"), icon: MailCheck, roles: ["host", "rm"] },
     { key: "vip-approved", label: t("casinoOps.vipApproved"), icon: CheckCircle2, roles: ["host", "rm"] },
+    { key: "vip-archived", label: t("casinoOps.vipArchived"), icon: Archive, roles: ["host", "rm"] },
     { key: "deposits", label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
     { key: "refunds", label: t("casinoOps.withdrawals"), icon: Undo2, roles: ["compliance", "ops", "custodian"] },
     { key: "leader", label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
+    { key: "leader-past", label: t("casinoOps.leaderPast"), icon: History, roles: ["leader"] },
     { key: "payment-ops", label: t("casinoOps.paymentOperations"), icon: Banknote, roles: ["ops", "custodian", "compliance"] },
     { key: "access", label: t("casinoOps.accessRequests"), icon: UserPlus2, roles: ["marketing", "compliance"] },
     { key: "staff", label: t("casinoOps.staffAdmin"), icon: UserCog, roles: [] as string[] }, // admin-only
@@ -257,7 +261,9 @@ export default function CasinoOpsPortal() {
           {activeSection === "vip-new" && <AdmissionCasePanel view="form" />}
           {activeSection === "vip-attention" && <AdmissionCasePanel view="attention" />}
           {activeSection === "vip-approved" && <AdmissionCasePanel view="approved" />}
-          {activeSection === "leader" && <LeaderApprovalPanel />}
+          {activeSection === "vip-archived" && <AdmissionCasePanel view="archived" />}
+          {activeSection === "leader" && <LeaderApprovalPanel view="queued" />}
+          {activeSection === "leader-past" && <LeaderApprovalPanel view="past" />}
           {activeSection === "payment-ops" && <PaymentOperationsPanel />}
           {activeSection === "access" && <InvitationReviewPanel />}
           {activeSection === "staff" && <StaffAdminPanel />}

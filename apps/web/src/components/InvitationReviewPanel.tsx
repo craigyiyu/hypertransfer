@@ -7,7 +7,7 @@
  * 按 useAuth 角色显隐, 后端 require_role 才是真守卫。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserPlus2, Check, X, LinkIcon, Send, MailCheck, Copy, ChevronLeft, ChevronRight } from "lucide-react";
+import { UserPlus2, Check, X, LinkIcon, Send, MailCheck, Copy, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useI18n } from "@/contexts/I18nContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -41,6 +41,9 @@ export default function InvitationReviewPanel() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [issued, setIssued] = useState<Record<string, { link: string; qr: string }>>({});
+  // demo: "查看 VIP 邮件"预览(内容与实发一致, 后端 /email-preview)
+  const [emailPreview, setEmailPreview] = useState<Record<string, { to: string; subject: string; text: string; link: string }>>({});
+  const [previewOpen, setPreviewOpen] = useState<Record<string, boolean>>({});
   const [rejectDraft, setRejectDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [creating, setCreating] = useState(false);
@@ -180,6 +183,24 @@ export default function InvitationReviewPanel() {
 
   const resend = (id: string) => runIssue(id, () => invitationApi.resend(id), t("invitationPanel.emailResent"));
   const emailInvite = (id: string) => runIssue(id, () => invitationApi.email(id), t("invitationPanel.emailSent"));
+
+  // demo: 查看该邀请实际发出的邮件内容(主题+正文, 含链接)。再点收起。
+  const viewEmail = async (id: string) => {
+    if (previewOpen[id]) {
+      setPreviewOpen((prev) => ({ ...prev, [id]: false }));
+      return;
+    }
+    if (!emailPreview[id]) {
+      try {
+        const { data } = await invitationApi.emailPreview(id);
+        setEmailPreview((prev) => ({ ...prev, [id]: data }));
+      } catch (err) {
+        toast.error("Email preview failed", { description: apiError(err) });
+        return;
+      }
+    }
+    setPreviewOpen((prev) => ({ ...prev, [id]: true }));
+  };
   // RM 把被拒申请直接重新提交(rejected → submitted)
   const resubmit = (id: string) => act(id, () => invitationApi.resubmit(id), t("invitationPanel.resubmittedToast"));
   // 把相对邀请链接补成绝对 URL(便于 RM 直接交给客户)
@@ -254,6 +275,13 @@ export default function InvitationReviewPanel() {
               >
                 <MailCheck className="h-3 w-3" /> Email customer
               </button>
+              <button
+                onClick={() => void viewEmail(inv.id)}
+                disabled={expired}
+                className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold disabled:opacity-50"
+              >
+                <Eye className="h-3 w-3" /> {previewOpen[inv.id] ? "Hide VIP email" : "View VIP email"}
+              </button>
               {expired && (
                 <button
                   onClick={() => void resend(inv.id)}
@@ -266,6 +294,26 @@ export default function InvitationReviewPanel() {
             </div>
           </div>
         </div>
+
+        {/* demo: VIP 收到的邮件预览(与实发一致) */}
+        {(() => {
+          const pv = emailPreview[inv.id];
+          if (!previewOpen[inv.id] || !pv) return null;
+          return (
+            <div className="mt-3 space-y-2 rounded-lg border border-border/50 bg-background/60 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  VIP email preview · sent to {pv.to}
+                </p>
+                <MailCheck className="h-3.5 w-3.5 text-gold" />
+              </div>
+              <p className="text-xs font-semibold text-foreground">{pv.subject}</p>
+              <pre className="whitespace-pre-wrap break-all rounded-md bg-secondary/20 p-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                {pv.text}
+              </pre>
+            </div>
+          );
+        })()}
       </div>
     );
   };

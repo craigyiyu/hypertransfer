@@ -551,6 +551,19 @@ export default function NewDeposit() {
                   {walletAddress}
                 </code>
               </div>
+              {/* Gate 2A demo (TC-WS-05): 模拟筛查超过 24h → 发址前强制重查 */}
+              <button
+                onClick={() => updateState({ screeningExpiredDemo: !state.screeningExpiredDemo })}
+                className={`mt-3 w-full rounded-xl border border-dashed py-2.5 text-[11px] font-medium transition-colors ${
+                  state.screeningExpiredDemo
+                    ? "border-warning/50 bg-warning/10 text-warning"
+                    : "border-border/60 bg-transparent text-muted-foreground/70 hover:text-foreground"
+                }`}
+              >
+                {state.screeningExpiredDemo
+                  ? "✓ 24-hour re-screen required: Gate 2A will block address issuance (demo)"
+                  : "Demo: simulate screening older than 24 hours (Gate 2A)"}
+              </button>
             </motion.div>
           )}
 

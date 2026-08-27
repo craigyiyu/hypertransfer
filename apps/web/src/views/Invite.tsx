@@ -51,12 +51,25 @@ export default function Invite() {
   const { updateState } = useDemo();
   const { t } = useI18n();
 
-  const [token] = useState<string>(() => readTokenFromUrl());
+  const [token, setToken] = useState<string>(() => readTokenFromUrl());
   const [claimSession] = useState<{ sessionToken: string; channel: "email" | "qr" } | null>(() =>
     readClaimSessionFromUrl(),
   );
   const claimMode = claimSession !== null;
   const [phase, setPhase] = useState<"verify" | "register">("verify");
+
+  // demo 便利: 无 token 时(首页"VIP 邀请登录"直达 /invite)可粘贴完整邀请链接解析出 token。
+  const [linkInput, setLinkInput] = useState("");
+
+  const applyPastedLink = () => {
+    const m = linkInput.match(/[?&]token=([^&]+)/);
+    if (!m || !m[1]) {
+      toast.error("No invite token found in that link. Paste the full link from the invitation email.");
+      return;
+    }
+    setToken(decodeURIComponent(m[1]).trim());
+    toast.success("Invite link recognised — enter your email to continue.");
+  };
 
   // ---- legacy (token) 流程状态 ----
   const [email, setEmail] = useState("");
@@ -412,8 +425,27 @@ export default function Invite() {
         /* ================= Legacy 邀请链接流程 ================= */
         <>
           {!token && (
-            <div className="card-wine rounded-lg p-3 mb-5 text-xs text-destructive">
-              No invitation token found in the link. Please open the exact link from your invitation email.
+            <div className="card-wine rounded-lg p-3 mb-5 space-y-3">
+              <p className="text-xs text-destructive">
+                No invitation token found in the link. Paste the full link from your
+                invitation email below, or open the exact link from the email.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={linkInput}
+                  onChange={(e) => setLinkInput(e.target.value)}
+                  placeholder="https://…/invite?token=…"
+                  className="flex-1 rounded-lg border border-border/60 bg-input px-3 py-2.5 text-xs text-foreground"
+                />
+                <button
+                  onClick={applyPastedLink}
+                  disabled={!linkInput.trim()}
+                  className="rounded-lg border border-gold/40 bg-gold/5 px-3 py-2.5 text-xs font-semibold text-gold hover:bg-gold/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Continue
+                </button>
+              </div>
             </div>
           )}
 

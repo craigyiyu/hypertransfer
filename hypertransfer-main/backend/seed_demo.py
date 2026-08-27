@@ -140,6 +140,18 @@ ADM_RECON_REF = "FIN-REC-DEMO-0001"
 # 第二条演示 case: 待单一 manager 审批(leader_pending), 让 Leader Approval 队列开箱即有内容。
 ADM_PENDING_CASE_ID = "ADM-DEMO-0002"
 ADM_PENDING_INTENT_ID = "PI-DEMO-0002"
+# 注意力演示 cases(2026-08): 不同状态对应 "Need Your Attention" 的不同场景标签。
+ADM_ATTN_KYC_ID = "ADM-DEMO-0003"        # kyc_in_progress → "KYC to be completed"
+ADM_ATTN_INVITE_ID = "ADM-DEMO-0004"     # invitation_open → "Invite not clicked · N days ago"
+ADM_ATTN_KYC_FAIL_ID = "ADM-DEMO-0005"   # kyc_failed → "KYC rejected"
+ADM_ATTN_REJECTED_ID = "ADM-DEMO-0006"   # rejected → "Service rejected"
+# 准入审批队列演示 cases(Queued Requests / leader_pending)。
+ADM_QUEUE_1_ID = "ADM-DEMO-0007"
+ADM_QUEUE_1_INTENT_ID = "PI-DEMO-0007"
+ADM_QUEUE_2_ID = "ADM-DEMO-0008"
+ADM_QUEUE_2_INTENT_ID = "PI-DEMO-0008"
+ADM_QUEUE_3_ID = "ADM-DEMO-0009"
+ADM_QUEUE_3_INTENT_ID = "PI-DEMO-0009"
 
 
 def seed_admission_demo() -> None:
@@ -160,6 +172,16 @@ def seed_admission_demo() -> None:
             ("payment_intents", "id", ADM_PENDING_INTENT_ID),
             ("vip_admission_cases", "id", ADM_CASE_ID),
             ("vip_admission_cases", "id", ADM_PENDING_CASE_ID),
+            ("vip_admission_cases", "id", ADM_ATTN_KYC_ID),
+            ("vip_admission_cases", "id", ADM_ATTN_INVITE_ID),
+            ("vip_admission_cases", "id", ADM_ATTN_KYC_FAIL_ID),
+            ("vip_admission_cases", "id", ADM_ATTN_REJECTED_ID),
+            ("payment_intents", "id", ADM_QUEUE_1_INTENT_ID),
+            ("payment_intents", "id", ADM_QUEUE_2_INTENT_ID),
+            ("payment_intents", "id", ADM_QUEUE_3_INTENT_ID),
+            ("vip_admission_cases", "id", ADM_QUEUE_1_ID),
+            ("vip_admission_cases", "id", ADM_QUEUE_2_ID),
+            ("vip_admission_cases", "id", ADM_QUEUE_3_ID),
             ("host_profiles", "user_id", ADM_HOST_ID),
             ("users", "id", ADM_HOST_ID),
             ("users", "id", ADM_PATRON_ID),
@@ -288,6 +310,100 @@ def seed_admission_demo() -> None:
              '"sourceIdentifier":"demo-vasp.example.test","counterpartyId":null}',
              now, now),
         )
+
+        # ---- 注意力演示 cases(不同状态 → 不同场景标签) ----
+        day = 86400
+        attn_cases = [
+            # 0003 kyc_in_progress → "KYC to be completed"(Alex Chen)
+            (ADM_ATTN_KYC_ID, "vip3.admission.demo@operator.example", "Alex", "Chen",
+             "M-VIP-0003", "VIP table credit", "Table games, high-limit. Verify source of funds before approval.",
+             "kyc_in_progress", None, None, None, None,
+             "50000", now - 3 * day, now - 3 * day, None, now - 3 * day + 600,
+             now - 3 * day + 3600, now - 3 * day + 3600, now - 2 * day, None, None),
+            # 0004 invitation_open → "Invite not clicked · 3 days ago"(Morgan Lee)
+            (ADM_ATTN_INVITE_ID, "vip4.admission.demo@operator.example", "Morgan", "Lee",
+             "M-VIP-0004", "VIP table credit", None,
+             "invitation_open", None, None, None, None,
+             "25000", now - 3 * day, now - 3 * day, None, None, None, None, None, None, None),
+            # 0005 kyc_failed → "KYC rejected"(Iris Lau, 安全 reason_code)
+            (ADM_ATTN_KYC_FAIL_ID, "vip5.admission.demo@operator.example", "Iris", "Lau",
+             "M-VIP-0005", "VIP table credit", "High-value depositor; recheck document.",
+             "kyc_failed", None, "document_expired", None, None,
+             "80000", now - 5 * day, now - 5 * day, None, now - 5 * day + 600,
+             now - 5 * day + 7200, now - 5 * day + 7200, now - 4 * day, None, now - 3 * day),
+            # 0006 rejected → "Service rejected"(Noah Ho, leader 拒绝+理由)
+            (ADM_ATTN_REJECTED_ID, "vip6.admission.demo@operator.example", "Noah", "Ho",
+             "M-VIP-0006", "VIP table credit", "Outside service appetite candidate.",
+             "rejected", "rejected", None, "Outside service appetite — high-risk jurisdiction and unverified source of funds.",
+             now - 1 * day,
+             "120000", now - 7 * day, now - 7 * day, None, now - 7 * day + 600,
+             now - 7 * day + 3600, now - 7 * day + 3600, now - 6 * day, now - 5 * day, None),
+        ]
+        for (cid, email, first, last, ref, purpose, notes, status,
+             leader_decision, kyc_reason, leader_reason, leader_decided_at,
+             deposit_usd, invited_at, email_sent_at, reminder_at, qr_at,
+             claimed_at, used_at, kyc_sub, kyc_ok_at, kyc_rej_at) in attn_cases:
+            c.execute(
+                """INSERT INTO vip_admission_cases(
+                      id, host_user_id, patron_email, first_name, last_name, member_reference,
+                      service_purpose, host_notes, preferred_language, route, patron_user_id,
+                      status, leader_user_id, kyc_reason_code, kyc_valid_until,
+                      leader_decision, leader_reason, leader_decided_at,
+                      intended_deposit_usd, invited_at, email_sent_at, reminder_sent_at,
+                      qr_issued_at, claimed_at, used_at, kyc_submitted_at, kyc_approved_at,
+                      kyc_rejected_at, created_at, updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cid, ADM_HOST_ID, email, first, last, ref, purpose, notes, "en",
+                 "complete_dossier", None, status, None, kyc_reason,
+                 server.kyc_valid_until(now, []) if kyc_ok_at else None,
+                 leader_decision, leader_reason, leader_decided_at,
+                 deposit_usd, invited_at, email_sent_at, reminder_at, qr_at,
+                 claimed_at, used_at, kyc_sub, kyc_ok_at, kyc_rej_at, now, now),
+            )
+        c.commit()
+
+        # ---- 准入审批队列演示 cases(Queued Requests / leader_pending) ----
+        queue_cases = [
+            (ADM_QUEUE_1_ID, ADM_QUEUE_1_INTENT_ID, "vip7.admission.demo@operator.example",
+             "Ethan", "Wong", "M-VIP-0007", "High-limit baccarat table credit", "complete_dossier",
+             "USDT", "ethereum", "60000", "self_hosted", "0xE7a8...self"),
+            (ADM_QUEUE_2_ID, ADM_QUEUE_2_INTENT_ID, "vip8.admission.demo@operator.example",
+             "Sophia", "Ng", "M-VIP-0008", "Roulette pit rolling credit", "complete_dossier",
+             "USDT", "tron", "40000", "vasp", "demo-vasp2.example.test"),
+            (ADM_QUEUE_3_ID, ADM_QUEUE_3_INTENT_ID, "vip9.admission.demo@operator.example",
+             "James", "Chow", "M-VIP-0009", "Premium table guest (KYC-first)", "kyc_first",
+             "USDC", "ethereum", "90000", "self_hosted", "0xJa9c...self"),
+        ]
+        for cid, iid, email, first, last, ref, purpose, route, asset, net, amount, stype, sid in queue_cases:
+            c.execute(
+                """INSERT INTO vip_admission_cases(
+                      id, host_user_id, patron_email, first_name, last_name, member_reference,
+                      service_purpose, host_notes, preferred_language, route, patron_user_id,
+                      status, leader_user_id, kyc_reason_code, kyc_valid_until,
+                      leader_decision, leader_reason, leader_decided_at,
+                      intended_deposit_usd, invited_at, email_sent_at, reminder_sent_at,
+                      qr_issued_at, claimed_at, used_at, kyc_submitted_at, kyc_approved_at,
+                      kyc_rejected_at, created_at, updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cid, ADM_HOST_ID, email, first, last, ref, purpose, "Awaiting approval review.",
+                 "en", route, None, "leader_pending", None, None,
+                 server.kyc_valid_until(now, []), None, None, None,
+                 amount, now - 3 * day, now - 3 * day, None, now - 3 * day + 600,
+                 now - 3 * day + 3600, now - 3 * day + 3600, now - 2 * day, now - 2 * day + 1800,
+                 None, now, now),
+            )
+            c.execute(
+                """INSERT INTO payment_intents(
+                      id, admission_case_id, asset, network, intended_amount, source_type,
+                      source_identifier, counterparty_name, source_status, status,
+                      fingerprint_json, created_at, updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (iid, cid, asset, net, amount, stype, sid,
+                 "Demo VASP" if stype == "vasp" else None, "pass", "actual_confirmed",
+                 '{"asset":"%s","network":"%s","actualAmount":"%s","sourceType":"%s",'
+                 '"sourceIdentifier":"%s","counterpartyId":null}' % (asset, net, amount, stype, sid),
+                 now, now),
+            )
         c.commit()
 
 

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HyperTransfer — 全模块总览蓝图 (blueprint)</title>
+<!--
+  全模块总览蓝图(一份 HTML, 纵向堆叠)。
+  用途: 逐块批注, 页面确认后再写回代码。
+  结构:
+    A. 运营方后台 VA Operations Portal — 顶部栏 + 左侧 9 菜单 + 9 模块
+       M1 New VIP invite   (已定稿 · 完整)
+       M2 Need Your Attention (已定稿 · 完整, 4 场景)
+       M3 Approved          (占位)
+       M4 Deposits          (占位)
+       M5 Withdrawals       (占位)
+       M6 Leader Approval   (占位)
+       M7 Payment Operations(占位)
+       M8 Access Requests   (占位)
+       M9 Staff Admin       (占位)
+    B. 客户端 VIP / H5 — 底部导航 + 页面
+       C1 Welcome/Landing   C2 Invite 认领(邮箱+OTP)  C3 Pending approval
+       C4 KYC               C5 入金流程(筛查→TR→发址→主入金→成功)
+       C6 History           C7 Refund  C8 Support  C9 Settings/Profile
+  批注方式: 引用 "M4" / "C2" 等编号。
+-->
+<style>
+  :root {
+    --background: oklch(0.153 0.006 107.1);
+    --foreground: oklch(0.988 0.003 106.5);
+    --card: oklch(0.228 0.013 107.4);
+    --muted-foreground: oklch(0.737 0.021 106.9);
+    --border: oklch(1 0 0 / 10%);
+    --gold: oklch(0.7 0.15 162);
+    --gold-bright: oklch(0.8 0.16 160);
+    --gold-dim: oklch(0.55 0.11 163);
+    --success: oklch(0.723 0.219 149.579);
+    --warning: oklch(0.75 0.14 85);
+    --destructive: oklch(0.704 0.191 22.216);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--background); color: var(--foreground); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+  .page { max-width: 1200px; margin: 0 auto; padding: 24px 28px 80px; }
+
+  /* 蓝图头 */
+  .bp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 10px 14px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent); background: color-mix(in oklab, var(--warning) 8%, transparent); font-size: 12px; color: var(--warning); }
+  .bp-head b { font-size: 13px; }
+
+  /* 大分区 */
+  .part { margin-bottom: 40px; }
+  .part-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+  .part-title .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in oklab, var(--gold) 45%, transparent); color: var(--gold); text-transform: uppercase; letter-spacing: .06em; }
+  .part-sub { font-size: 12px; color: var(--muted-foreground); margin: 0 0 14px; }
+
+  /* 模块块 */
+  .mod { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in oklab, var(--card) 70%, transparent); overflow: hidden; }
+  .mod-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--card) 90%, transparent); }
+  .mod-no { font-size: 10px; font-weight: 800; color: var(--gold); border: 1px solid color-mix(in oklab, var(--gold) 40%, transparent); border-radius: 6px; padding: 1px 7px; }
+  .mod-name { font-size: 13px; font-weight: 700; }
+  .mod-roles { font-size: 10px; color: var(--muted-foreground); margin-left: auto; text-transform: uppercase; letter-spacing: .05em; }
+  .mod-body { padding: 14px; }
+  .mod-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 1px 8px; border-radius: 999px; }
+  .status-done { color: var(--success); border: 1px solid color-mix(in oklab, var(--success) 40%, transparent); background: color-mix(in oklab, var(--success) 10%, transparent); }
+  .status-ph { color: var(--muted-foreground); border: 1px dashed var(--border); }
+
+  /* 占位 */
+  .ph { border: 1px dashed color-mix(in oklab, var(--border) 90%, transparent); border-radius: 10px; padding: 26px 20px; text-align: center; color: var(--muted-foreground); font-size: 12px; }
+  .ph b { color: var(--foreground); }
+
+  /* 通用控件(复用已定稿样式) */
+  .stepper-label, .sec-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-foreground); }
+  .card { background: color-mix(in oklab, var(--card) 80%, transparent); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); }
+  .field-value { font-size: 13px; margin-top: 2px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 14px; }
+  @media (max-width: 900px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+  input, select, textarea { width: 100%; background: oklch(1 0 0 / 6%); border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); border-radius: 8px; padding: 8px 12px; font-size: 14px; color: var(--foreground); outline: none; font-family: inherit; }
+  input, select { height: 40px; }
+  .btn-gold { border: none; cursor: pointer; background: linear-gradient(135deg, var(--gold-bright), var(--gold)); color: oklch(0.99 0 0); font-weight: 600; font-size: 14px; padding: 12px 20px; border-radius: 12px; font-family: inherit; }
+  .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 9px; font-size: 10px; font-weight: 600; margin-left: 8px; }
+  .tag.warn { border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent); background: color-mix(in oklab, var(--warning) 12%, transparent); color: var(--warning); }
+  .tag.danger { border: 1px solid color-mix(in oklab, var(--destructive) 45%, transparent); background: color-mix(in oklab, var(--destructive) 12%, transparent); color: var(--destructive); }
+
+  /* 菜单 */
+  .portal { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .menu { width: 210px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 14px 10px; background: color-mix(in oklab, var(--card) 60%, transparent); }
+  .menu-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted-foreground); margin: 4px 10px 8px; }
+  .menu-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; font-size: 12px; color: var(--muted-foreground); margin-bottom: 2px; }
+  .menu-item .no { font-size: 9px; color: var(--gold); margin-left: auto; }
+  .menu-item.active { background: color-mix(in oklab, var(--gold) 10%, transparent); color: var(--foreground); }
+  .content { flex: 1; padding: 16px; min-width: 0; }
+
+  /* 顶部栏 */
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1px solid var(--border); border-bottom: none; border-radius: 12px 12px 0 0; background: color-mix(in oklab, var(--card) 90%, transparent); font-size: 12px; }
+  .topbar .spacer { flex: 1; }
+  .chip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; color: var(--muted-foreground); }
+  .btn-mini { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-mini:hover { color: var(--gold); border-color: color-mix(in oklab, var(--gold) 40%, transparent); }
+  .btn-mini.danger { color: var(--destructive); border-color: color-mix(in oklab, var(--destructive) 35%, transparent); }
+  .btn-mini svg { flex-shrink: 0; }
+  .field-box { background: color-mix(in oklab, var(--card) 70%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+
+  /* 客户端 */
+  .client-shell { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .bottom-nav { display: flex; border-top: 1px solid var(--border); background: color-mix(in oklab, var(--card) 90%, transparent); }
+  .bottom-nav .bn { flex: 1; text-align: center; padding: 10px 4px; font-size: 10px; color: var(--muted-foreground); }
+  .bottom-nav .bn.active { color: var(--gold); font-weight: 700; }
+
+  /* 已定稿模块内的复用小组件 */
+  .steps { display: flex; width: 100%; margin-top: 10px; }
+  .step { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .step:not(:last-child)::after { content: ""; position: absolute; top: 9px; left: calc(50% + 11px); width: calc(100% - 22px); height: 3px; border-radius: 2px; background: color-mix(in oklab, var(--muted-foreground) 30%, transparent); }
+  .step.done:not(:last-child)::after, .step.current:not(:last-child)::after { background: color-mix(in oklab, var(--gold) 65%, transparent); }
+  .node { width: 18px; height: 18px; border-radius: 50%; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; background: var(--card); border: 2px solid color-mix(in oklab, var(--muted-foreground) 40%, transparent); color: var(--muted-foreground); }
+  .step.done .node { border-color: var(--gold); color: var(--gold); }
+  .step.current .node { border-color: var(--gold-bright); color: var(--gold-bright); }
+  .step-label { font-size: 9px; color: var(--muted-foreground); text-align: center; line-height: 1.15; }
+  .step.done .step-label { color: var(--gold); }
+  .step.current .step-label { color: var(--foreground); font-weight: 600; }
+  .inv-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .inv-row .k { color: var(--muted-foreground); min-width: 100px; }
+  .inv-row .v.gold { color: var(--gold); }
+  .inv-row .v.dim { color: var(--muted-foreground); }
+  .hist-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .hist-row .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--card); }
+  .hist-row .dot.done { background: var(--gold); }
+  .hist-row .dot.err { background: var(--destructive); }
+  .hist-row .dot.pend { background: color-mix(in oklab, var(--muted-foreground) 40%, transparent); }
+  .hist-row .k { color: var(--muted-foreground); }
+  .hist-row .v.err { color: var(--destructive); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="bp-head">
+    <b>HyperTransfer 全模块总览蓝图</b>
+    <span>· 纵向堆叠 · 已定稿模块完整展示, 其余占位 · 批注请用编号(M4 / C2 等)</span>
+  </div>
+
+  <!-- ================================================================
+       PART A · 运营方后台
+  ================================================================ -->
+  <div class="part">
+    <h2 class="part-title"><span class="badge">Part A</span>运营方后台 VA Operations Portal</h2>
+    <p class="part-sub">左侧 9 菜单(角色控制) · 顶部: 品牌 / 用户 / 语言 / 主题 / Sign out / Okta 链接</p>
+
+    <div class="topbar">
+      <b>VA Operations Portal</b>
+      <span class="chip">HK Ops</span>
+      <span class="spacer"></span>
+      <span class="chip">EN / 繁 / 简</span>
+      <span class="chip">Theme</span>
+      <span class="chip">Link Okta</span>
+      <span class="chip">Sign out</span>
+    </div>
+
+    <div class="portal">
+      <nav class="menu">
+        <p class="menu-label">Host workspace</p>
+        <div class="menu-item active">New VIP invite <span class="no">M1</span></div>
+        <div class="menu-item">Need Your Attention <span class="no">M2</span></div>
+        <div class="menu-item">Approved <span class="no">M3</span></div>
+        <p class="menu-label" style="margin-top:14px;">Operations</p>
+        <div class="menu-item">Deposits <span class="no">M4</span></div>
+        <div class="menu-item">Withdrawals <span class="no">M5</span></div>
+        <div class="menu-item">Leader Approval <span class="no">M6</span></div>
+        <div class="menu-item">Payment Operations <span class="no">M7</span></div>
+        <div class="menu-item">Access Requests <span class="no">M8</span></div>
+        <div class="menu-item">Staff Admin <span class="no">M9</span></div>
+      </nav>
+
+      <main class="content">
+
+        <!-- ============ M1 · New VIP invite(已定稿 · 完整) ============ -->
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M1</span><span class="mod-name">New VIP invite</span><span class="mod-roles">Host / RM</span></div>
+          <div class="mod-body">
+            <div class="card">
+              <p class="sec-label">New VIP invite</p>
+              <div class="grid4" style="margin-top:8px;">
+                <div><p class="field-label">First name *</p><input placeholder="Given name" /></div>
+                <div><p class="field-label">Last name *</p><input placeholder="Family name" /></div>
+                <div><p class="field-label">Invitation email *</p><input placeholder="vip@example.test" /></div>
+                <div><p class="field-label">Intended deposit (USD)</p><input inputmode="numeric" placeholder="Amount in USD" /></div>
+                <div><p class="field-label">Member reference</p><input placeholder="M-VIP-001 (optional)" /></div>
+                <div><p class="field-label">Preferred language</p><select><option>简体中文</option><option>繁體中文</option><option selected>English</option><option>Other</option></select></div>
+              </div>
+              <div style="margin-top:10px;"><p class="field-label">Note</p><textarea placeholder=""></textarea></div>
+              <div style="margin-top:10px;border:1px dashed color-mix(in oklab, var(--gold) 45%, transparent);background:color-mix(in oklab, var(--gold) 5%, transparent);border-radius:10px;padding:10px 12px;">
+                <p class="sec-label" style="color:var(--gold);">How the Invitation Works</p>
+                <ol style="margin:8px 0 0 0;padding-left:18px;display:grid;gap:4px;font-size:12px;color:var(--muted-foreground);">
+                  <li>An invitation email containing a sign-in link will be sent to the patron.</li>
+                  <li>The patron will create their account using a one-time passcode (OTP) and set a personalized password.</li>
+                  <li>The patron will then be asked to complete the required KYC information.</li>
+                  <li>Once KYC passes and final approval is granted, the service will be enabled and the patron can initiate deposits.</li>
+                </ol>
+              </div>
+              <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-gold">Send invitation</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ M2 · Need Your Attention(已定稿 · 完整) ============ -->
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M2</span><span class="mod-name">Need Your Attention</span><span class="mod-roles">Host / RM</span></div>
+          <div class="mod-body">
+            <p style="font-size:12px;color:var(--muted-foreground);margin:0 0 10px;">Requests awaiting the VIP input or approver comment appear here.</p>
+            <div class="card" style="padding:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span class="sec-label">Need Your Attention</span><span class="tag warn">4</span></div>
+
+              <!-- 场景 a: KYC to be completed(展开) -->
+              <div style="border:1px solid color-mix(in oklab, var(--gold) 40%, transparent);border-radius:10px;margin-top:8px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;">
+                  <div><b style="font-size:13px;">Alex Chen</b> <span style="font-size:11px;color:var(--muted-foreground);margin-left:6px;">a***@example.test</span> <span class="tag warn">KYC to be completed</span></div>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>Resend invitation</button>
+                    <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM18 18h3v3h-3zM21 14h-3"/></svg>Invitation QR</button>
+                    <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Send reminder</button>
+                    <button class="btn-mini danger"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>Revoke</button>
+                  </div>
+                </div>
+                <div style="border-top:1px solid var(--border);padding:12px;">
+                  <p class="sec-label">Admission Status</p>
+                  <div class="steps">
+                    <div class="step done"><span class="node">1</span><span class="step-label">Invited</span></div>
+                    <div class="step done"><span class="node">2</span><span class="step-label">Clicked</span></div>
+                    <div class="step current"><span class="node">3</span><span class="step-label">KYC info submitted</span></div>
+                    <div class="step"><span class="node">4</span><span class="step-label">KYC approved</span></div>
+                    <div class="step"><span class="node">5</span><span class="step-label">Service enabled</span></div>
+                  </div>
+                  <div style="margin-top:12px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);border-radius:10px;background:oklch(0.12 0.005 107);padding:10px 12px;">
+                    <p class="sec-label">Notes</p>
+                    <div class="grid4" style="margin-top:6px;gap:8px;">
+                      <div class="field-box"><p class="field-label">Intended Deposit</p><p class="field-value">50,000 USD</p></div>
+                      <div class="field-box"><p class="field-label">Member Reference</p><p class="field-value">M-VIP-0123</p></div>
+                      <div class="field-box"><p class="field-label">KYC Valid Until</p><p class="field-value" style="color:var(--muted-foreground);">—</p></div>
+                      <div class="field-box"><p class="field-label">Note</p><p class="field-value">Table games, high-limit.</p></div>
+                    </div>
+                  </div>
+                  <div style="margin-top:10px;">
+                    <p class="sec-label">Invitation</p>
+                    <div style="display:grid;gap:3px;margin-top:5px;">
+                      <div class="inv-row"><span class="k">QR generated</span><span>27 Aug 2026, 10:31</span></div>
+                      <div class="inv-row"><span class="k">Used</span><span>No</span></div>
+                    </div>
+                  </div>
+                  <div style="margin-top:10px;">
+                    <p class="sec-label">History</p>
+                    <div style="display:grid;gap:4px;margin-top:5px;">
+                      <div class="hist-row"><span class="dot done"></span><span class="k">Invited · </span><span>27 Aug 2026, 10:24</span></div>
+                      <div class="hist-row"><span class="dot done"></span><span class="k">Clicked (initial) · </span><span>27 Aug 2026, 11:02</span></div>
+                      <div class="hist-row"><span class="dot done"></span><span class="k">KYC submitted · </span><span>27 Aug 2026, 14:35</span></div>
+                      <div class="hist-row"><span class="dot pend"></span><span class="k">KYC completed · </span><span>awaiting</span></div>
+                      <div class="hist-row"><span class="dot pend"></span><span class="k">Approval · </span><span>—</span></div>
+                    </div>
+                    <p class="sec-label" style="margin-top:10px;">Deposits</p>
+                    <p style="font-size:11px;color:var(--muted-foreground);margin:4px 0 0;">No transfers yet.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 场景 b/c/d: 折叠行 -->
+              <div style="border:1px solid var(--border);border-radius:10px;margin-top:8px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;">
+                <div><b style="font-size:13px;">Morgan Lee</b> <span style="font-size:11px;color:var(--muted-foreground);margin-left:6px;">m***@example.test</span> <span class="tag warn">Invite not clicked · invited 3 days ago</span></div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>Resend invitation</button>
+                  <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Send reminder</button>
+                  <button class="btn-mini danger"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>Revoke</button>
+                </div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;margin-top:8px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;">
+                <div><b style="font-size:13px;">Iris Lau</b> <span style="font-size:11px;color:var(--muted-foreground);margin-left:6px;">i***@example.test</span> <span class="tag danger">KYC rejected</span></div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn-mini"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Send reminder</button>
+                  <button class="btn-mini danger"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>Revoke</button>
+                </div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;margin-top:8px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;">
+                <div><b style="font-size:13px;">Noah Ho</b> <span style="font-size:11px;color:var(--muted-foreground);margin-left:6px;">n***@example.test</span> <span class="tag danger">Service rejected</span></div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn-mini danger"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>Revoke</button>
+                </div>
+              </div>
+              <p style="font-size:10px;color:var(--muted-foreground);margin:8px 0 0;">(被拒 case 展开后顶部有红色横幅: "Rejected by the approver · Reason: …")</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ M3–M9 占位 ============ -->
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M3</span><span class="mod-name">Approved</span><span class="mod-roles">Host / RM</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">已启用 VIP 列表 — 行结构同 M2(展开详情: stepper / Notes / Invitation / History), 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M4</span><span class="mod-name">Deposits</span><span class="mod-roles">compliance / ops / custodian</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">入金队列 — 待定稿(可复用 M2 的 Deposits 行样式)</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M5</span><span class="mod-name">Withdrawals</span><span class="mod-roles">compliance / ops / custodian</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">退款 / 出金队列 — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M6</span><span class="mod-name">Leader Approval</span><span class="mod-roles">leader</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">准入审批队列(含拒绝理由必填) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M7</span><span class="mod-name">Payment Operations</span><span class="mod-roles">ops / custodian / compliance</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">支付 / 结算操作 — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M8</span><span class="mod-name">Access Requests</span><span class="mod-roles">marketing / compliance</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">RM 提交 → Marketing 审批队列(含 "View VIP email" 预览) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">M9</span><span class="mod-name">Staff Admin</span><span class="mod-roles">admin</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">员工管理(角色 / 离职注销) — 待定稿</div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       PART B · 客户端 VIP / H5
+  ================================================================ -->
+  <div class="part">
+    <h2 class="part-title"><span class="badge">Part B</span>客户端 VIP / H5</h2>
+    <p class="part-sub">底部导航: Dashboard · History · Support · Profile · 页面从认领到入金的全流程</p>
+
+    <div class="client-shell">
+      <!-- 页面堆叠 -->
+      <div style="padding:16px;display:grid;gap:12px;">
+        <div class="mod" style="margin-top:0;">
+          <div class="mod-head"><span class="mod-no">C1</span><span class="mod-name">Welcome / Landing</span><span class="mod-roles">公开</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">品牌落地页 + 登录 / 注册入口 — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C2</span><span class="mod-name">Invite 认领(邮箱 + OTP)</span><span class="mod-roles">邀请链接直达</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">点开链接 → 邮箱已预填且不可改 → 收 OTP → 输入即建号 → 下一页设密码 — 待定稿(按 M1 流程说明)</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C3</span><span class="mod-name">Pending Approval</span><span class="mod-roles">认领后</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">"Account created · Approval pending" → Start KYC 按钮(已有实现) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C4</span><span class="mod-name">KYC</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">身份信息 + 证件照片 + 护照必选确认 + 自拍/liveness(取决于 level) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C5</span><span class="mod-name">入金流程</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">钱包筛查 → Travel Rule → 发址(QR) → 1 USDT 验证 → 主入金 → 成功页(txHash / fee / HKD) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C6</span><span class="mod-name">History</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">入金历史(状态 Pending / Completed / Settled) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C7</span><span class="mod-name">Refund</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">退到已验证原钱包(禁止新地址) — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C8</span><span class="mod-name">Support</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">FAQ / 联系表单 / 回拨 — 待定稿</div></div>
+        </div>
+        <div class="mod">
+          <div class="mod-head"><span class="mod-no">C9</span><span class="mod-name">Settings / Profile</span><span class="mod-roles">客户</span><span class="mod-status status-ph">占位</span></div>
+          <div class="mod-body"><div class="ph">个人资料 / 2FA / 会话管理 — 待定稿</div></div>
+        </div>
+      </div>
+      <!-- 底部导航 -->
+      <div class="bottom-nav">
+        <div class="bn active">Dashboard</div>
+        <div class="bn">History</div>
+        <div class="bn">Support</div>
+        <div class="bn">Profile</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

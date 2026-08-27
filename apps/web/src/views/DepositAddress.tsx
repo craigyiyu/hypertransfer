@@ -51,7 +51,9 @@ export default function DepositAddress() {
     state.travelRuleStatus,
     travelRuleRequired,
   );
-  const canIssueAddress = isDemoFlow || (kycApproved && state.screeningPassed && travelRuleGatePassed);
+  // Gate 2A (TC-WS-05): demo 中模拟筛查超过 24h → 阻止发址, 强制重新筛查。
+  const gate2aExpired = state.screeningExpiredDemo === true;
+  const canIssueAddress = !gate2aExpired && (isDemoFlow || (kycApproved && state.screeningPassed && travelRuleGatePassed));
   const nextGateRoute = !kycApproved
     ? "/kyc"
     : !state.screeningPassed
@@ -170,11 +172,24 @@ export default function DepositAddress() {
                   {t("depositAddress.addressBlocked")}
                 </p>
                 <p className="text-sm text-foreground font-semibold">
-                  {t("depositAddress.gatesMustClear")}
+                  {gate2aExpired ? "Wallet screening is older than 24 hours" : t("depositAddress.gatesMustClear")}
                 </p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Hex Safe address issuance is blocked until KYC is approved, source-wallet KYT passes, and the Travel Rule gate is accepted when required.
+                  {gate2aExpired
+                    ? "Gate 2A requires a fresh re-screen of the declared wallet within the 24-hour look-back window before an address can be issued."
+                    : "Hex Safe address issuance is blocked until KYC is approved, source-wallet KYT passes, and the Travel Rule gate is accepted when required."}
                 </p>
+                {gate2aExpired && (
+                  <button
+                    onClick={() => {
+                      updateState({ screeningExpiredDemo: false });
+                      navigate("/new-deposit");
+                    }}
+                    className="w-full rounded-xl py-2.5 text-xs font-semibold border border-gold/40 bg-gold/5 text-gold hover:bg-gold/10 transition-all"
+                  >
+                    Demo: re-screen now (fresh 24h clearance)
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>

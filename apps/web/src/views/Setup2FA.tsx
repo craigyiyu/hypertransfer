@@ -121,7 +121,8 @@ export default function Setup2FA() {
       setSession(data.token, data.user);
       sessionStorage.removeItem(PENDING_REGISTER_KEY);
       toast.success(t("twoFA.enabled"));
-      navigate("/kyc");
+      // 邀请(email)认领的 VIP → 先展示"待批准"页, 再开始 KYC; 手机号注册直接进 KYC。
+      navigate(pending.viaEmail ? "/pending-approval" : "/kyc");
     } catch (e) {
       toast.error(apiError(e));
       setCode("");
@@ -141,7 +142,7 @@ export default function Setup2FA() {
       setSession(data.token, data.user);
       sessionStorage.removeItem(PENDING_REGISTER_KEY);
       toast.success("2FA skipped — you can enable it later in Settings.");
-      navigate("/kyc");
+      navigate(pending.viaEmail ? "/pending-approval" : "/kyc");
     } catch (e) {
       toast.error(apiError(e));
     } finally {

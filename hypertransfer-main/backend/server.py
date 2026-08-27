@@ -354,6 +354,7 @@ NEW_SCHEMA_SQL = """
         screening_status   TEXT,                    -- pending/pass/edd/fail
         screening_ref      TEXT,
         screening_detail   TEXT,
+        screening_at       INTEGER,                  -- Gate 2A: 钱包筛查时间戳, 超 24h 发址前必须重新筛查
         travel_rule_required INTEGER NOT NULL DEFAULT 0,
         travel_rule_status TEXT NOT NULL DEFAULT 'not_required',
         deposit_address    TEXT,                    -- Hex Safe vault 在该链的固定地址
@@ -416,6 +417,16 @@ ADMISSION_SCHEMA_SQL = """
         leader_decision TEXT,
         leader_reason   TEXT,
         leader_decided_at INTEGER,
+        intended_deposit_usd TEXT,     -- 意向入金金额(纯数字字符串; 前端千分位 + USD 展示)
+        invited_at      INTEGER,       -- 首次发出邀请
+        email_sent_at   INTEGER,       -- 最近一次邀请邮件发出
+        reminder_sent_at INTEGER,      -- 最近一次提醒邮件发出
+        qr_issued_at    INTEGER,       -- 最近一次 QR session 签发
+        claimed_at      INTEGER,       -- VIP 认领(点开链接 + 邮箱 OTP 注册)
+        used_at         INTEGER,       -- 邀请链接被使用(认领注册成功)
+        kyc_submitted_at INTEGER,      -- KYC 首次提交结果时间
+        kyc_approved_at INTEGER,       -- KYC 通过时间
+        kyc_rejected_at INTEGER,       -- KYC 拒绝时间
         created_at      INTEGER NOT NULL,
         updated_at      INTEGER NOT NULL
     );
@@ -708,6 +719,23 @@ def init_db() -> None:
             conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN leader_reason TEXT")
         if "leader_decided_at" not in admission_cols:
             conn.execute("ALTER TABLE vip_admission_cases ADD COLUMN leader_decided_at INTEGER")
+        # Host VIP invite 时间戳 + 意向入金金额(2026-08 mockup 对齐; 既有库幂等补列)。
+        case_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(vip_admission_cases)").fetchall()}
+        for _col, _type in (
+            ("intended_deposit_usd", "TEXT"),
+            ("invited_at", "INTEGER"),
+            ("email_sent_at", "INTEGER"),
+            ("reminder_sent_at", "INTEGER"),
+            ("qr_issued_at", "INTEGER"),
+            ("claimed_at", "INTEGER"),
+            ("used_at", "INTEGER"),
+            ("kyc_submitted_at", "INTEGER"),
+            ("kyc_approved_at", "INTEGER"),
+            ("kyc_rejected_at", "INTEGER"),
+        ):
+            if _col not in case_cols:
+                conn.execute(f"ALTER TABLE vip_admission_cases ADD COLUMN {_col} {_type}")
         # Task 7: payment intent source outcome + pack custody/tx columns(既有库幂等补列)。
         intent_cols = {r["name"] for r in conn.execute(
             "PRAGMA table_info(payment_intents)").fetchall()}
@@ -725,6 +753,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN reconciliation_ref TEXT")
         if "reconciled_at" not in pack_cols:
             conn.execute("ALTER TABLE transaction_compliance_packs ADD COLUMN reconciled_at INTEGER")
+        # Gate 2A (TC-WS-05): deposit_requests 补 screening_at(既有库幂等补列)。
+        dep_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(deposit_requests)").fetchall()}
+        if "screening_at" not in dep_cols:
+            conn.execute("ALTER TABLE deposit_requests ADD COLUMN screening_at INTEGER")
 
 
 # --------------------------------------------------------------------------- #
@@ -1526,16 +1559,27 @@ def invitation_link_for_token(token: str) -> str:
     )
 
 
-def send_invitation_email(row: sqlite3.Row, invite_link: str, qr: str) -> str:
+def build_invite_email_parts(row: sqlite3.Row, invite_link: str) -> "tuple[str, str]":
+    """邀请邮件内容(主题 + 纯文本正文)。send_invitation_email 与 email-preview 共用, 保证预览=实发。"""
     name = row["patron_name"] or "there"
-    return send_email(
-        row["patron_email"],
-        "You're invited to HyperTransfer",
+    subject = "You're invited to HyperTransfer"
+    text = (
         f"Hi {name},\n\n"
         f"You have been approved to open a HyperTransfer account.\n"
         f"Use this single-use link within 6 hours to register (tied to {row['patron_email']}):\n\n"
         f"{invite_link}\n\n"
-        f"Or scan the attached QR code.\n\nHyperTransfer",
+        f"Or scan the attached QR code.\n\nHyperTransfer"
+    )
+    return subject, text
+
+
+def send_invitation_email(row: sqlite3.Row, invite_link: str, qr: str) -> str:
+    subject, text = build_invite_email_parts(row, invite_link)
+    name = row["patron_name"] or "there"
+    return send_email(
+        row["patron_email"],
+        subject,
+        text,
         html=(f"<p>Hi {name},</p>"
               f"<p>You have been approved to open a HyperTransfer account. "
               f"Use this single-use link within 6 hours to register "
@@ -2461,6 +2505,29 @@ def email_invitation(invitation_id: str, user: Any = Depends(require_role("marke
         "qrPngBase64": qr,
         "emailChannel": channel,
         "emailTo": row["patron_email"],
+    }
+
+
+@app.get("/api/invitations/{invitation_id}/email-preview")
+def invitation_email_preview(invitation_id: str, user: Any = Depends(require_role("marketing", "rm", "admin"))):
+    """RM/营销演示用: 返回该邀请实际发出的邮件内容(主题+正文, 含 single-use 链接)。
+    与 send_invitation_email 共用同一内容构造, 保证"预览=实发"。仅已签发(有 token)可预览。"""
+    row = get_invitation(invitation_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    roles = set(get_user_roles(user["id"]))
+    if not (roles & {"marketing", "admin"}) and row["created_by"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the submitting RM can preview this invite email")
+    if row["status"] not in ("issued", "consumed", "expired") or not row["token"]:
+        raise HTTPException(status_code=409, detail="Invite not issued yet; approve it first to see the email")
+    invite_link = invitation_link_for_token(row["token"])
+    subject, text = build_invite_email_parts(row, invite_link)
+    return {
+        "ok": True,
+        "to": row["patron_email"],
+        "subject": subject,
+        "text": text,
+        "link": invite_link,
     }
 
 
@@ -3439,7 +3506,9 @@ def refund_queue(status: Optional[str] = None,
 def refund_screen(rid: str, body: RefundScreenIn, user: Any = Depends(require_role("compliance"))):
     """重新 KYT 原钱包(process v1: Wallet clear?)。
     ⚠️ KYT 暂由 compliance 录入决策(pass/manual_review/reject); 真实 KYT(Hex Safe/外部)接入见 ③。"""
-    _refund_get_or_404(rid)
+    r = _refund_get_or_404(rid)
+    if r["user_id"] == user["id"]:
+        raise HTTPException(status_code=403, detail="Segregation of duties: you cannot screen a withdrawal request you created")
     decision = body.decision if body.decision in ("pass", "manual_review", "reject") else "manual_review"
     new_status = "kyt_failed" if decision == "reject" else "requested"
     with db() as conn:
@@ -3454,6 +3523,8 @@ def refund_screen(rid: str, body: RefundScreenIn, user: Any = Depends(require_ro
 def refund_approve(rid: str, user: Any = Depends(require_role("compliance", "admin"))):
     """管理层/合规审批(process v1: Approved? by Management)。要求 KYC ok + 原钱包 KYT pass。"""
     r = _refund_get_or_404(rid)
+    if r["user_id"] == user["id"]:
+        raise HTTPException(status_code=403, detail="Segregation of duties: you cannot approve a withdrawal request you created")
     if not r["kyc_ok"]:
         raise HTTPException(status_code=409, detail="KYC not approved; cannot approve")
     if r["kyt_status"] != "pass":
@@ -3468,7 +3539,9 @@ def refund_approve(rid: str, user: Any = Depends(require_role("compliance", "adm
 
 @app.post("/api/refunds/{rid}/reject")
 def refund_reject(rid: str, user: Any = Depends(require_role("compliance", "admin"))):
-    _refund_get_or_404(rid)
+    r = _refund_get_or_404(rid)
+    if r["user_id"] == user["id"]:
+        raise HTTPException(status_code=403, detail="Segregation of duties: you cannot reject a withdrawal request you created")
     with db() as conn:
         conn.execute("UPDATE refund_requests SET status='rejected', approved_by=?, updated_at=? WHERE id=?",
                      (user["id"], int(time.time()), rid))
@@ -3581,7 +3654,7 @@ def _deposit_public(r: sqlite3.Row) -> dict[str, Any]:
         "id": r["id"], "userId": r["user_id"], "asset": r["asset"], "network": r["network"],
         "chainId": r["chain_id"], "amountDecimal": r["amount_decimal"], "sourceWallet": r["source_wallet"],
         "screeningStatus": r["screening_status"], "screeningRef": r["screening_ref"],
-        "screeningDetail": r["screening_detail"],
+        "screeningDetail": r["screening_detail"], "screeningAt": r["screening_at"],
         "travelRuleRequired": bool(r["travel_rule_required"]), "travelRuleStatus": r["travel_rule_status"],
         "depositAddress": r["deposit_address"], "vaultId": r["vault_id"],
         "verifyTxHash": r["verify_tx_hash"], "verifyStatus": r["verify_status"],
@@ -3640,6 +3713,7 @@ class DepositIssueAddressIn(BaseModel):
 
 class DepositConfirmTestIn(BaseModel):
     txHash: str = Field(default="", max_length=128)
+    fromAddress: str = Field(default="", max_length=128)   # Gate 3 源匹配: 实际打款方(demo 回填; 真实由 Hex Safe 到账数据携带)
 
 
 class DepositMainIn(BaseModel):
@@ -3723,6 +3797,16 @@ def deposit_get(did: str, authorization: Optional[str] = Header(default=None)):
     return {"ok": True, "deposit": _deposit_public(r)}
 
 
+@app.get("/api/qr")
+def qr_generate(text: str = ""):
+    """地址交付 QR (TC-WI-05 / TC-AD-05): 返回任意文本的 QR data URI。
+    demo 工具端点; 生产建议收窄为仅接受本系统签发的托管地址。"""
+    text = text.strip()
+    if not text or len(text) > 512:
+        raise HTTPException(status_code=400, detail="text is required (1-512 chars)")
+    return {"ok": True, "qr": qr_data_uri(text)}
+
+
 @app.post("/api/deposits/{did}/screen")
 def deposit_screen(did: str, body: DepositScreenIn, authorization: Optional[str] = Header(default=None)):
     """提交来源钱包做 KYT(③ Wallet Screening)。②KYC 硬阻断同样在此校验。"""
@@ -3736,7 +3820,8 @@ def deposit_screen(did: str, body: DepositScreenIn, authorization: Optional[str]
     decision = result["decision"]
     new_status = "screening_passed" if decision == "pass" else "screening_failed"
     _deposit_update(did, source_wallet=body.sourceWallet.strip(), screening_status=decision,
-                    screening_ref=result["reference"], screening_detail=result["note"], status=new_status)
+                    screening_ref=result["reference"], screening_detail=result["note"],
+                    screening_at=int(time.time()), status=new_status)
     write_audit(user["id"], "deposit.screen", "deposit", did,
                 {"decision": decision, "provider": result["provider"], "riskScore": result["riskScore"]})
     return {"ok": decision == "pass", "requestId": did, "screeningStatus": decision,
@@ -3754,6 +3839,10 @@ def deposit_issue_address(did: str, body: DepositIssueAddressIn = DepositIssueAd
     r = _deposit_owned_or_404(did, user["id"])
     if r["screening_status"] != "pass":
         raise HTTPException(status_code=409, detail="Source wallet KYT did not pass; cannot issue the deposit address")
+    # Gate 2A (TC-WS-05): 筛查须在 24 小时 look-back 内, 超期发址前必须重新筛查。
+    screen_at = r["screening_at"]
+    if screen_at is None or int(time.time()) - int(screen_at) > 24 * 3600:
+        raise HTTPException(status_code=409, detail="Wallet screening is older than 24 hours; a fresh re-screen is required before issuing an address (Gate 2A)")
     # Travel Rule gate: 需要 TR 时, 用前端回填的 TR 结果(TR 步骤先于发址完成)对齐到入金单后再判闸门。
     # 否则 ≥USD1k 的单 travel_rule_status 永远停在 'travel_rule_required' → 永久 409。
     tr_status = r["travel_rule_status"]
@@ -3809,6 +3898,22 @@ def deposit_confirm_test(did: str, body: DepositConfirmTestIn,
             tx_hash = "0xdemo" + uuid.uuid4().hex
     else:
         raise HTTPException(status_code=503, detail="Hex Safe is not configured; cannot verify the 1 USDT deposit")
+    # Gate 3 源匹配 (TC-AD-07): 验证款必须来自声明钱包。Hex Safe 到账数据带 from 时优先用链上
+    # 打款方; demo(mock)模式由调用方回填 fromAddress。不符 → 停止、告警、不写 verified_wallets。
+    declared = (r["source_wallet"] or "").strip().lower()
+    sent_from = (body.fromAddress or "").strip().lower()
+    effective_from = sent_from
+    if provider == "hexsafe" and isinstance(dep, dict):
+        onchain_from = str(dep.get("fromAddress") or dep.get("from") or dep.get("source") or "").strip().lower()
+        if onchain_from:
+            effective_from = onchain_from
+    if declared and effective_from and effective_from != declared:
+        write_audit(user["id"], "deposit.confirm_test.mismatch", "deposit", did,
+                    {"txHash": tx_hash, "declaredSource": r["source_wallet"], "actualFrom": effective_from})
+        raise HTTPException(
+            status_code=409,
+            detail="The verification transfer did not originate from your declared wallet; the deposit has been stopped. Contact your representative for assistance.",
+        )
     wid = record_verified_wallet(user["id"], r["source_wallet"], r["chain_id"],
                                  asset=r["asset"], method="1usdt_verification")
     # 幂等再确认不回退状态: 已进入 main_submitted/settled 的单不降回 verified。
@@ -4102,6 +4207,18 @@ def _admission_case_public(
         "leaderDecision": row["leader_decision"],
         "leaderReason": row["leader_reason"] if show_internal else None,
         "leaderDecidedAt": row["leader_decided_at"],
+        "intendedDepositUsd": row["intended_deposit_usd"],
+        "invitedAt": row["invited_at"],
+        "emailSentAt": row["email_sent_at"],
+        "remindedAt": row["reminder_sent_at"],
+        "qrIssuedAt": row["qr_issued_at"],
+        "claimedAt": row["claimed_at"],
+        "usedAt": row["used_at"],
+        "kycSubmittedAt": row["kyc_submitted_at"],
+        "kycApprovedAt": row["kyc_approved_at"],
+        "kycRejectedAt": row["kyc_rejected_at"],
+        "approvalAt": row["leader_decided_at"] if row["leader_decision"] == "approved" else None,
+        "rejectedAt": row["leader_decided_at"] if row["leader_decision"] == "rejected" else None,
         "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
         "kycHostMessage": kyc_message or None,
         "kycValidUntil": row["kyc_valid_until"],
@@ -4161,6 +4278,7 @@ class AdmissionCaseCreateIn(BaseModel):
     lastName: Optional[str] = None
     memberReference: Optional[str] = None
     servicePurpose: Optional[str] = None
+    intendedDepositUsd: Optional[str] = None   # 纯数字字符串, 前端千分位 + USD 展示
     hostNotes: Optional[str] = None
     preferredLanguage: Optional[str] = None
     route: str = "complete_dossier"
@@ -4251,15 +4369,16 @@ def admission_case_create(
                    member_reference, service_purpose, host_notes,
                    preferred_language, route, patron_user_id, status,
                    leader_user_id, kyc_reason_code, kyc_valid_until,
-                   created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   intended_deposit_usd, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 case_id, user["id"], patron_email,
                 (body.firstName or "").strip() or None,
                 (body.lastName or "").strip() or None,
                 body.memberReference,
                 body.servicePurpose, body.hostNotes, body.preferredLanguage,
-                body.route, None, "draft", None, None, None, now, now,
+                body.route, None, "draft", None, None, None,
+                (body.intendedDepositUsd or "").strip() or None, now, now,
             ),
         )
         conn.commit()
@@ -4418,6 +4537,11 @@ def admission_case_invite_email(
         _admission_case_update(case_id, status="invitation_open")
     _, token = _issue_admission_session(case_id, "email", EMAIL_SESSION_TTL)
     invite_link = f"{INVITE_BASE_URL}/invite?emailSession={token}"
+    _admission_case_update(
+        case_id,
+        email_sent_at=int(time.time()),
+        invited_at=row["invited_at"] or int(time.time()),
+    )
     channel = send_email(
         row["patron_email"],
         "Your HyperTransfer VIP invitation",
@@ -4481,6 +4605,7 @@ def admission_case_remind(
         f"Your Host is happy to help — just reply to this email or contact your Host directly.\n"
         f"Reference: {case_id[:8]}",
     )
+    _admission_case_update(case_id, reminder_sent_at=int(time.time()))
     write_audit(
         user["id"], "admission.remind.email", "admission_case", case_id,
         {"caseId": case_id, "patronEmailMasked": mask_email(row["patron_email"]),
@@ -4501,6 +4626,11 @@ def admission_case_invite_qr_session(
         _admission_case_update(case_id, status="invitation_open")
     _, token = _issue_admission_session(case_id, "qr", QR_SESSION_TTL)
     claim_url = f"{INVITE_BASE_URL}/invite?qrSession={token}"
+    _admission_case_update(
+        case_id,
+        qr_issued_at=int(time.time()),
+        invited_at=row["invited_at"] or int(time.time()),
+    )
     write_audit(
         user["id"], "admission.invite.qr", "admission_case", case_id,
         {"caseId": case_id, "patronEmailMasked": mask_email(row["patron_email"]),
@@ -4611,9 +4741,9 @@ def admission_claim_register(body: AdmissionClaimRegisterIn):
         # 绑定 case: vip_claimed + patron_user_id; 同一 case 的所有未用 session 全部作废。
         conn.execute(
             """UPDATE vip_admission_cases
-               SET status='vip_claimed', patron_user_id=?, updated_at=?
+               SET status='vip_claimed', patron_user_id=?, claimed_at=?, used_at=?, updated_at=?
                WHERE id=?""",
-            (uid, now, case["id"]),
+            (uid, now, now, now, case["id"]),
         )
         conn.execute(
             """UPDATE admission_invitation_sessions SET consumed_at=?
@@ -4731,6 +4861,8 @@ def persist_case_kyc_outcome(
             status="kyc_passed",
             kyc_valid_until=valid_until,
             kyc_reason_code=None,
+            kyc_submitted_at=case["kyc_submitted_at"] or now,
+            kyc_approved_at=now,
             kyc_document_expiries_json=(
                 json_dumps([int(e) for e in document_expiries]) if document_expiries else None
             ),
@@ -4772,6 +4904,8 @@ def persist_case_kyc_outcome(
         status=target,
         kyc_reason_code=code,
         kyc_valid_until=None,
+        kyc_submitted_at=case["kyc_submitted_at"] or now,
+        kyc_rejected_at=now,
     )
     # 非受限失败才通知 VIP 安全重交指引; 受限/合规复核不发信(防 tip-off)。
     vip_email_channel = None
@@ -4905,18 +5039,28 @@ def _leader_case_view(row: sqlite3.Row) -> dict[str, Any]:
         "kycValidUntil": row["kyc_valid_until"],
         "leaderDecision": row["leader_decision"],
         "leaderReason": row["leader_reason"],
+        "leaderDecidedAt": row["leader_decided_at"],
         "intendedPayment": intent,
     }
 
 
 @app.get("/api/leader/admission-cases")
-def leader_admission_cases(user: Any = Depends(require_role("leader"))):
+def leader_admission_cases(scope: str = "pending", user: Any = Depends(require_role("leader"))):
+    """准入审批工作台: scope=pending → 待办队列(leader_pending);
+    scope=past → 已决策的历史请求(leader_decision 非空, 按决策时间倒序)。"""
     _require_leader(user)
     with db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM vip_admission_cases
-               WHERE status='leader_pending' ORDER BY updated_at DESC"""
-        ).fetchall()
+        if scope == "past":
+            rows = conn.execute(
+                """SELECT * FROM vip_admission_cases
+                   WHERE leader_decision IS NOT NULL
+                   ORDER BY leader_decided_at DESC LIMIT 50"""
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM vip_admission_cases
+                   WHERE status='leader_pending' ORDER BY updated_at DESC"""
+            ).fetchall()
     return {"cases": [_leader_case_view(r) for r in rows]}
 
 
@@ -5010,7 +5154,8 @@ def admission_case_leader_decision(
 #   payment_applications 仅为历史证据, 绝不授权新转账。
 # --------------------------------------------------------------------------- #
 DEMO_HKD_RATE = Decimal(os.environ.get("DEMO_HKD_RATE", "7.8"))
-RETENTION_YEARS = 5
+# 留存年限: QA/UAT 计划(TC-GV-01 / TC-TR-10)要求 7 年(原 5 年短于监管留存要求)。
+RETENTION_YEARS = 7
 PACK_STATUS = ("draft", "actual_confirmed", "source_classified", "revalidation_required")
 
 
