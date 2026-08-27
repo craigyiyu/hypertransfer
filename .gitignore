@@ -40,3 +40,4 @@ out/
 .vercel
 *.tsbuildinfo
 .docker-buildx
+.gh-config

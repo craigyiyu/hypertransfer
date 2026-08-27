@@ -51,3 +51,4 @@ hypertransfer-main/backend/.venv
 *.pem
 ~$*.xlsx
 .docker-buildx
+.gh-config
