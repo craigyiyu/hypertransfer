@@ -4696,6 +4696,7 @@ def admission_case_remind(
         "vip_claimed": "Please complete identity verification to continue.",
         "kyc_in_progress": "Your identity verification is still in progress.",
         "kyc_failed": "Your identity verification needs another attempt — please resubmit.",
+        "kyc_expired": "Your identity document has expired — please resubmit valid documentation.",
         "compliance_review": "Your request is under compliance review.",
         "leader_pending": "Your request is with the approver — no action needed from you right now.",
         "payment_precheck": "Your payment details are being pre-checked.",

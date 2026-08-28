@@ -112,9 +112,114 @@ export type HostAdmissionPrimaryStatus =
 export interface HostAdmissionPresentation {
   primaryStatus: HostAdmissionPrimaryStatus;
   reason: string;
-  actor: "Host" | "VIP" | "Operations" | "Compliance" | "Approver" | "None";
-  action: string;
   isArchived: boolean;
+}
+
+/** The five customer-progress stages shown to a Host for an active admission. */
+export type HostAdmissionStage =
+  | "Invited"
+  | "Account Created"
+  | "KYC Submitted"
+  | "KYC Approved"
+  | "Service Enabled";
+
+/** A current follow-up signal, kept separate from the customer-progress stage. */
+export type HostAttentionSignal =
+  | "Invitation Pending"
+  | "Invitation Expired"
+  | "KYC Action Required"
+  | "Pending Approval";
+
+export interface HostAdmissionLifecyclePresentation {
+  stage: HostAdmissionStage | null;
+  attention: HostAttentionSignal | null;
+  reason: string;
+  isArchived: boolean;
+}
+
+/**
+ * Project detailed admission statuses into the Host's five-stage lifecycle.
+ * Attention signals describe what needs follow-up without adding lifecycle
+ * stages or exposing provider-level KYC detail.
+ */
+export function hostAdmissionLifecyclePresentation(
+  c: Pick<AdmissionCase, "status" | "kycHostMessage" | "invitation" | "invitedAt">,
+  nowSeconds = Date.now() / 1000,
+): HostAdmissionLifecyclePresentation {
+  switch (c.status) {
+    case "draft":
+      return { stage: "Invited", attention: "Invitation Pending", reason: "Invitation has not been sent", isArchived: false };
+    case "invitation_open": {
+      const expired = invitationAttentionLabel(c, nowSeconds) === "Invitation Expired";
+      return expired
+        ? { stage: "Invited", attention: "Invitation Expired", reason: "Invitation expired", isArchived: false }
+        : { stage: "Invited", attention: "Invitation Pending", reason: "Waiting for account creation", isArchived: false };
+    }
+    case "vip_claimed":
+      return { stage: "Account Created", attention: "KYC Action Required", reason: "KYC has not been submitted", isArchived: false };
+    case "kyc_in_progress":
+      return { stage: "KYC Submitted", attention: null, reason: "KYC review in progress", isArchived: false };
+    case "kyc_failed":
+      return { stage: "KYC Submitted", attention: "KYC Action Required", reason: c.kycHostMessage || "KYC resubmission required", isArchived: false };
+    case "compliance_review":
+      return { stage: "KYC Submitted", attention: null, reason: "KYC review in progress", isArchived: false };
+    case "kyc_passed":
+    case "payment_precheck":
+      return { stage: "KYC Approved", attention: null, reason: "KYC approved", isArchived: false };
+    case "leader_pending":
+      return { stage: "KYC Approved", attention: "Pending Approval", reason: "Awaiting final approval", isArchived: false };
+    case "kyc_expired":
+      return { stage: "KYC Approved", attention: "KYC Action Required", reason: c.kycHostMessage || "KYC document expired", isArchived: false };
+    case "service_enabled":
+      return { stage: "Service Enabled", attention: null, reason: "Service is enabled", isArchived: false };
+    case "rejected":
+      return { stage: null, attention: null, reason: "Service rejected", isArchived: true };
+    case "expired":
+      return { stage: null, attention: null, reason: "Invitation expired", isArchived: true };
+    case "revoked":
+      return { stage: null, attention: null, reason: "Revoked", isArchived: true };
+  }
+}
+
+export interface HostAttentionSummaryGroup {
+  signal: HostAttentionSignal;
+  ids: string[];
+}
+
+/** The single status pill for a Host queue row; lifecycle stages belong in the expanded timeline. */
+export function hostRowStatusPresentation(
+  c: Pick<AdmissionCase, "status" | "kycHostMessage" | "invitation" | "invitedAt">,
+  nowSeconds = Date.now() / 1000,
+): { label: string; tone: "warning" | "danger" } | null {
+  const lifecycle = hostAdmissionLifecyclePresentation(c, nowSeconds);
+  if (lifecycle.isArchived) return { label: lifecycle.reason, tone: "danger" };
+  if (!lifecycle.attention) return null;
+  return {
+    label: lifecycle.attention,
+    tone: lifecycle.attention === "KYC Action Required" ? "danger" : "warning",
+  };
+}
+
+/** Group active Host cases by the exact follow-up signal rendered on their rows. */
+export function hostAttentionSummary<T extends {
+  id: string;
+  status: AdmissionCaseStatus;
+  kycHostMessage?: string;
+  invitation?: AdmissionCaseInvitation | null;
+  invitedAt?: number | null;
+}>(cases: readonly T[], nowSeconds = Date.now() / 1000): HostAttentionSummaryGroup[] {
+  const order: HostAttentionSignal[] = [
+    "KYC Action Required",
+    "Invitation Expired",
+    "Invitation Pending",
+    "Pending Approval",
+  ];
+  return order.map((signal) => ({
+    signal,
+    ids: cases
+      .filter((c) => hostAdmissionLifecyclePresentation(c, nowSeconds).attention === signal)
+      .map((c) => c.id),
+  })).filter((group) => group.ids.length > 0);
 }
 
 /**
@@ -128,37 +233,37 @@ export function hostAdmissionPresentation(
 ): HostAdmissionPresentation {
   switch (c.status) {
     case "draft":
-      return { primaryStatus: "Invitation Pending", reason: "Invitation has not been sent", actor: "Host", action: "Send invitation", isArchived: false };
+      return { primaryStatus: "Invitation Pending", reason: "Invitation has not been sent", isArchived: false };
     case "invitation_open": {
       const expired = invitationAttentionLabel(c, nowSeconds) === "Invitation Expired";
       return expired
-        ? { primaryStatus: "Invitation Pending", reason: "Invitation expired", actor: "Host", action: "Resend invitation", isArchived: false }
-        : { primaryStatus: "Invitation Pending", reason: "Waiting for VIP to click", actor: "VIP", action: "Click invitation", isArchived: false };
+        ? { primaryStatus: "Invitation Pending", reason: "Invitation expired", isArchived: false }
+        : { primaryStatus: "Invitation Pending", reason: "Waiting for VIP to click", isArchived: false };
     }
     case "vip_claimed":
-      return { primaryStatus: "KYC Action Required", reason: "KYC has not been started", actor: "VIP", action: "Complete KYC", isArchived: false };
+      return { primaryStatus: "KYC Action Required", reason: "KYC has not been started", isArchived: false };
     case "kyc_in_progress":
-      return { primaryStatus: "KYC Action Required", reason: "KYC in progress", actor: "VIP", action: "Complete KYC", isArchived: false };
+      return { primaryStatus: "KYC Action Required", reason: "KYC in progress", isArchived: false };
     case "kyc_failed":
-      return { primaryStatus: "KYC Action Required", reason: c.kycHostMessage || "KYC resubmission required", actor: "VIP", action: "Resubmit KYC", isArchived: false };
+      return { primaryStatus: "KYC Action Required", reason: c.kycHostMessage || "KYC resubmission required", isArchived: false };
     case "kyc_expired":
-      return { primaryStatus: "KYC Action Required", reason: c.kycHostMessage || "Document expired", actor: "VIP", action: "Resubmit KYC", isArchived: false };
+      return { primaryStatus: "KYC Action Required", reason: c.kycHostMessage || "Document expired", isArchived: false };
     case "kyc_passed":
-      return { primaryStatus: "KYC Review", reason: "KYC approved; pre-check in progress", actor: "Operations", action: "Complete pre-check", isArchived: false };
+      return { primaryStatus: "KYC Review", reason: "KYC approved; pre-check in progress", isArchived: false };
     case "payment_precheck":
-      return { primaryStatus: "KYC Review", reason: "Pre-check in progress", actor: "Operations", action: "Complete pre-check", isArchived: false };
+      return { primaryStatus: "KYC Review", reason: "Pre-check in progress", isArchived: false };
     case "compliance_review":
-      return { primaryStatus: "KYC Review", reason: "Under compliance review", actor: "Compliance", action: "Review case", isArchived: false };
+      return { primaryStatus: "KYC Review", reason: "Under compliance review", isArchived: false };
     case "leader_pending":
-      return { primaryStatus: "Pending Approval", reason: "Awaiting approver decision", actor: "Approver", action: "Approve or reject", isArchived: false };
+      return { primaryStatus: "Pending Approval", reason: "Awaiting approver decision", isArchived: false };
     case "service_enabled":
-      return { primaryStatus: "Service Enabled", reason: "Service is enabled", actor: "None", action: "No action required", isArchived: false };
+      return { primaryStatus: "Service Enabled", reason: "Service is enabled", isArchived: false };
     case "rejected":
-      return { primaryStatus: "Archived", reason: "Service rejected", actor: "None", action: "Create a new application if appropriate", isArchived: true };
+      return { primaryStatus: "Archived", reason: "Service rejected", isArchived: true };
     case "expired":
-      return { primaryStatus: "Archived", reason: "Invitation expired", actor: "None", action: "Create a new invitation if appropriate", isArchived: true };
+      return { primaryStatus: "Archived", reason: "Invitation expired", isArchived: true };
     case "revoked":
-      return { primaryStatus: "Archived", reason: "Revoked", actor: "Host", action: "Re-enable application if revoked by mistake", isArchived: true };
+      return { primaryStatus: "Archived", reason: "Revoked", isArchived: true };
   }
 }
 
@@ -189,6 +294,61 @@ export function admissionTimeline(status: AdmissionCaseStatus): AdmissionTimelin
     completed: index < done,
     current: !noCurrent.has(status) && index === done,
   }));
+}
+
+/** Toggle a group of attention cases without changing unrelated expanded rows. */
+export function toggleExpandedCaseIds(current: ReadonlySet<string>, caseIds: readonly string[]): Set<string> {
+  const next = new Set(current);
+  if (caseIds.every((id) => next.has(id))) {
+    caseIds.forEach((id) => next.delete(id));
+  } else {
+    caseIds.forEach((id) => next.add(id));
+  }
+  return next;
+}
+
+export interface AdmissionHistoryEvent {
+  label: string;
+  timestamp: number;
+  tone: "success" | "danger";
+}
+
+/** Keep the Host history audit-friendly without rendering future empty milestones. */
+export function admissionCaseHistory(c: {
+  createdAt?: number | null;
+  invitedAt?: number | null;
+  claimedAt?: number | null;
+  kycSubmittedAt?: number | null;
+  kycApprovedAt?: number | null;
+  kycRejectedAt?: number | null;
+  kycExpiredAt?: number | null;
+  approvalAt?: number | null;
+  rejectedAt?: number | null;
+}): AdmissionHistoryEvent[] {
+  const events: AdmissionHistoryEvent[] = [];
+  const add = (label: string, timestamp: number | null | undefined, tone: AdmissionHistoryEvent["tone"] = "success") => {
+    if (timestamp) events.push({ label, timestamp, tone });
+  };
+
+  add("Invited", c.invitedAt ?? c.createdAt);
+  add("Account Created", c.claimedAt);
+  add("KYC Submitted", c.kycSubmittedAt);
+  add("KYC Approved", c.kycApprovedAt);
+  add("KYC rejected", c.kycRejectedAt, "danger");
+  add("KYC expired", c.kycExpiredAt, "danger");
+  add("Service Enabled", c.approvalAt);
+  add("Service rejected", c.rejectedAt, "danger");
+  return events;
+}
+
+/** Sort active Host follow-ups by their latest recorded case activity. */
+export function sortByRecentAdmissionActivity<T extends {
+  updatedAt?: number | null;
+  invitedAt?: number | null;
+  createdAt?: number | null;
+}>(cases: readonly T[]): T[] {
+  const activityAt = (c: T) => c.updatedAt ?? c.invitedAt ?? c.createdAt ?? 0;
+  return [...cases].sort((a, b) => activityAt(b) - activityAt(a));
 }
 
 /** Format editable USD input with separators while preserving up to two decimals. */

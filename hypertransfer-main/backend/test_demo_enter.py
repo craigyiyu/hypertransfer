@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import server
+import seed_demo
 
 
 def _temp_db_path() -> Path:
@@ -111,6 +112,31 @@ class DemoEnterTest(unittest.TestCase):
         server.DEMO_BYPASS_2FA = True
         server.SUMSUB_ENVIRONMENT = "production"
         assert self._enter("host").status_code == 403
+
+    def test_admission_demo_separates_account_created_from_kyc_submitted(self):
+        seed_demo.seed_admission_demo()
+        with server.db() as conn:
+            account_created = conn.execute(
+                "SELECT status, claimed_at, kyc_submitted_at FROM vip_admission_cases WHERE id=?",
+                (seed_demo.ADM_ATTN_KYC_ID,),
+            ).fetchone()
+            pending_approval = conn.execute(
+                "SELECT status, kyc_approved_at FROM vip_admission_cases WHERE id=?",
+                (seed_demo.ADM_PENDING_CASE_ID,),
+            ).fetchone()
+            expired_kyc = conn.execute(
+                "SELECT status, kyc_approved_at, kyc_expired_at FROM vip_admission_cases WHERE id=?",
+                (seed_demo.ADM_ATTN_KYC_FAIL_ID,),
+            ).fetchone()
+
+        assert account_created["status"] == "vip_claimed"
+        assert account_created["claimed_at"] is not None
+        assert account_created["kyc_submitted_at"] is None
+        assert pending_approval["status"] == "leader_pending"
+        assert pending_approval["kyc_approved_at"] is not None
+        assert expired_kyc["status"] == "kyc_expired"
+        assert expired_kyc["kyc_approved_at"] is not None
+        assert expired_kyc["kyc_expired_at"] is not None
 
 
 if __name__ == "__main__":

@@ -141,7 +141,7 @@ ADM_RECON_REF = "FIN-REC-DEMO-0001"
 ADM_PENDING_CASE_ID = "ADM-DEMO-0002"
 ADM_PENDING_INTENT_ID = "PI-DEMO-0002"
 # 注意力演示 cases(2026-08): 不同状态对应 "Need Your Attention" 的不同场景标签。
-ADM_ATTN_KYC_ID = "ADM-DEMO-0003"        # kyc_in_progress → "KYC to be completed"
+ADM_ATTN_KYC_ID = "ADM-DEMO-0003"        # vip_claimed → Account Created, awaiting KYC submission
 ADM_ATTN_INVITE_ID = "ADM-DEMO-0004"     # invitation_open → "Invitation Expired"
 ADM_ATTN_KYC_FAIL_ID = "ADM-DEMO-0005"   # kyc_expired → "KYC Expired"
 ADM_ATTN_REJECTED_ID = "ADM-DEMO-0006"   # rejected → "Service rejected"
@@ -321,12 +321,12 @@ def seed_admission_demo() -> None:
         # ---- 注意力演示 cases(不同状态 → 不同场景标签) ----
         day = 86400
         attn_cases = [
-            # 0003 kyc_in_progress → "KYC to be completed"(Alex Chen)
+            # 0003 Account Created → KYC submission is still required (Alex Chen)
             (ADM_ATTN_KYC_ID, "vip3.admission.demo@operator.example", "Alex", "Chen",
              "M-VIP-0003", "VIP table credit", "Table games, high-limit. Verify source of funds before approval.",
-             "kyc_in_progress", None, None, None, None,
+             "vip_claimed", None, None, None, None,
              "50000", now - 3 * day, now - 3 * day, None, now - 3 * day + 600,
-             now - 3 * day + 3600, now - 3 * day + 3600, now - 2 * day, None, None),
+             now - 3 * day + 3600, now - 3 * day + 3600, None, None, None),
             # 0004 invitation_open + an expired email session → "Invitation Expired"(Morgan Lee)
             (ADM_ATTN_INVITE_ID, "vip4.admission.demo@operator.example", "Morgan", "Lee",
              "M-VIP-0004", "VIP table credit", None,

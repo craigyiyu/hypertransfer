@@ -292,6 +292,23 @@ class AdmissionKycExpiryTests(AdmissionApiTestCase):
         assert got["kycExpiredAt"] is not None
         assert got["kycApprovedAt"] == self.now - 60
 
+    def test_kyc_expiry_reminder_requests_valid_document_resubmission(self):
+        host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
+        case = self._post_kyc_case(host, valid_until=self.now - 1)
+        self.client.get(f"{API}/admission-cases/mine", headers=self._auth(host["token"]))
+        sent: list[str] = []
+        original_send_email = server.send_email
+        server.send_email = lambda _to, _subject, text, _html=None: sent.append(text) or "console"
+        try:
+            response = self.client.post(
+                f"{API}/admission-cases/{case['id']}/remind", headers=self._auth(host["token"])
+            )
+        finally:
+            server.send_email = original_send_email
+
+        assert response.status_code == 200, response.text
+        assert "valid documentation" in sent[0].lower()
+
     def test_unexpired_kyc_keeps_its_current_admission_state(self):
         host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
         case = self._post_kyc_case(host, valid_until=self.now + 3600)

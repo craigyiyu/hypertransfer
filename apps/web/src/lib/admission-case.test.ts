@@ -7,10 +7,16 @@ import {
   ADMISSION_STATUS_LABELS,
   admissionStatusTone,
   admissionTimeline,
+  admissionCaseHistory,
   hostAdmissionPresentation,
+  hostAdmissionLifecyclePresentation,
+  hostRowStatusPresentation,
+  hostAttentionSummary,
   invitationActionPolicy,
   isTerminalAdmissionStatus,
   maskPatronEmail,
+  sortByRecentAdmissionActivity,
+  toggleExpandedCaseIds,
   type AdmissionCaseStatus,
 } from "@/lib/admission-case";
 import * as admissionCase from "@/lib/admission-case";
@@ -78,23 +84,73 @@ describe("admission-case display helpers", () => {
     ]);
   });
 
-  it("projects detailed audit states into concise Host-facing statuses", () => {
+  it("projects detailed audit states into concise Host-facing statuses without internal routing", () => {
     expect(hostAdmissionPresentation({ status: "kyc_expired", kycHostMessage: "Document expired" }))
       .toMatchObject({
         primaryStatus: "KYC Action Required",
         reason: "Document expired",
-        actor: "VIP",
       });
     expect(hostAdmissionPresentation({ status: "compliance_review" }))
       .toMatchObject({
         primaryStatus: "KYC Review",
         reason: "Under compliance review",
-        actor: "Compliance",
       });
     expect(hostAdmissionPresentation({ status: "leader_pending" }))
-      .toMatchObject({ primaryStatus: "Pending Approval", actor: "Approver" });
+      .toMatchObject({ primaryStatus: "Pending Approval" });
     expect(hostAdmissionPresentation({ status: "rejected" }))
       .toMatchObject({ primaryStatus: "Archived", reason: "Service rejected" });
+
+    const pendingApproval = hostAdmissionPresentation({ status: "leader_pending" });
+    expect(pendingApproval).not.toHaveProperty("actor");
+    expect(pendingApproval).not.toHaveProperty("action");
+  });
+
+  it("separates the five Host lifecycle stages from attention signals", () => {
+    expect(hostAdmissionLifecyclePresentation({ status: "vip_claimed" })).toMatchObject({
+      stage: "Account Created",
+      attention: "KYC Action Required",
+      isArchived: false,
+    });
+    expect(hostAdmissionLifecyclePresentation({ status: "kyc_in_progress" })).toMatchObject({
+      stage: "KYC Submitted",
+      attention: null,
+    });
+    expect(hostAdmissionLifecyclePresentation({ status: "leader_pending" })).toMatchObject({
+      stage: "KYC Approved",
+      attention: "Pending Approval",
+    });
+    expect(hostAdmissionLifecyclePresentation({ status: "kyc_expired" })).toMatchObject({
+      stage: "KYC Approved",
+      attention: "KYC Action Required",
+    });
+    expect(hostAdmissionLifecyclePresentation({ status: "revoked" })).toMatchObject({
+      stage: null,
+      attention: null,
+      isArchived: true,
+    });
+  });
+
+  it("groups the Summary by the same attention signal used by case rows", () => {
+    expect(hostAttentionSummary([
+      { id: "pending", status: "leader_pending" },
+      { id: "new-account", status: "vip_claimed" },
+      { id: "expired-kyc", status: "kyc_expired" },
+    ])).toEqual([
+      { signal: "KYC Action Required", ids: ["new-account", "expired-kyc"] },
+      { signal: "Pending Approval", ids: ["pending"] },
+    ]);
+  });
+
+  it("shows only the current attention signal in an active Host row", () => {
+    expect(hostRowStatusPresentation({ status: "vip_claimed" })).toEqual({
+      label: "KYC Action Required",
+      tone: "danger",
+    });
+    expect(hostRowStatusPresentation({ status: "leader_pending" })).toEqual({
+      label: "Pending Approval",
+      tone: "warning",
+    });
+    expect(hostRowStatusPresentation({ status: "service_enabled" })).toBeNull();
   });
 
   it("marks reached milestones as complete rather than current", () => {
@@ -119,6 +175,54 @@ describe("admission-case display helpers", () => {
       { completed: false, current: false },
       { completed: false, current: false },
     ]);
+  });
+
+  it("toggles a follow-up group closed when every matching case is already open", () => {
+    expect([...toggleExpandedCaseIds(new Set(["pending-1", "pending-2", "kyc-1"]), ["pending-1", "pending-2"])]).toEqual(["kyc-1"]);
+    expect([...toggleExpandedCaseIds(new Set(["pending-1"]), ["pending-1", "pending-2"])]).toEqual([
+      "pending-1",
+      "pending-2",
+    ]);
+  });
+
+  it("shows only admission history events that have occurred", () => {
+    expect(admissionCaseHistory({
+      invitedAt: 1_000,
+      claimedAt: 2_000,
+      kycSubmittedAt: 3_000,
+      kycApprovedAt: 4_000,
+      kycExpiredAt: 5_000,
+    })).toEqual([
+      { label: "Invited", timestamp: 1_000, tone: "success" },
+      { label: "Account Created", timestamp: 2_000, tone: "success" },
+      { label: "KYC Submitted", timestamp: 3_000, tone: "success" },
+      { label: "KYC Approved", timestamp: 4_000, tone: "success" },
+      { label: "KYC expired", timestamp: 5_000, tone: "danger" },
+    ]);
+  });
+
+  it("uses the canonical Host lifecycle labels for a completed admission", () => {
+    expect(admissionCaseHistory({
+      invitedAt: 1_000,
+      claimedAt: 2_000,
+      kycSubmittedAt: 3_000,
+      kycApprovedAt: 4_000,
+      approvalAt: 5_000,
+    })).toEqual([
+      { label: "Invited", timestamp: 1_000, tone: "success" },
+      { label: "Account Created", timestamp: 2_000, tone: "success" },
+      { label: "KYC Submitted", timestamp: 3_000, tone: "success" },
+      { label: "KYC Approved", timestamp: 4_000, tone: "success" },
+      { label: "Service Enabled", timestamp: 5_000, tone: "success" },
+    ]);
+  });
+
+  it("sorts Host attention cases by most recent activity", () => {
+    expect(sortByRecentAdmissionActivity([
+      { id: "older", createdAt: 100, updatedAt: 150 },
+      { id: "latest", createdAt: 200, updatedAt: 500 },
+      { id: "fallback", invitedAt: 300 },
+    ]).map((c) => c.id)).toEqual(["latest", "fallback", "older"]);
   });
 
   it("formats entry USD and detects a lapsed unclaimed invitation", () => {

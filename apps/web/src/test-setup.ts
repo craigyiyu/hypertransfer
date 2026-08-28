@@ -8,6 +8,24 @@ import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 import React from "react";
 
+// Node's experimental localStorage can shadow JSDOM's implementation without
+// providing a usable Storage object. Keep browser-facing tests deterministic.
+const localStorageValues = new Map<string, string>();
+const localStorageStub: Storage = {
+  get length() {
+    return localStorageValues.size;
+  },
+  clear: () => localStorageValues.clear(),
+  getItem: (key) => localStorageValues.get(key) ?? null,
+  key: (index) => [...localStorageValues.keys()][index] ?? null,
+  removeItem: (key) => localStorageValues.delete(key),
+  setItem: (key, value) => localStorageValues.set(key, String(value)),
+};
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: localStorageStub,
+});
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({

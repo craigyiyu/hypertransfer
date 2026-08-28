@@ -41,12 +41,17 @@ import {
   type HostProfile,
 } from "@/lib/api";
 import {
+  admissionCaseHistory,
   admissionTimeline,
-  admissionStatusTone,
   formatUsdInput,
-  hostAdmissionPresentation,
+  hostAdmissionLifecyclePresentation,
+  hostRowStatusPresentation,
+  hostAttentionSummary,
   invitationActionPolicy,
+  sortByRecentAdmissionActivity,
+  toggleExpandedCaseIds,
   type AdmissionCaseStatus,
+  type HostAttentionSignal,
 } from "@/lib/admission-case";
 import { ActionBtn, EmptyState, Field, LabeledInput, LoadingSkeleton, PanelHeader, Pill } from "@/components/ops-ui";
 
@@ -67,17 +72,6 @@ const LANGUAGE_OPTIONS = [
   { value: "other", labelKey: "admissionPanel.langOther" },
 ] as const;
 
-const ADMISSION_MILESTONES: { key: AdmissionCaseStatus; label: string }[] = [
-  { key: "draft", label: "Draft" },
-  { key: "invitation_open", label: "Invited" },
-  { key: "vip_claimed", label: "Claimed" },
-  { key: "kyc_in_progress", label: "KYC" },
-  { key: "kyc_passed", label: "KYC OK" },
-  { key: "payment_precheck", label: "Pre-check" },
-  { key: "leader_pending", label: "Approver" },
-  { key: "service_enabled", label: "Enabled" },
-];
-
 /** Host 跟进汇总(B2, 可点击): 按状态聚合"需要动作"的 case; 点击展开对应行。 */
 function HostFollowUpSummary({
   cases,
@@ -87,21 +81,23 @@ function HostFollowUpSummary({
   onSelect: (caseIds: string[]) => void;
 }) {
   const { t } = useI18n();
-  const awaitingApproval = cases.filter((c) => c.status === "leader_pending");
-  const kycAction = cases.filter(
-    (c) => c.status === "kyc_failed" || c.status === "kyc_expired" || c.status === "compliance_review",
-  );
-  const rejected = cases.filter((c) => c.status === "rejected");
-  const cagePending = cases.filter((c) =>
-    (c.payments ?? []).some((p) => p.transferLeg === "main" && p.finalizedAt && !p.cageConfirmationId),
-  );
-
-  const items = [
-    { label: t("admissionPanel.awaitingApprover"), ids: awaitingApproval.map((c) => c.id), tone: "warning" as const },
-    { label: t("admissionPanel.kycActionNeeded"), ids: kycAction.map((c) => c.id), tone: "danger" as const },
-    { label: t("common.rejected"), ids: rejected.map((c) => c.id), tone: "danger" as const },
-    { label: t("admissionPanel.cagePending"), ids: cagePending.map((c) => c.id), tone: "warning" as const },
-  ].filter((i) => i.ids.length > 0);
+  const labels: Record<HostAttentionSignal, string> = {
+    "Invitation Pending": "Invitation Pending",
+    "Invitation Expired": "Invitation Expired",
+    "KYC Action Required": t("admissionPanel.kycActionNeeded"),
+    "Pending Approval": t("admissionPanel.awaitingApprover"),
+  };
+  const tones: Record<HostAttentionSignal, "warning" | "danger"> = {
+    "Invitation Pending": "warning",
+    "Invitation Expired": "warning",
+    "KYC Action Required": "danger",
+    "Pending Approval": "warning",
+  };
+  const items = hostAttentionSummary(cases).map((group) => ({
+    ...group,
+    label: labels[group.signal],
+    tone: tones[group.signal],
+  }));
 
   if (items.length === 0) return null;
   return (
@@ -127,10 +123,10 @@ function HostFollowUpSummary({
 /** 5 步 Admission Status(2026-08 mockup 定稿): Invited → Clicked → KYC info submitted → KYC approved → Service enabled */
 const CASE_STEPS: { key: string; label: string }[] = [
   { key: "invitation_open", label: "Invited" },
-  { key: "vip_claimed", label: "Clicked" },
-  { key: "kyc_in_progress", label: "KYC info submitted" },
-  { key: "kyc_passed", label: "KYC approved" },
-  { key: "service_enabled", label: "Service enabled" },
+  { key: "vip_claimed", label: "Account Created" },
+  { key: "kyc_in_progress", label: "KYC Submitted" },
+  { key: "kyc_passed", label: "KYC Approved" },
+  { key: "service_enabled", label: "Service Enabled" },
 ];
 
 function CaseTimeline({ status }: { status: AdmissionCaseStatus }) {
@@ -236,11 +232,10 @@ function CaseRow({
   onReenable: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const tone = admissionStatusTone(c.status);
   const isOpen = expanded.has(c.id);
   const isApproved = c.status === "service_enabled";
   const displayName = c.patronName || c.patronEmailMasked;
-  const presentation = hostAdmissionPresentation(c);
+  const rowStatus = hostRowStatusPresentation(c);
   const invitationActions = invitationActionPolicy(c);
   const canResend = invitationActions.canResend;
   const canQr = invitationActions.canQr;
@@ -269,22 +264,7 @@ function CaseRow({
           {c.patronName && (
             <span className="hidden text-xs text-muted-foreground sm:inline">{c.patronEmailMasked}</span>
           )}
-          {presentation.primaryStatus === "Service Enabled" ? (
-            <Pill tone="success">{presentation.primaryStatus}</Pill>
-          ) : presentation.isArchived ? (
-            <Pill tone="danger">{presentation.reason}</Pill>
-          ) : (
-            <>
-              <Pill tone={presentation.primaryStatus === "KYC Action Required" ? "warning" : tone}>
-                {presentation.primaryStatus}
-              </Pill>
-              <span
-                className="ml-2 inline-flex items-center whitespace-nowrap rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
-              >
-                {presentation.reason}
-              </span>
-            </>
-          )}
+          {rowStatus && <Pill tone={rowStatus.tone}>{rowStatus.label}</Pill>}
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
           {canResend && (
@@ -336,29 +316,33 @@ function CaseRow({
           {/* 状态 timeline */}
           <CaseTimeline status={c.status} />
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2">
-              <Field label="Current status">{presentation.primaryStatus}</Field>
-            </div>
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2">
-              <Field label="Who acts">{presentation.actor}</Field>
-            </div>
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2">
-              <Field label="Required action">{presentation.action}</Field>
-            </div>
-          </div>
-
           {/* KYC 拒绝横幅(安全消息, 不给 provider 细节) */}
-          {(c.status === "kyc_failed" || c.status === "compliance_review") && (
+          {c.status === "kyc_failed" && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+              <div>
+                <span className="font-semibold text-destructive">KYC documents need resubmission</span>
+                <span className="ml-2 text-muted-foreground">Ask the VIP to resubmit valid documentation.</span>
+              </div>
+              <ActionBtn icon={MailCheck} onClick={() => void onRemind(c.id)} disabled={busyId === c.id}>
+                Send KYC reminder
+              </ActionBtn>
+            </div>
+          )}
+          {c.status === "compliance_review" && (
             <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
               <span className="font-semibold text-destructive">KYC verification not approved</span>
               {c.kycHostMessage && <span className="ml-2 text-muted-foreground">{c.kycHostMessage}</span>}
             </div>
           )}
           {c.status === "kyc_expired" && (
-            <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs">
-              <span className="font-semibold text-warning">KYC Expired</span>
-              {c.kycHostMessage && <span className="ml-2 text-muted-foreground">{c.kycHostMessage}</span>}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+              <div>
+                <span className="font-semibold text-destructive">KYC document expired</span>
+                <span className="ml-2 text-muted-foreground">Ask the VIP to resubmit valid documentation.</span>
+              </div>
+              <ActionBtn icon={MailCheck} onClick={() => void onRemind(c.id)} disabled={busyId === c.id}>
+                Send KYC reminder
+              </ActionBtn>
             </div>
           )}
 
@@ -400,21 +384,15 @@ function CaseRow({
           <div className="mt-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">History</p>
             <div className="mt-2 space-y-1.5 border-l-2 border-border/40 pl-3">
-              <HistRow k="Invited" v={fmtTs(c.invitedAt ?? c.createdAt)} done />
-              <HistRow k="Clicked (initial)" v={fmtTs(c.claimedAt)} done={!!c.claimedAt} />
-              <HistRow k="KYC submitted" v={fmtTs(c.kycSubmittedAt)} done={!!c.kycSubmittedAt} />
-              {c.kycExpiredAt ? (
-                <>
-                  <HistRow k="KYC completed" v={fmtTs(c.kycApprovedAt)} done={!!c.kycApprovedAt} />
-                  <HistRow k="KYC expired" v={fmtTs(c.kycExpiredAt)} err />
-                </>
-              ) : c.kycRejectedAt ? (
-                <HistRow k="KYC rejected" v={fmtTs(c.kycRejectedAt)} err />
-              ) : (
-                <HistRow k="KYC completed" v={fmtTs(c.kycApprovedAt)} done={!!c.kycApprovedAt} />
-              )}
-              <HistRow k="Approval" v={fmtTs(c.approvalAt)} done={!!c.approvalAt} />
-              {c.rejectedAt && <HistRow k="Service rejected" v={fmtTs(c.rejectedAt)} err />}
+              {admissionCaseHistory(c).map((event) => (
+                <HistRow
+                  key={`${event.label}-${event.timestamp}`}
+                  k={event.label}
+                  v={fmtTs(event.timestamp)}
+                  done={event.tone === "success"}
+                  err={event.tone === "danger"}
+                />
+              ))}
             </div>
 
             {isApproved && (
@@ -505,12 +483,12 @@ export default function AdmissionCasePanel({
     return roles.has("admin") || roles.has("host");
   }, [user]);
 
-  // Host queue shows only active primary states; distinct audit outcomes stay in Archived.
+  // Host queue contains only active cases with a current follow-up signal.
   const attentionCases = useMemo(
-    () => cases.filter((c) => {
-      const presentation = hostAdmissionPresentation(c);
-      return !presentation.isArchived && presentation.primaryStatus !== "Service Enabled";
-    }),
+    () => sortByRecentAdmissionActivity(cases.filter((c) => {
+      const lifecycle = hostAdmissionLifecyclePresentation(c);
+      return !lifecycle.isArchived && lifecycle.attention !== null;
+    })),
     [cases],
   );
   const approvedCases = useMemo(
@@ -518,7 +496,7 @@ export default function AdmissionCasePanel({
     [cases],
   );
   const archivedCases = useMemo(
-    () => cases.filter((c) => hostAdmissionPresentation(c).isArchived),
+    () => cases.filter((c) => hostAdmissionLifecyclePresentation(c).isArchived),
     [cases],
   );
 
@@ -531,12 +509,8 @@ export default function AdmissionCasePanel({
     });
   }, []);
 
-  const expandMany = useCallback((ids: string[]) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => next.add(id));
-      return next;
-    });
+  const toggleMany = useCallback((ids: string[]) => {
+    setExpanded((prev) => toggleExpandedCaseIds(prev, ids));
   }, []);
 
   const applyDemoForm = useCallback(() => {
@@ -831,7 +805,7 @@ export default function AdmissionCasePanel({
               <select
                 value={caseForm.preferredLanguage}
                 onChange={(e) => setCaseForm((p) => ({ ...p, preferredLanguage: e.target.value }))}
-                className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
+                className="h-10 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50"
               >
                 {LANGUAGE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -893,7 +867,7 @@ export default function AdmissionCasePanel({
 
       {/* 需跟进汇总(B2, 可点击展开): 让 Host 一眼看到哪些 case 需要动作 */}
       {(view === "all" || view === "attention") && (
-        <HostFollowUpSummary cases={attentionCases} onSelect={expandMany} />
+        <HostFollowUpSummary cases={attentionCases} onSelect={toggleMany} />
       )}
 
       {/* 分区: Need Your Attention / Approved Submission / Archived Submission */}
@@ -901,11 +875,10 @@ export default function AdmissionCasePanel({
         <>
           {view !== "approved" && view !== "archived" && (
             <div className="rounded-lg border border-border/60 bg-card/80 p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {t("admissionPanel.attentionTitle")}
                 </p>
-                <Pill tone="warning">{String(attentionCases.length)}</Pill>
               </div>
               {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
               {loading ? (
@@ -941,11 +914,10 @@ export default function AdmissionCasePanel({
 
           {view !== "attention" && view !== "archived" && (
             <div className="rounded-lg border border-border/60 bg-card/80 p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {t("admissionPanel.approveTitle")}
                 </p>
-                <Pill tone="success">{String(approvedCases.length)}</Pill>
               </div>
               {loading ? (
                 <div className="mt-3"><LoadingSkeleton rows={2} /></div>
@@ -979,11 +951,10 @@ export default function AdmissionCasePanel({
           )}
           {view === "archived" && (
             <div className="rounded-lg border border-border/60 bg-card/80 p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {t("admissionPanel.archivedTitle")}
                 </p>
-                <Pill tone="neutral">{String(archivedCases.length)}</Pill>
               </div>
               {loading ? (
                 <div className="mt-3"><LoadingSkeleton rows={2} /></div>

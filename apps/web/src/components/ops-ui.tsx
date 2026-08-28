@@ -23,7 +23,7 @@ export function LabeledInput({
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
       <input
         {...props}
-        className={`rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50 ${className}`}
+        className={`h-10 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-gold/50 ${className}`}
       />
     </label>
   );
