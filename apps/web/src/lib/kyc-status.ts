@@ -160,6 +160,7 @@ export function isKycExpired(validUntil?: number, nowSec = Math.floor(Date.now()
 
 const TERMINAL_BLOCKED_CASE_STATUSES: ReadonlySet<string> = new Set([
   "kyc_failed",
+  "kyc_expired",
   "compliance_review",
   "rejected",
   "expired",
@@ -210,6 +211,13 @@ export function getCaseAwareKYCEligibility(state: CaseAwareKycState): KYCEligibi
         canRetryKYC: true,
         blockerMessage: 'Your KYC was not approved',
         actionRequired: 'Please resubmit your identity documents to continue.',
+      };
+    case "kyc_expired":
+      return {
+        canDeposit: false,
+        canRetryKYC: true,
+        blockerMessage: 'Your KYC document has expired',
+        actionRequired: 'Please complete identity verification again to continue.',
       };
     case "compliance_review":
       return {

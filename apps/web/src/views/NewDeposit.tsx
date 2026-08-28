@@ -25,9 +25,8 @@ import {
 import {
   TRAVEL_RULE_THRESHOLD_USD,
   formatNetworkRail,
-  getPhaseOneNetworks,
+  getActivePhaseOneNetworks,
   requiresTravelRule,
-  type ActivePhaseOneAsset,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
 import { depositApi, paymentApi, transactionPackApi, type HexSafeNetwork } from "@/lib/api";
@@ -90,12 +89,12 @@ export default function NewDeposit() {
   const [, navigate] = useLocation();
   const { state, updateState, resetSession } = useDemo();
   const { t } = useI18n();
-  const [selectedChainId, setSelectedChainId] = useState("");
   const [networks, setNetworks] = useState<HexSafeNetwork[]>([]);
   const [netLoading, setNetLoading] = useState(true);
   const [netConfigured, setNetConfigured] = useState(false);
   const [amount, setAmount] = useState(state.mainDepositAmount ? Number(state.mainDepositAmount).toLocaleString("en-US") : "");
   const [walletAddress, setWalletAddress] = useState(state.sourceWallet);
+  const [accountNumber, setAccountNumber] = useState("");
   const [screening, setScreening] = useState<ScreeningState>(state.screeningPassed ? "passed" : "idle");
   const [trAddress, setTrAddress] = useState(state.travelRuleInfo.address);
   const [trCity, setTrCity] = useState(state.travelRuleInfo.city);
@@ -104,12 +103,8 @@ export default function NewDeposit() {
   const [originatorVasp, setOriginatorVasp] = useState(
     state.travelRuleInfo.originatorVasp || TRAVEL_RULE_DEMO_VALUES.originatorVasp,
   );
-  const [selectedAsset, setSelectedAsset] = useState<ActivePhaseOneAsset>(
-    state.selectedAsset === "USDC" ? "USDC" : "USDT",
-  );
-  const [selectedAssetNetwork, setSelectedAssetNetwork] = useState<string>(() =>
-    getPhaseOneNetworks(state.selectedAsset === "USDC" ? "USDC" : "USDT")[0]?.id ?? "ethereum",
-  );
+  const selectedAsset = "USDT";
+  const selectedAssetNetwork = "tron";
   const [submittingTravelRule, setSubmittingTravelRule] = useState(false);
 
   useEffect(() => {
@@ -120,9 +115,6 @@ export default function NewDeposit() {
         const nextNetworks = data.networks ?? [];
         setNetworks(nextNetworks);
         setNetConfigured(Boolean(data.configured));
-        if (nextNetworks[0]) {
-          setSelectedChainId(nextNetworks[0].chainId);
-        }
       })
       .catch(() => {
         if (alive) {
@@ -155,7 +147,7 @@ export default function NewDeposit() {
     return () => window.removeEventListener(DEMO_AUTOFILL_EVENT, applyDemoValues);
   }, []);
 
-  const assetNetworks = getPhaseOneNetworks(selectedAsset);
+  const assetNetworks = getActivePhaseOneNetworks(selectedAsset);
   const plannedAmount = parseFloat(amount.replace(/,/g, "")) || 0;
   const travelRuleRequired = requiresTravelRule(selectedAsset, plannedAmount);
   const useDemoNetwork = !netLoading && networks.length === 0;
@@ -422,54 +414,21 @@ export default function NewDeposit() {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("newDeposit.acceptedAsset")}</p>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-base font-semibold text-foreground">{t("newDeposit.selectAsset")}</p>
+              <p className="text-base font-semibold text-foreground">USDT</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Phase 1 stablecoins: USDT (ERC-20 / TRC-20) and USDC (ERC-20). Deposit rails are provisioned by the custody provider.
+                USDT via TRC-20 is the only accepted deposit rail.
               </p>
             </div>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#26A17B] text-sm font-bold text-white">
-              {selectedAsset === "USDT" ? "T" : "U"}
+              T
             </div>
-          </div>
-
-          <div className="flex gap-2">
-            {(["USDT", "USDC"] as const).map((asset) => (
-              <button
-                key={asset}
-                type="button"
-                onClick={() => {
-                  setSelectedAsset(asset);
-                  setSelectedAssetNetwork(getPhaseOneNetworks(asset)[0]?.id ?? "ethereum");
-                }}
-                disabled={screening !== "idle"}
-                className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                  selectedAsset === asset
-                    ? "border-gold/50 bg-gold/10 text-gold"
-                    : "border-border/60 bg-secondary/20 text-muted-foreground hover:border-gold/30"
-                }`}
-              >
-                {asset}
-              </button>
-            ))}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t("newDeposit.network")}</span>
-            {assetNetworks.map((net) => (
-              <button
-                key={net.id}
-                type="button"
-                onClick={() => setSelectedAssetNetwork(net.id)}
-                disabled={screening !== "idle"}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
-                  selectedAssetNetwork === net.id
-                    ? "border-gold/50 bg-gold/10 text-gold"
-                    : "border-border/60 text-muted-foreground hover:border-gold/30"
-                }`}
-              >
-                {formatNetworkRail(net.id)}
-              </button>
-            ))}
+            <span className="rounded-lg border border-gold/50 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold">
+              {formatNetworkRail(selectedAssetNetwork)}
+            </span>
           </div>
           <p className="text-[10px] text-gold/70">
             {t("newDeposit.network")}: {netLoading ? "loading..." : formatNetworkRail(effectiveNetwork || "demo")}
@@ -510,9 +469,17 @@ export default function NewDeposit() {
             disabled={screening !== "idle"}
             className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl font-mono text-xs"
           />
-          <p className="text-[10px] text-muted-foreground/60">
-            This is the wallet you will use to send your deposit. We verify it before issuing a deposit address.
-          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Account Number <span className="text-muted-foreground/60">(if applicable)</span></Label>
+          <Input
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
+            placeholder="Account number"
+            disabled={screening !== "idle"}
+            className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl text-sm"
+          />
         </div>
 
         <AnimatePresence mode="wait">
@@ -702,7 +669,7 @@ export default function NewDeposit() {
             disabled={!canScreen}
             className="w-full btn-gold rounded-xl py-4 text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {t("newDeposit.submitForScreening")}
+            Next
           </button>
         )}
         {screening === "passed" && travelRuleRequired && !travelRuleGatePassed && (

@@ -14,6 +14,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import { apiError, depositApi, type DepositRecord } from "@/lib/api";
 import { ActionBtn, Field, PanelHeader, Pill, shortAddr, type Tone } from "@/components/ops-ui";
 import { formatNetworkRail } from "@/lib/compliance";
+import { formatAssetAmount } from "@/lib/currency";
 import {
   DEMO_DEPOSIT_SETTLEMENT_EVENT,
   readDemoDepositSettlement,
@@ -46,6 +47,8 @@ const formatQueueDate = (value?: number | string) => {
     minute: "2-digit",
   });
 };
+
+const formatQueueAmount = (value?: string | null) => (value ? formatAssetAmount(value, 0) : "—");
 
 export default function DepositQueuePanel() {
   const { t } = useI18n();
@@ -205,7 +208,7 @@ export default function DepositQueuePanel() {
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Field label={t("depositQueue.sessionDate")}>{formatQueueDate(demoSessionDate)}</Field>
               <Field label={t("depositQueue.assetNetwork")}>{demoAsset} · {formatNetworkRail(demoNetwork)}</Field>
-              <Field label={t("depositQueue.amount")}>{demoAmount}</Field>
+              <Field label={t("depositQueue.amount")}>{formatQueueAmount(demoAmount)}</Field>
               <Field label={t("depositQueue.sourceWalletKyt")}>{demoScreeningStatus}</Field>
               <Field label="1 USDT verify">{demoVerifyStatus}</Field>
               <Field label={t("depositQueue.travelRule")}>{demoTravelRuleStatus}</Field>
@@ -257,7 +260,7 @@ export default function DepositQueuePanel() {
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label={t("depositQueue.sessionDate")}>{formatQueueDate(d.createdAt)}</Field>
                 <Field label={t("depositQueue.assetNetwork")}>{d.asset} · {d.network}</Field>
-                <Field label={t("depositQueue.amount")}>{d.amountDecimal || "—"}</Field>
+                <Field label={t("depositQueue.amount")}>{formatQueueAmount(d.amountDecimal)}</Field>
                 <Field label={t("depositQueue.sourceWalletKyt")}>{d.screeningStatus || "—"}</Field>
                 <Field label="1 USDT verify">{d.verifyStatus}</Field>
                 <Field label={t("depositQueue.travelRule")}>{d.travelRuleRequired ? d.travelRuleStatus : t("depositQueue.travelRuleNotRequired")}</Field>

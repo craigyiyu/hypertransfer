@@ -325,6 +325,15 @@ draft
 - **seed**：`seed_demo.py` **不再预置** `newvip@demo.local` 测试邀请（邀请队列演示时由 RM 表单现场提交，保留 reset-by-id 幂等清理）。
 - 验证：`corepack pnpm run check`（tsc）✅ + **Chrome MCP 真机点测全链路通过**。已知限制：Okta 未真接；汇率/gas 为 demo 值（真实待 Hex Trust 汇率口径）。
 
+### 4.4f Host admission lifecycle polish（2026-08-28）
+
+- Host 界面将审计生命周期投影为 `Invitation Pending`、`KYC Action Required`、`KYC Review`、`Pending Approval`、`Service Enabled` 五个主状态；`Archived` 仅是归档分区，保留 `Revoked`、`Service Rejected`、自然到期等不同原因。
+- `kyc_valid_until = min(kyc approved at + 6 个日历月, 最早证件到期日)`。到期必须自动落 `kyc_expired` 和审计事件，并保留原 KYC approval；UI 对 Host 显示安全原因 `Document expired`，绝不称作 KYC rejected。
+- 重新发送 email invitation 时必须使任何未使用旧 email link 失效，生成新的 6 小时 link。过期 link 不可 reminder 或 QR 展示。
+- 邮件邀请继续按 **6 小时**有效期；未认领且逾期的 Host 待办显示 `Invitation Expired`。
+- `kyc_expired` 是既有 KYC 通过后证件失效的独立状态：保留通过记录和到期时间，不标为 KYC 拒绝，也不暴露 provider 原始信息。
+- Host 可从任一非终态撤销案件。撤销状态保留撤销前生命周期和审计；Archived 的 `Re-enable application` 只恢复该状态，不自动授予服务或绕过 KYC/领导审批。
+
 ### 4.5 Hex Safe REST API 接入要点
 
 - **Base URL**：`https://api.hexsafe.hextrust.com`

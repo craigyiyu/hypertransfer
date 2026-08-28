@@ -68,6 +68,18 @@ class AdmissionTransitionTests(unittest.TestCase):
         assert can_transition_admission("kyc_in_progress", "kyc_failed", "complete_dossier")
         assert can_transition_admission("kyc_in_progress", "compliance_review", "complete_dossier")
 
+    def test_any_active_case_can_be_revoked_without_rewriting_its_lifecycle(self):
+        for status in (
+            "draft", "invitation_open", "vip_claimed", "kyc_in_progress",
+            "kyc_passed", "payment_precheck", "leader_pending", "service_enabled",
+            "kyc_failed", "kyc_expired", "compliance_review",
+        ):
+            assert can_transition_admission(status, "revoked", "complete_dossier"), status
+
+    def test_document_expiry_is_a_distinct_terminal_kyc_state(self):
+        assert "kyc_expired" in ADMISSION_STATUSES
+        assert not can_transition_admission("kyc_expired", "leader_pending", "complete_dossier")
+
     def test_unknown_transitions_are_rejected(self):
         assert not can_transition_admission("draft", "vip_claimed", "complete_dossier")
         assert not can_transition_admission("kyc_passed", "kyc_failed", "complete_dossier")
@@ -84,7 +96,7 @@ class AdmissionTransitionTests(unittest.TestCase):
         assert ADMISSION_STATUSES == frozenset({
             "draft", "invitation_open", "vip_claimed", "kyc_in_progress",
             "kyc_passed", "payment_precheck", "leader_pending", "service_enabled",
-            "kyc_failed", "compliance_review", "rejected", "expired", "revoked",
+            "kyc_failed", "kyc_expired", "compliance_review", "rejected", "expired", "revoked",
         })
 
 

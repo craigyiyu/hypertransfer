@@ -249,6 +249,16 @@ class DualChannelClaimTests(AdmissionClaimsTestCase):
         assert abs((by_channel["email"]["expires_at"] - self.now) - 6 * 3600) <= 5
         assert abs((by_channel["qr"]["expires_at"] - self.now) - 15 * 60) <= 5
 
+    def test_resending_an_email_invitation_invalidates_the_previous_link(self):
+        host = self._create_staff("Host A", "host-a@example.test", ["host"], host_status="active")
+        case = self._create_case(host)
+        old_token = self._issue_email(host, case["id"])
+        new_token = self._issue_email(host, case["id"])
+
+        assert old_token != new_token
+        assert self._verify(old_token, "vip@example.test").status_code == 410
+        assert self._verify(new_token, "vip@example.test").status_code == 200
+
     def test_only_raw_hash_is_stored_never_the_token(self):
         host = self._create_staff("Host A", "host-a@example.test", ["host"], host_status="active")
         case = self._create_case(host)

@@ -518,7 +518,7 @@ export default function KYC() {
           <AlertCircle className="h-12 w-12 text-destructive/80" />
           <h2 className="text-lg font-semibold text-foreground">{eligibility.blockerMessage}</h2>
           <p className="text-sm text-muted-foreground max-w-sm">{eligibility.actionRequired}</p>
-          {caseStatus === "kyc_failed" && (
+          {(caseStatus === "kyc_failed" || caseStatus === "kyc_expired") && (
             <button
               onClick={() => window.location.reload()}
               className="rounded-xl border border-gold/40 px-5 py-2.5 text-sm font-semibold text-gold hover:bg-gold/10 transition-colors"

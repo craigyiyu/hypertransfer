@@ -142,8 +142,8 @@ ADM_PENDING_CASE_ID = "ADM-DEMO-0002"
 ADM_PENDING_INTENT_ID = "PI-DEMO-0002"
 # 注意力演示 cases(2026-08): 不同状态对应 "Need Your Attention" 的不同场景标签。
 ADM_ATTN_KYC_ID = "ADM-DEMO-0003"        # kyc_in_progress → "KYC to be completed"
-ADM_ATTN_INVITE_ID = "ADM-DEMO-0004"     # invitation_open → "Invite not clicked · N days ago"
-ADM_ATTN_KYC_FAIL_ID = "ADM-DEMO-0005"   # kyc_failed → "KYC rejected"
+ADM_ATTN_INVITE_ID = "ADM-DEMO-0004"     # invitation_open → "Invitation Expired"
+ADM_ATTN_KYC_FAIL_ID = "ADM-DEMO-0005"   # kyc_expired → "KYC Expired"
 ADM_ATTN_REJECTED_ID = "ADM-DEMO-0006"   # rejected → "Service rejected"
 # 准入审批队列演示 cases(Queued Requests / leader_pending)。
 ADM_QUEUE_1_ID = "ADM-DEMO-0007"
@@ -170,6 +170,7 @@ def seed_admission_demo() -> None:
             ("transaction_compliance_packs", "id", ADM_PACK_MAIN),
             ("payment_intents", "id", ADM_INTENT_ID),
             ("payment_intents", "id", ADM_PENDING_INTENT_ID),
+            ("admission_invitation_sessions", "id", "ADM-DEMO-0004-EMAIL"),
             ("vip_admission_cases", "id", ADM_CASE_ID),
             ("vip_admission_cases", "id", ADM_PENDING_CASE_ID),
             ("vip_admission_cases", "id", ADM_ATTN_KYC_ID),
@@ -282,21 +283,27 @@ def seed_admission_demo() -> None:
                     "0xdemoMainTx000000000000000000000000000000000000000000000000000000002",
                     ADM_CAGE_ID, ADM_RECON_REF)
 
-        # 待审批演示 case(complete_dossier, 预检完成 -> leader_pending)
+        # 待审批演示 case: Request 金额与已完成的 KYC 历史必须和 leader_pending 一致。
         c.execute(
             """INSERT INTO vip_admission_cases(
                   id, host_user_id, patron_email, first_name, last_name, member_reference,
                   service_purpose, host_notes, preferred_language, route, patron_user_id,
                   status, leader_user_id, kyc_reason_code, kyc_valid_until,
-                  leader_decision, leader_reason, leader_decided_at, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  leader_decision, leader_reason, leader_decided_at,
+                  intended_deposit_usd, invited_at, email_sent_at, reminder_sent_at,
+                  qr_issued_at, claimed_at, used_at, kyc_submitted_at, kyc_approved_at,
+                  kyc_rejected_at, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ADM_PENDING_CASE_ID, ADM_HOST_ID, "vip2.admission.demo@operator.example",
              "Second", "Patron", "M-VIP-DEMO-002",
-             "VIP table credit (pending approval)",
+             "VIP table credit",
              "Second demo case awaiting the manager's approval", "en",
              "complete_dossier", ADM_PATRON_ID, "leader_pending", None,
              None, server.kyc_valid_until(now, []),
-             None, None, None, now, now),
+             None, None, None,
+             "15000", now - 3 * 86400, now - 3 * 86400, None, now - 3 * 86400 + 600,
+             now - 2 * 86400, now - 2 * 86400, now - 2 * 86400 + 600,
+             now - 2 * 86400 + 1800, None, now, now),
         )
         c.execute(
             """INSERT INTO payment_intents(
@@ -320,17 +327,17 @@ def seed_admission_demo() -> None:
              "kyc_in_progress", None, None, None, None,
              "50000", now - 3 * day, now - 3 * day, None, now - 3 * day + 600,
              now - 3 * day + 3600, now - 3 * day + 3600, now - 2 * day, None, None),
-            # 0004 invitation_open → "Invite not clicked · 3 days ago"(Morgan Lee)
+            # 0004 invitation_open + an expired email session → "Invitation Expired"(Morgan Lee)
             (ADM_ATTN_INVITE_ID, "vip4.admission.demo@operator.example", "Morgan", "Lee",
              "M-VIP-0004", "VIP table credit", None,
              "invitation_open", None, None, None, None,
              "25000", now - 3 * day, now - 3 * day, None, None, None, None, None, None, None),
-            # 0005 kyc_failed → "KYC rejected"(Iris Lau, 安全 reason_code)
+            # 0005 之前 KYC 已通过,证件到期 → 独立的 kyc_expired(不等同于拒绝)
             (ADM_ATTN_KYC_FAIL_ID, "vip5.admission.demo@operator.example", "Iris", "Lau",
              "M-VIP-0005", "VIP table credit", "High-value depositor; recheck document.",
-             "kyc_failed", None, "document_expired", None, None,
+             "kyc_expired", None, "document_expired", None, None,
              "80000", now - 5 * day, now - 5 * day, None, now - 5 * day + 600,
-             now - 5 * day + 7200, now - 5 * day + 7200, now - 4 * day, None, now - 3 * day),
+             now - 5 * day + 7200, now - 5 * day + 7200, now - 4 * day, now - 3 * day, None),
             # 0006 rejected → "Service rejected"(Noah Ho, leader 拒绝+理由)
             (ADM_ATTN_REJECTED_ID, "vip6.admission.demo@operator.example", "Noah", "Ho",
              "M-VIP-0006", "VIP table credit", "Outside service appetite candidate.",
@@ -351,15 +358,23 @@ def seed_admission_demo() -> None:
                       leader_decision, leader_reason, leader_decided_at,
                       intended_deposit_usd, invited_at, email_sent_at, reminder_sent_at,
                       qr_issued_at, claimed_at, used_at, kyc_submitted_at, kyc_approved_at,
-                      kyc_rejected_at, created_at, updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      kyc_rejected_at, kyc_expired_at, created_at, updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (cid, ADM_HOST_ID, email, first, last, ref, purpose, notes, "en",
                  "complete_dossier", None, status, None, kyc_reason,
-                 server.kyc_valid_until(now, []) if kyc_ok_at else None,
+                 now - day if status == "kyc_expired" else (server.kyc_valid_until(now, []) if kyc_ok_at else None),
                  leader_decision, leader_reason, leader_decided_at,
                  deposit_usd, invited_at, email_sent_at, reminder_at, qr_at,
-                 claimed_at, used_at, kyc_sub, kyc_ok_at, kyc_rej_at, now, now),
+                 claimed_at, used_at, kyc_sub, kyc_ok_at, kyc_rej_at,
+                 now - 2 * day if status == "kyc_expired" else None, now, now),
             )
+        c.execute(
+            """INSERT INTO admission_invitation_sessions(
+                   id, admission_case_id, channel, token_hash, expires_at, consumed_at, revoked_at, created_at)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            ("ADM-DEMO-0004-EMAIL", ADM_ATTN_INVITE_ID, "email",
+             server.hash_session_token("seed-invitation-expired"), now - day, None, None, now - 3 * day),
+        )
         c.commit()
 
         # ---- 准入审批队列演示 cases(Queued Requests / leader_pending) ----

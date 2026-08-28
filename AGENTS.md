@@ -230,6 +230,15 @@ Demo 登录：
 - 验证结果，包括 `corepack pnpm run check`、`corepack pnpm run build` 或无法运行的原因。
 - 已知限制、mock 边界、下一步建议。
 
+### 2026-08-28 Host 准入状态与 Demo Home 打磨（分支 `codex/host-admission-workflow-polish`）
+
+- **主状态投影与有效期**：Host 工作台只显示 `Invitation Pending` / `KYC Action Required` / `KYC Review` / `Pending Approval` / `Service Enabled`；细粒度状态仍供审计。KYC 有效期=批准日起 6 个日历月与最早证件到期日取较早者，到期自动转 `kyc_expired`、记录审计且暂停服务资格。
+- **邀请与归档**：重发 email invitation 会撤销未使用的旧 email link、签发新的 6 小时 link；过期 link 隐藏 reminder/QR。Archived 保留 `Revoked`、`Service Rejected`、自然到期的不同原因，只有 Revoked 可 Re-enable。
+- **Host 生命周期**：新增 `kyc_expired`（保留 KYC 通过与证件到期时间），`leader_pending` 统一显示为 `Pending Approval`；服务未批准时第 5 个阶段保持白色，未启用服务不显示 Deposits。
+- **撤销恢复**：Host 可撤销任一非终态案件，撤销进入 Archived 并记录撤销前状态；`Re-enable application` 仅恢复原状态，绝不绕过 KYC/审批/服务启用控制。
+- **演示与文案**：邀请过期按现有 6 小时有效期显示 `Invitation Expired`；待审批案例展示 Request USD `15,000 USD` 和完整 KYC 时间；首页仅保留四角色入口，版本为 `v0.4.1+<build>`。
+- **验证**：`npm run typecheck --workspace=web`、`npm test --workspace=web`（42 tests）、Python `unittest discover`（192 tests）均通过；本地 FastAPI/Next 服务需使用新 demo DB 重新启动。
+
 ### 2026-08-25 统一设计 monorepo 重构（分支 `feat/unified-monorepo`）
 
 **一句话**：按 `shadcn init --preset bgmJ0t5bH --template next --monorepo --rtl --pointer` 把仓库重构为 **Next.js turbo monorepo（npm workspaces）**，两个前端统一到同一套 emerald 设计系统；部署/CI 全部适配新结构并 docker 实测。

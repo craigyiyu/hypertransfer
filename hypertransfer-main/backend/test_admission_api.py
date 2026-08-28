@@ -264,6 +264,44 @@ class AdmissionCaseCreateTests(AdmissionApiTestCase):
         events = self._audit_events(case["id"])
         assert any(ev["action"] == "admission.remind.email" for ev in events)
 
+
+class AdmissionKycExpiryTests(AdmissionApiTestCase):
+    """A KYC validity boundary must be enforced when a case is read or used."""
+
+    def _post_kyc_case(self, host: dict, *, valid_until: int) -> dict:
+        case = self._create_case(host)
+        with server.db() as conn:
+            conn.execute(
+                """UPDATE vip_admission_cases
+                   SET status='leader_pending', kyc_valid_until=?,
+                       kyc_approved_at=?, updated_at=? WHERE id=?""",
+                (valid_until, self.now - 60, self.now, case["id"]),
+            )
+            conn.commit()
+        return case
+
+    def test_expired_kyc_is_persisted_as_resubmission_required_on_host_read(self):
+        host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
+        case = self._post_kyc_case(host, valid_until=self.now - 1)
+
+        response = self.client.get(f"{API}/admission-cases/mine", headers=self._auth(host["token"]))
+
+        assert response.status_code == 200, response.text
+        got = next(item for item in response.json()["cases"] if item["id"] == case["id"])
+        assert got["status"] == "kyc_expired"
+        assert got["kycExpiredAt"] is not None
+        assert got["kycApprovedAt"] == self.now - 60
+
+    def test_unexpired_kyc_keeps_its_current_admission_state(self):
+        host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
+        case = self._post_kyc_case(host, valid_until=self.now + 3600)
+
+        response = self.client.get(f"{API}/admission-cases/mine", headers=self._auth(host["token"]))
+
+        assert response.status_code == 200, response.text
+        got = next(item for item in response.json()["cases"] if item["id"] == case["id"])
+        assert got["status"] == "leader_pending"
+
     def test_remind_rejected_for_terminal_case(self):
         host = self._create_staff("Active Host", "active@example.test", ["host"], host_status="active")
         case = self._create_case(host)
@@ -377,7 +415,7 @@ class AdmissionCaseRevokeTests(AdmissionApiTestCase):
         )
         assert resp.status_code == 404
 
-    def test_revoking_service_enabled_case_is_blocked(self):
+    def test_owner_can_revoke_service_enabled_case(self):
         host = self._create_staff("Host A", "host-a@example.test", ["host"], host_status="active")
         case = self._create_case(host)
         with server.db() as conn:
@@ -389,7 +427,32 @@ class AdmissionCaseRevokeTests(AdmissionApiTestCase):
         resp = self.client.post(
             f"{API}/admission-cases/{case['id']}/revoke", headers=self._auth(host["token"])
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["case"]["status"] == "revoked"
+
+    def test_owner_can_revoke_and_reenable_a_pending_approval_case(self):
+        host = self._create_staff("Host A", "host-a@example.test", ["host"], host_status="active")
+        case = self._create_case(host)
+        with server.db() as conn:
+            conn.execute(
+                "UPDATE vip_admission_cases SET status='leader_pending', updated_at=? WHERE id=?",
+                (self.now, case["id"]),
+            )
+            conn.commit()
+
+        revoked = self.client.post(
+            f"{API}/admission-cases/{case['id']}/revoke", headers=self._auth(host["token"])
+        )
+        assert revoked.status_code == 200, revoked.text
+        assert revoked.json()["case"]["status"] == "revoked"
+
+        restored = self.client.post(
+            f"{API}/admission-cases/{case['id']}/reenable", headers=self._auth(host["token"])
+        )
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["case"]["status"] == "leader_pending"
+        events = self._audit_events(case["id"])
+        assert any(ev["action"] == "admission.case.reenable" for ev in events)
 
 
 if __name__ == "__main__":

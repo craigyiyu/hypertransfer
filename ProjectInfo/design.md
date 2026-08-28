@@ -1439,3 +1439,13 @@ App owns business authorization and audit
 - 员工是谁、是否还能登录，由 Okta 管。
 - 员工在本系统里能不能发地址、能不能审批 EDD，由 App 根据 Okta group / claim 和本地权限规则共同决定。
 - 员工具体做了什么，由 App 本地审计日志记录。
+
+## 2026-08-28 Host 准入生命周期补充
+
+- Host 界面只显示五个主状态：`Invitation Pending`、`KYC Action Required`、`KYC Review`、`Pending Approval`、`Service Enabled`。后端仍保留细粒度状态供审计；`kyc_expired` 是 KYC Action Required 的安全原因而非另一套主状态。
+- KYC 有效期严格取 **KYC 批准日起 6 个日历月** 与 **最早证件到期日** 两者中较早者。达到 `kyc_valid_until` 后，案件自动记为 `kyc_expired`、记录到期时间，并暂停后续服务资格；已批准和到期证据必须一并保留。
+- `Archived` 是界面分区，不是把不同业务结果混成一个状态：`Revoked`、`Service Rejected` 与自然到期保留各自原因。仅 `Revoked` 可 Re-enable，拒绝不能伪装为撤销。
+- 邀请链接过期后只允许重新签发或撤销；重新签发必须令旧邮件链接失效、生成新的 6 小时链接，且不再展示过期链接的 QR 或 reminder。
+- 邀请邮件继续采用 **6 小时** 有效期；未认领且已过期的案件显示 `Invitation Expired`，不能以相对“未点击”提示替代。
+- 证件在既有 KYC 通过后到期，使用独立状态 `kyc_expired` / `KYC Expired`，保留原 KYC 通过时间并记录到期时间；不得写成 KYC 拒绝或暴露 provider 原始原因。
+- Host 可在任一非终态准入阶段撤销申请。撤销进入归档，保留撤销前状态与审计记录；归档中的误撤销案件可恢复到撤销前状态，但恢复不得绕过 KYC、单一领导审批或服务启用闸门。

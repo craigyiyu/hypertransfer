@@ -48,6 +48,14 @@ describe("translations dictionary (B5 en/zh parity)", () => {
     expect(bad).toEqual([]);
   });
 
+  it("labels the KYC page as a mandatory process", () => {
+    expect(translations.en.kyc.subtitle).toBe("Mandatory KYC process");
+  });
+
+  it("confirms when the dashboard account has been activated", () => {
+    expect(translations.en.dashboard.subtitle).toBe("Your Account has been activated");
+  });
+
   it("every zh value is a non-empty string", () => {
     const bad = zhKeys.filter((k) => {
       const v = walk<string>(translations.zh, k.split("."));

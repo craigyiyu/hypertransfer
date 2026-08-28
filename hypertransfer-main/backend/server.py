@@ -427,6 +427,9 @@ ADMISSION_SCHEMA_SQL = """
         kyc_submitted_at INTEGER,      -- KYC 首次提交结果时间
         kyc_approved_at INTEGER,       -- KYC 通过时间
         kyc_rejected_at INTEGER,       -- KYC 拒绝时间
+        kyc_expired_at INTEGER,        -- 已通过证件后续到期时间
+        prior_status_before_revocation TEXT, -- 撤销前状态,用于受控恢复
+        revoked_at      INTEGER,       -- 最近一次撤销时间
         created_at      INTEGER NOT NULL,
         updated_at      INTEGER NOT NULL
     );
@@ -733,6 +736,9 @@ def init_db() -> None:
             ("kyc_submitted_at", "INTEGER"),
             ("kyc_approved_at", "INTEGER"),
             ("kyc_rejected_at", "INTEGER"),
+            ("kyc_expired_at", "INTEGER"),
+            ("prior_status_before_revocation", "TEXT"),
+            ("revoked_at", "INTEGER"),
         ):
             if _col not in case_cols:
                 conn.execute(f"ALTER TABLE vip_admission_cases ADD COLUMN {_col} {_type}")
@@ -4171,6 +4177,56 @@ def _case_kyc_records(case_row: sqlite3.Row) -> list[dict[str, Any]]:
     return rows
 
 
+_POST_KYC_ACTIVE_ADMISSION_STATUSES = frozenset({
+    "kyc_passed", "payment_precheck", "leader_pending", "service_enabled",
+})
+
+
+def sync_admission_case_kyc_expiry(
+    row: sqlite3.Row, *, now: Optional[int] = None,
+) -> sqlite3.Row:
+    """Persist a lapsed approved KYC record as `kyc_expired` exactly once.
+
+    `kyc_valid_until` is calculated when the provider approves KYC as the
+    earlier of approval plus six calendar months and the earliest supplied
+    document expiry.  A case cannot remain operational just because no user
+    has manually updated its status after that timestamp.
+    """
+    checked_at = int(time.time()) if now is None else now
+    if (
+        row["status"] not in _POST_KYC_ACTIVE_ADMISSION_STATUSES
+        or not row["kyc_valid_until"]
+        or int(row["kyc_valid_until"]) > checked_at
+    ):
+        return row
+
+    with db() as conn:
+        changed = conn.execute(
+            """UPDATE vip_admission_cases
+               SET status='kyc_expired',
+                   kyc_expired_at=COALESCE(kyc_expired_at, ?),
+                   kyc_reason_code='document_expired',
+                   updated_at=?
+               WHERE id=?
+                 AND status IN ('kyc_passed','payment_precheck','leader_pending','service_enabled')
+                 AND kyc_valid_until IS NOT NULL AND kyc_valid_until <= ?""",
+            (checked_at, checked_at, row["id"], checked_at),
+        )
+        conn.commit()
+    if changed.rowcount:
+        write_audit(
+            None, "admission.kyc.expire", "admission_case", row["id"],
+            {
+                "caseId": row["id"],
+                "priorStatus": row["status"],
+                "nextStatus": "kyc_expired",
+                "kycValidUntil": row["kyc_valid_until"],
+            },
+        )
+        return _admission_case_get_or_404(row["id"])
+    return _admission_case_get_or_404(row["id"])
+
+
 def _admission_case_public(
     row: sqlite3.Row, viewer_user_id: str, viewer_roles: set[str]
 ) -> dict[str, Any]:
@@ -4182,6 +4238,7 @@ def _admission_case_public(
     the safe KYC category message (kycHostMessage), never raw provider detail.
     The leader decision itself (approved/rejected) is visible to the owner Host.
     """
+    row = sync_admission_case_kyc_expiry(row)
     is_owner_host = row["host_user_id"] == viewer_user_id and "host" in viewer_roles
     show_internal = is_owner_host or "compliance" in viewer_roles or "admin" in viewer_roles
     kyc_message = ""
@@ -4217,6 +4274,9 @@ def _admission_case_public(
         "kycSubmittedAt": row["kyc_submitted_at"],
         "kycApprovedAt": row["kyc_approved_at"],
         "kycRejectedAt": row["kyc_rejected_at"],
+        "kycExpiredAt": row["kyc_expired_at"],
+        "priorStatusBeforeRevocation": row["prior_status_before_revocation"],
+        "revokedAt": row["revoked_at"],
         "approvalAt": row["leader_decided_at"] if row["leader_decision"] == "approved" else None,
         "rejectedAt": row["leader_decided_at"] if row["leader_decision"] == "rejected" else None,
         "kycReasonCode": row["kyc_reason_code"] if show_internal else None,
@@ -4426,7 +4486,7 @@ def admission_case_revoke(
     case_id: str,
     user: Any = Depends(require_role("host")),
 ):
-    """Only the owning active Host may revoke a still-open admission case."""
+    """Only the owning active Host may archive a case at any active lifecycle stage."""
     _require_active_host(user)
     row = _admission_case_get_or_404(case_id)
     if row["host_user_id"] != user["id"]:
@@ -4436,9 +4496,14 @@ def admission_case_revoke(
             status_code=409,
             detail=f"Cannot revoke a case in status {row['status']}",
         )
-    _admission_case_update(case_id, status="revoked")
-    # 撤销 case 时同案所有未用邀请 session 一并作废(claim 随即 410)。
     now = int(time.time())
+    _admission_case_update(
+        case_id,
+        status="revoked",
+        prior_status_before_revocation=row["status"],
+        revoked_at=now,
+    )
+    # 撤销 case 时同案所有未用邀请 session 一并作废(claim 随即 410)。
     with db() as conn:
         conn.execute(
             """UPDATE admission_invitation_sessions
@@ -4458,6 +4523,34 @@ def admission_case_revoke(
     )
     updated = _admission_case_get_or_404(case_id)
     return {"ok": True, "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"])))}
+
+
+@app.post("/api/admission-cases/{case_id}/reenable")
+def admission_case_reenable(
+    case_id: str,
+    user: Any = Depends(require_role("host")),
+):
+    """Restore an accidentally revoked case to its preserved pre-revocation status."""
+    _require_active_host(user)
+    row = _admission_case_get_or_404(case_id)
+    if row["host_user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Admission case not found")
+    prior = row["prior_status_before_revocation"]
+    if row["status"] != "revoked" or not prior or not can_transition_admission(prior, "revoked", row["route"]):
+        raise HTTPException(status_code=409, detail="This archived case cannot be re-enabled")
+    _admission_case_update(case_id, status=prior, prior_status_before_revocation=None)
+    write_audit(
+        user["id"], "admission.case.reenable", "admission_case", case_id,
+        {
+            "caseId": case_id,
+            "hostUserId": user["id"],
+            "priorStatus": "revoked",
+            "nextStatus": prior,
+            "revokedAt": row["revoked_at"],
+        },
+    )
+    updated = _admission_case_get_or_404(case_id)
+    return {"ok": True, "case": _admission_case_public(updated, user["id"], set(get_user_roles(user["id"]))) }
 
 
 # --------------------------------------------------------------------------- #
@@ -4535,6 +4628,16 @@ def admission_case_invite_email(
     prior = row["status"]
     if prior == "draft":
         _admission_case_update(case_id, status="invitation_open")
+    # A resent email must rotate the bearer link.  Leaving an earlier live link
+    # usable would give the VIP two concurrent credentials for the same case.
+    with db() as conn:
+        conn.execute(
+            """UPDATE admission_invitation_sessions SET revoked_at=?
+               WHERE admission_case_id=? AND channel='email'
+                 AND consumed_at IS NULL AND revoked_at IS NULL""",
+            (int(time.time()), case_id),
+        )
+        conn.commit()
     _, token = _issue_admission_session(case_id, "email", EMAIL_SESSION_TTL)
     invite_link = f"{INVITE_BASE_URL}/invite?emailSession={token}"
     _admission_case_update(
@@ -4951,7 +5054,7 @@ def sync_case_kyc_from_provider(
 
 def admission_case_kyc_ok(case_id: str) -> bool:
     """Case 级 KYC 闸门: KYC 已通过(kyc_passed 及其后续状态)且 kyc_valid_until 未过期。"""
-    case = _admission_case_get_or_404(case_id)
+    case = sync_admission_case_kyc_expiry(_admission_case_get_or_404(case_id))
     if case["status"] not in (
         "kyc_passed", "payment_precheck", "leader_pending", "service_enabled"
     ):

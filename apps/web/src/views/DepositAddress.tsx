@@ -39,7 +39,7 @@ export default function DepositAddress() {
   const [, navigate] = useLocation();
   const { state, updateState } = useDemo();
   const [loading, setLoading] = useState(true);
-  const issuedRef = useRef(false);
+  const addressIssuePromiseRef = useRef<Promise<string> | null>(null);
   const isDemoFlow = !state.depositRequestId || state.selectedNetwork === "demo" || !state.selectedNetwork;
   const effectiveAsset = state.selectedAsset || DEMO_DEPOSIT_DEFAULTS.asset;
   const effectiveNetwork = state.selectedNetwork || DEMO_DEPOSIT_DEFAULTS.network;
@@ -63,46 +63,48 @@ export default function DepositAddress() {
     : "/new-deposit";
 
   useEffect(() => {
-    if (isDemoFlow && state.depositAddress) {
+    if (state.depositAddress) {
       setLoading(false);
-      const timer = window.setTimeout(() => navigate("/main-deposit"), 250);
-      return () => window.clearTimeout(timer);
+      return;
     }
 
     if (!canIssueAddress) {
       setLoading(false);
       return;
     }
-    if (issuedRef.current) {
-      return;
-    }
-    issuedRef.current = true;
     let alive = true;
-    (async () => {
-      // 真实: 有后端入金单 → Hex Safe 签发(地址按 vault×链固定); 否则回退本地占位地址。
-      let addr = "";
-      // ⑦ Host-led admission: 有 compliance pack 时从 pack 发托管地址(KYT+TR 双通过才可)。
-      if (state.compliancePackId) {
-        try {
-          const { data } = await transactionPackApi.issueAddress(state.compliancePackId);
-          addr = data.pack.custodyAddress;
-        } catch {
-          /* gate 未过/后端不可用 → 回退本地占位 */
+
+    if (!addressIssuePromiseRef.current) {
+      addressIssuePromiseRef.current = (async () => {
+        // 真实: 有后端入金单 → Hex Safe 签发(地址按 vault×链固定); 否则回退本地占位地址。
+        let addr = "";
+        // ⑦ Host-led admission: 有 compliance pack 时从 pack 发托管地址(KYT+TR 双通过才可)。
+        if (state.compliancePackId) {
+          try {
+            const { data } = await transactionPackApi.issueAddress(state.compliancePackId);
+            addr = data.pack.custodyAddress;
+          } catch {
+            /* gate 未过/后端不可用 → 回退本地占位 */
+          }
         }
-      }
-      if (!addr && !isDemoFlow && state.depositRequestId) {
-        try {
-          // 回填前端 TR gate 结果: ≥USD1k 的单后端需要 'travel_rule_accepted' 才放行发址。
-          const { data } = await depositApi.issueAddress(state.depositRequestId, state.travelRuleStatus);
-          addr = data.depositAddress;
-        } catch {
-          /* 后端不可用 / gate 未过 → 回退本地占位 */
+        if (!addr && !isDemoFlow && state.depositRequestId) {
+          try {
+            // 回填前端 TR gate 结果: ≥USD1k 的单后端需要 'travel_rule_accepted' 才放行发址。
+            const { data } = await depositApi.issueAddress(state.depositRequestId, state.travelRuleStatus);
+            addr = data.depositAddress;
+          } catch {
+            /* 后端不可用 / gate 未过 → 回退本地占位 */
+          }
         }
-      }
-      if (!addr) {
-        await new Promise((resolve) => setTimeout(resolve, isDemoFlow ? 650 : 1500)); // demo: 模拟托管发址延时
-        addr = generateAddress(effectiveNetwork);
-      }
+        if (!addr) {
+          await new Promise((resolve) => setTimeout(resolve, isDemoFlow ? 650 : 1500)); // demo: 模拟托管发址延时
+          addr = generateAddress(effectiveNetwork);
+        }
+        return addr;
+      })();
+    }
+
+    void addressIssuePromiseRef.current.then((addr) => {
       if (alive) {
         updateState({
           selectedAsset: effectiveAsset,
@@ -117,13 +119,8 @@ export default function DepositAddress() {
           depositAddress: addr,
         });
         setLoading(false);
-        if (isDemoFlow) {
-          window.setTimeout(() => {
-            if (alive) navigate("/main-deposit");
-          }, 250);
-        }
       }
-    })();
+    });
     return () => {
       alive = false;
     };
@@ -277,9 +274,7 @@ export default function DepositAddress() {
               ? isDemoFlow
                 ? t("depositAddress.preparingDemo")
                 : t("depositAddress.preparingHex")
-              : isDemoFlow
-              ? t("depositAddress.continueDemo")
-              : t("depositAddress.continueVerification")}
+              : t("common.next")}
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (

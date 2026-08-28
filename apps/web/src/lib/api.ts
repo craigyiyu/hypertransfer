@@ -583,6 +583,9 @@ export interface AdmissionCase {
   kycSubmittedAt?: number | null;
   kycApprovedAt?: number | null;
   kycRejectedAt?: number | null;
+  kycExpiredAt?: number | null;
+  priorStatusBeforeRevocation?: AdmissionCaseStatus | null;
+  revokedAt?: number | null;
   approvalAt?: number | null;
   rejectedAt?: number | null;
   createdAt?: number;
@@ -601,6 +604,7 @@ export type AdmissionCaseStatus =
   | "leader_pending"
   | "service_enabled"
   | "kyc_failed"
+  | "kyc_expired"
   | "compliance_review"
   | "rejected"
   | "expired"
@@ -624,6 +628,7 @@ export const admissionApi = {
   patronMine: () => api.get<{ ok: boolean; case: AdmissionCase }>("/admission-cases/patron/mine"),
   get: (id: string) => api.get<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}`),
   revoke: (id: string) => api.post<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}/revoke`, {}),
+  reenable: (id: string) => api.post<{ ok: boolean; case: AdmissionCase }>(`/admission-cases/${id}/reenable`, {}),
   remind: (id: string) => api.post<{ ok: boolean; channel: string }>(`/admission-cases/${id}/remind`, {}),
   // 双通道邀请(2026-08-21): 同一 case 的 email link + 动态 QR session, 均须 Email OTP 认领
   inviteEmail: (id: string) =>

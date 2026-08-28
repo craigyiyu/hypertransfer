@@ -11,16 +11,15 @@ import {
   Banknote,
   CheckCircle2,
   KeyRound,
-  MailCheck,
   Boxes,
   Gavel,
   UserPlus2,
   LogOut,
-  Undo2,
   UserCog,
   Vault,
   Archive,
   History,
+  TriangleAlert,
 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,13 +31,15 @@ import { staffApi, apiError } from "@/lib/api";
 import { toast } from "sonner";
 import { formatNetworkRail } from "@/lib/compliance";
 import { formatAssetAmount, getHKDEquivalent } from "@/lib/currency";
-import RefundQueuePanel from "@/components/RefundQueuePanel";
 import DepositQueuePanel from "@/components/DepositQueuePanel";
 import InvitationReviewPanel from "@/components/InvitationReviewPanel";
 import StaffAdminPanel from "@/components/StaffAdminPanel";
 import AdmissionCasePanel from "@/components/AdmissionCasePanel";
 import LeaderApprovalPanel from "@/components/LeaderApprovalPanel";
-import PaymentOperationsPanel from "@/components/PaymentOperationsPanel";
+
+export function getCasinoOpsSectionKeys() {
+  return ["vip-new", "vip-attention", "vip-approved", "vip-archived", "deposits", "leader", "leader-past", "access", "staff"] as const;
+}
 
 function StatusPill({
   children,
@@ -98,20 +99,29 @@ function OpsCard({
 // 两层 RBAC: RM/Host 只看 VIP Admissions(且板块内只能操作自己的 case); marketing 看 Access Requests 审批队列。
 function useSections() {
   const { t } = useI18n();
-  return [
+  const sectionDetails = {
     // Host/RM 三个工作台菜单: 创建 / 待办跟进 / 已批准
-    { key: "vip-new", label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
-    { key: "vip-attention", label: t("casinoOps.vipAttention"), icon: MailCheck, roles: ["host", "rm"] },
-    { key: "vip-approved", label: t("casinoOps.vipApproved"), icon: CheckCircle2, roles: ["host", "rm"] },
-    { key: "vip-archived", label: t("casinoOps.vipArchived"), icon: Archive, roles: ["host", "rm"] },
-    { key: "deposits", label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
-    { key: "refunds", label: t("casinoOps.withdrawals"), icon: Undo2, roles: ["compliance", "ops", "custodian"] },
-    { key: "leader", label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
-    { key: "leader-past", label: t("casinoOps.leaderPast"), icon: History, roles: ["leader"] },
-    { key: "payment-ops", label: t("casinoOps.paymentOperations"), icon: Banknote, roles: ["ops", "custodian", "compliance"] },
-    { key: "access", label: t("casinoOps.accessRequests"), icon: UserPlus2, roles: ["marketing", "compliance"] },
-    { key: "staff", label: t("casinoOps.staffAdmin"), icon: UserCog, roles: [] as string[] }, // admin-only
-  ] as const;
+    "vip-new": { label: t("casinoOps.newVipRequest"), icon: UserPlus2, roles: ["host", "rm"] },
+    "vip-attention": { label: t("casinoOps.vipAttention"), icon: TriangleAlert, roles: ["host", "rm"] },
+    "vip-approved": { label: t("casinoOps.vipApproved"), icon: CheckCircle2, roles: ["host", "rm"] },
+    "vip-archived": { label: t("casinoOps.vipArchived"), icon: Archive, roles: ["host", "rm"] },
+    deposits: { label: t("casinoOps.deposits"), icon: Boxes, roles: ["compliance", "ops", "custodian"] },
+    leader: { label: t("casinoOps.leaderApproval"), icon: Gavel, roles: ["leader"] },
+    "leader-past": { label: t("casinoOps.leaderPast"), icon: History, roles: ["leader"] },
+    access: { label: t("casinoOps.accessRequests"), icon: UserPlus2, roles: ["marketing", "compliance"] },
+    staff: { label: t("casinoOps.staffAdmin"), icon: UserCog, roles: [] as string[] }, // admin-only
+  };
+
+  return getCasinoOpsSectionKeys().map((key) => ({ key, ...sectionDetails[key] }));
+}
+
+export function getDefaultCasinoOpsSection(roles: readonly string[] | undefined) {
+  const roleSet = new Set(roles ?? []);
+  // Admins may also carry operational roles, but their default workspace is Deposits.
+  if (roleSet.has("admin")) return "deposits";
+  if (roleSet.has("host")) return "vip-new";
+  if (roleSet.has("leader")) return "leader";
+  return "deposits";
 }
 
 function OktaLinkButton() {
@@ -151,14 +161,8 @@ export default function CasinoOpsPortal() {
   const { user, logout } = useAuth();
   const { t } = useI18n();
   const SECTIONS = useSections();
-  // 按角色落地默认工作台: Host→VIP Admissions, Manager→Leader Approval, Ops→Payment Operations
-  const [activeSection, setActiveSection] = useState<string>(() => {
-    const roles = new Set(user?.roles ?? []);
-    if (roles.has("host")) return "vip-new";
-    if (roles.has("leader")) return "leader";
-    if (roles.has("ops")) return "payment-ops";
-    return "deposits";
-  });
+  // 按角色落地默认工作台: Admin/Ops→Deposits, Host→VIP Admissions, Manager→Leader Approval
+  const [activeSection, setActiveSection] = useState<string>(() => getDefaultCasinoOpsSection(user?.roles));
   // 两层 RBAC: 侧栏只显示当前角色可见的板块(admin 全可见)。RM → 只见 Access Requests。
   const visibleSections = useMemo(() => {
     const roles = new Set(user?.roles ?? []);
@@ -166,8 +170,9 @@ export default function CasinoOpsPortal() {
     return SECTIONS.filter((s) => s.roles.some((r) => roles.has(r)));
   }, [user]);
   useEffect(() => {
-    if (visibleSections.length && !visibleSections.some((s) => s.key === activeSection)) {
-      setActiveSection(visibleSections[0].key);
+    const firstVisibleSection = visibleSections[0];
+    if (firstVisibleSection && !visibleSections.some((s) => s.key === activeSection)) {
+      setActiveSection(firstVisibleSection.key);
     }
   }, [visibleSections, activeSection]);
   const { state } = useDemo();
@@ -234,7 +239,7 @@ export default function CasinoOpsPortal() {
                 }`}
               >
                 <s.icon className="h-4 w-4 shrink-0" />
-                {s.label}
+                <span className="whitespace-nowrap">{s.label}</span>
               </button>
             ))}
           </nav>
@@ -257,14 +262,12 @@ export default function CasinoOpsPortal() {
           </div>
 
           {activeSection === "deposits" && <DepositQueuePanel />}
-          {activeSection === "refunds" && <RefundQueuePanel />}
           {activeSection === "vip-new" && <AdmissionCasePanel view="form" />}
           {activeSection === "vip-attention" && <AdmissionCasePanel view="attention" />}
           {activeSection === "vip-approved" && <AdmissionCasePanel view="approved" />}
           {activeSection === "vip-archived" && <AdmissionCasePanel view="archived" />}
           {activeSection === "leader" && <LeaderApprovalPanel view="queued" />}
           {activeSection === "leader-past" && <LeaderApprovalPanel view="past" />}
-          {activeSection === "payment-ops" && <PaymentOperationsPanel />}
           {activeSection === "access" && <InvitationReviewPanel />}
           {activeSection === "staff" && <StaffAdminPanel />}
 

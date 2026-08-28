@@ -37,6 +37,7 @@ const NEXT_ACTION: Record<string, string> = {
   leader_pending: "Your admission is with the approver. We will notify you of the decision.",
   service_enabled: "Your service is enabled. You can now start your first deposit.",
   kyc_failed: "Your identity verification was not approved — please resubmit your documents.",
+  kyc_expired: "Your KYC document has expired — please resubmit your documents.",
   compliance_review: "Your admission is under compliance review. We will contact you if more information is needed.",
   rejected: "Your admission was not approved at this time. Please contact your Host.",
   expired: "Your invitation has expired. Please ask your Host to send a new one.",

@@ -4,9 +4,9 @@ export const TRAVEL_RULE_THRESHOLD_USD = 1000;
 export const SUPPORTED_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
 export type SupportedPhaseOneAsset = (typeof SUPPORTED_PHASE_ONE_ASSETS)[number];
 
-// 当前对客户开放的资产(2026-08-21 口径): USDT + USDC。USDT 支持 ERC-20/TRC-20,
-// USDC 仅 ERC-20(见 PHASE_ONE_NETWORKS)。Travel Rule 阈值按资产 1:1 USD 判定。
-export const ACTIVE_PHASE_ONE_ASSETS = ["USDT", "USDC"] as const;
+// 当前 Patron 入金口径: 只接受 USDT 的 TRC-20 rail。保留 PHASE_ONE_NETWORKS
+// 的历史 rails，供退款、对账与既有记录读取，不再向新入金流程开放。
+export const ACTIVE_PHASE_ONE_ASSETS = ["USDT"] as const;
 export type ActivePhaseOneAsset = (typeof ACTIVE_PHASE_ONE_ASSETS)[number];
 
 export const PHASE_ONE_NETWORKS: Record<
@@ -53,6 +53,11 @@ export const TRAVEL_RULE_PROVIDER_OPTIONS = [
 
 export function getPhaseOneNetworks(asset: string) {
   return PHASE_ONE_NETWORKS[asset] ?? [];
+}
+
+export function getActivePhaseOneNetworks(asset: string) {
+  if (asset !== "USDT") return [];
+  return getPhaseOneNetworks(asset).filter((network) => network.id === "tron");
 }
 
 export function isPhaseOneNetwork(asset: string, network: string) {

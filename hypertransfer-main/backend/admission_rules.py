@@ -10,9 +10,9 @@ State model (from the 2026-08-21 design):
     kyc_passed -> payment_precheck -> leader_pending -> service_enabled   (complete_dossier)
     kyc_passed -> leader_pending -> service_enabled                        (kyc_first)
     leader_pending -> rejected
-    invitation_open -> expired | revoked
+    any active status -> revoked
 
-`kyc_failed`, `compliance_review`, `rejected`, `expired` and `revoked` are
+`kyc_failed`, `kyc_expired`, `compliance_review`, `rejected`, `expired` and `revoked` are
 terminal for the active invitation; a controlled resubmission starts a new KYC
 attempt or a replacement invitation (preserving the audit relationship).
 """
@@ -22,7 +22,7 @@ from typing import Tuple
 ADMISSION_STATUSES = frozenset({
     "draft", "invitation_open", "vip_claimed", "kyc_in_progress",
     "kyc_passed", "payment_precheck", "leader_pending", "service_enabled",
-    "kyc_failed", "compliance_review", "rejected", "expired", "revoked",
+    "kyc_failed", "kyc_expired", "compliance_review", "rejected", "expired", "revoked",
 })
 
 # --------------------------------------------------------------------------- #
@@ -57,7 +57,7 @@ _TRANSITIONS: dict[str, dict[str, frozenset[str]]] = {
 # Terminals for the active invitation: nothing may advance them toward payment,
 # Travel Rule preparation, address issuance, or the leader's approval queue.
 _TERMINAL_STATUSES = frozenset(
-    {"kyc_failed", "compliance_review", "rejected", "expired", "revoked"}
+    {"kyc_failed", "kyc_expired", "compliance_review", "rejected", "expired", "revoked"}
 )
 
 
@@ -70,6 +70,11 @@ def can_transition_admission(current: str, target: str, route: str) -> bool:
     """
     if current not in ADMISSION_STATUSES or target not in ADMISSION_STATUSES:
         return False
+    if target == "revoked":
+        # A Host may archive any still-active case, including one awaiting KYC
+        # resubmission or compliance handling. Already archived outcomes remain
+        # immutable so their audit reason is never overwritten by revocation.
+        return current not in {"rejected", "expired", "revoked"}
     if current in _TERMINAL_STATUSES:
         return False
     allowed = _TRANSITIONS.get(route, {}).get(current)
