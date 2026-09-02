@@ -33,6 +33,10 @@ services:
       SUMSUB_KYC_LEVEL_NAME: "${SUMSUB_KYC_LEVEL_NAME:-basic-kyc-level}"
       SUMSUB_TR_LEVEL_NAME: "${SUMSUB_TR_LEVEL_NAME:-travel-rule-basic}"
       SUMSUB_WEBSDK_TTL: "${SUMSUB_WEBSDK_TTL:-600}"
+      # v1.1 Q2: Wallet KYT provider 切换 (默认 mock; 配 SUMSUB_KYT_* 后可切到 sumsub)
+      HT_KYT_PROVIDER: "${HT_KYT_PROVIDER:-mock}"
+      SUMSUB_KYT_APP_TOKEN: "${SUMSUB_KYT_APP_TOKEN:-}"
+      SUMSUB_KYT_SECRET_KEY: "${SUMSUB_KYT_SECRET_KEY:-}"
       # Staff RBAC 种子 admin（留空不创建）
       HT_ADMIN_EMAIL: "${HT_ADMIN_EMAIL:-}"
       HT_ADMIN_PASSWORD: "${HT_ADMIN_PASSWORD:-}"

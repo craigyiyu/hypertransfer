@@ -92,7 +92,10 @@ export function isActivePhaseOneAsset(asset: string): asset is ActivePhaseOneAss
 }
 
 export function requiresTravelRule(_asset: string, amount: number) {
-  return amount >= TRAVEL_RULE_THRESHOLD_USD;
+  // v1.1 Q1/Q8: 客户决议所有入金都触发 Travel Rule;阈值常量 TRAVEL_RULE_THRESHOLD_USD
+  // 保留作为监管口径注释; 后续若改回阈值规则,直接还原为 `return amount >= TRAVEL_RULE_THRESHOLD_USD;`
+  void amount;
+  return true;
 }
 
 export function calculateOtcFee(amountUsd: number) {

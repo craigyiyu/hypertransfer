@@ -415,15 +415,18 @@ export const depositApi = {
     api.get<{ ok: boolean; kycOk: boolean; accountState: string; reason: string; travelRuleThresholdUsd: number }>(
       "/deposits/eligibility",
     ),
+  // v1.1 Q5: 历史 originating wallets picker + KYT TTL 状态(<6h fresh → 跳过 screening)
+  originatingWallets: () =>
+    api.get<{ wallets: OriginatingWallet[]; ttlSeconds: number }>("/deposits/wallets"),
   create: (p: { network: string; asset?: string; amountDecimal?: string }) =>
     api.post<{ ok: boolean; requestId: string; status: string; chainId: string; travelRuleRequired: boolean }>(
       "/deposits",
       p,
     ),
-  screen: (id: string, sourceWallet: string) =>
+  screen: (id: string, sourceWallet: string, walletId?: string | null) =>
     api.post<{ ok: boolean; requestId: string; screeningStatus: string; status: string; provider: string; reference: string; riskScore: number; note: string }>(
       `/deposits/${id}/screen`,
-      { sourceWallet },
+      { sourceWallet, walletId: walletId ?? null },
     ),
   // travelRuleStatus: 前端 TR 步骤拿到的 gate 结果(≥USD1k 必须回填 'travel_rule_accepted' 才放行发址)
   issueAddress: (id: string, travelRuleStatus = "") =>
@@ -465,6 +468,14 @@ export interface VerifiedWallet {
   asset: string;
   method: string | null;
   verifiedAt: number;
+}
+// v1.1 Q5: 历史 originating wallet picker 数据 — 含 KYT TTL / cache freshness
+export interface OriginatingWallet extends VerifiedWallet {
+  lastKytAt: number | null;
+  lastKytDecision: string | null;
+  kytAgeSeconds: number;
+  kytCacheFresh: boolean;
+  ttlSeconds: number;
 }
 export interface RefundRecord {
   id: string;

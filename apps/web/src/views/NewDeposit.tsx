@@ -29,7 +29,7 @@ import {
   requiresTravelRule,
 } from "@/lib/compliance";
 import { getHKDEquivalent } from "@/lib/currency";
-import { depositApi, paymentApi, transactionPackApi, type HexSafeNetwork } from "@/lib/api";
+import { depositApi, paymentApi, transactionPackApi, type HexSafeNetwork, type OriginatingWallet } from "@/lib/api";
 import {
   canPassTravelRuleGate,
   createTravelRuleRecord,
@@ -94,6 +94,10 @@ export default function NewDeposit() {
   const [netConfigured, setNetConfigured] = useState(false);
   const [amount, setAmount] = useState(state.mainDepositAmount ? Number(state.mainDepositAmount).toLocaleString("en-US") : "");
   const [walletAddress, setWalletAddress] = useState(state.sourceWallet);
+  // v1.1 Q5: 历史 originating wallets picker 状态
+  const [originatingWallets, setOriginatingWallets] = useState<OriginatingWallet[]>([]);
+  const [kytTtlSeconds, setKytTtlSeconds] = useState<number>(6 * 60 * 60);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [screening, setScreening] = useState<ScreeningState>(state.screeningPassed ? "passed" : "idle");
   const [trAddress, setTrAddress] = useState(state.travelRuleInfo.address);
@@ -124,6 +128,25 @@ export default function NewDeposit() {
       })
       .finally(() => {
         if (alive) setNetLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // v1.1 Q5: 加载历史 originating wallets picker 数据(忽略后端错误 — 静默回退到自由输入)
+  useEffect(() => {
+    let alive = true;
+    depositApi.originatingWallets()
+      .then(({ data }) => {
+        if (!alive) return;
+        setOriginatingWallets(data.wallets ?? []);
+        if (typeof data.ttlSeconds === "number") {
+          setKytTtlSeconds(data.ttlSeconds);
+        }
+      })
+      .catch(() => {
+        if (alive) setOriginatingWallets([]);
       });
     return () => {
       alive = false;
@@ -206,7 +229,7 @@ export default function NewDeposit() {
     let decision: "pass" | "fail" = sourceWallet.toLowerCase().startsWith("bad") ? "fail" : "pass";
     if (requestId) {
       try {
-        const { data } = await depositApi.screen(requestId, sourceWallet);
+        const { data } = await depositApi.screen(requestId, sourceWallet, selectedAssetId);
         decision = data.screeningStatus === "pass" ? "pass" : "fail";
       } catch {
         /* 后端不可用 → 回退 mock decision */
@@ -462,9 +485,57 @@ export default function NewDeposit() {
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Search className="w-3 h-3" /> {t("newDeposit.sourceWalletAddress")}
           </Label>
+          {/* v1.1 Q5: 历史 originating wallets picker — KYT <6h fresh 时跳过 screening */}
+          {originatingWallets.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground/70">Pick from previous transfers:</span>
+                {originatingWallets.slice(0, 4).map((w) => {
+                  const isSel = selectedAssetId ===w.id;
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAssetId(isSel ? null : w.id);
+                        setWalletAddress(w.address);
+                      }}
+                      disabled={screening !== "idle"}
+                      className={`rounded-lg border px-2 py-1 text-[11px] font-mono transition-colors disabled:opacity-50 ${
+                        isSel
+                          ? "border-gold/50 bg-gold/10 text-gold"
+                          : "border-border/60 text-muted-foreground hover:border-gold/30"
+                      }`}
+                      title={
+                        w.kytCacheFresh
+                          ? `KYT fresh (${Math.max(0, Math.floor((w.ttlSeconds - w.kytAgeSeconds) / 60))} min left) — skip screening`
+                          : `KYT stale (${Math.floor(w.kytAgeSeconds / 60)} min ago) — re-screen on submit`
+                      }
+                    >
+                      {w.address.slice(0, 6)}…{w.address.slice(-4)}
+                      {w.kytCacheFresh ? " ✓" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedAssetId && (() => {
+                const w = originatingWallets.find((x) => x.id === selectedAssetId);
+                if (!w) return null;
+                const remaining = Math.max(0, Math.floor((w.ttlSeconds - w.kytAgeSeconds) / 60));
+                return (
+                  <p className="text-[10px] text-success">
+                    KYT cache fresh · {remaining} min left · re-screen skipped
+                  </p>
+                );
+              })()}
+            </div>
+          )}
           <Input
             value={walletAddress}
-            onChange={(e) => setWalletAddress(e.target.value)}
+            onChange={(e) => {
+              setWalletAddress(e.target.value);
+              setSelectedAssetId(null);
+            }}
             placeholder={t("newDeposit.walletPlaceholder")}
             disabled={screening !== "idle"}
             className="bg-input border-border focus:border-gold/50 focus:ring-gold/20 h-12 rounded-xl font-mono text-xs"

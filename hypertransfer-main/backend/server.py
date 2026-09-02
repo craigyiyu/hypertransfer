@@ -44,6 +44,9 @@ from pydantic import BaseModel, Field
 
 from hexsafe_client import HexSafeClient, HexSafeError  # 本地模块: Hex Safe 托管客户端
 
+# v1.1 Q2: Wallet KYT adapter — Sumsub Crypto Monitoring 入口(mock 默认,生产凭据就绪后切到 sumsub)。
+from sumsub_kyt_adapter import screen_source_wallet_v2
+
 # Host-led VIP admission (2026-08-21): 纯状态机 + Host 可见 KYC 原因策略 + provider 边界。
 from admission_provider_adapters import (
     HostProvisioningUnavailable,
@@ -313,6 +316,8 @@ NEW_SCHEMA_SQL = """
         verified_at INTEGER NOT NULL,
         UNIQUE(user_id, address, chain_id)
     );
+    -- v1.1 Q5: 补 last_kyt_at + last_kyt_decision 列(支持 6h KYT TTL 缓存;migration 自动补列)。
+    -- 既有库幂等补列;见 init_db 中后置 ALTER。
     CREATE INDEX IF NOT EXISTS idx_vw_user ON verified_wallets(user_id);
     -- 退款单: 目标钱包只能引用 verified_wallets(原钱包), 经 re-KYC + re-KYT + 管理层审批 +
     -- vault 余额校验后由 custodian 经 Hex Safe withdrawal 退回; transfer_id ↔ id(request_id) 留痕。
@@ -764,6 +769,13 @@ def init_db() -> None:
             "PRAGMA table_info(deposit_requests)").fetchall()}
         if "screening_at" not in dep_cols:
             conn.execute("ALTER TABLE deposit_requests ADD COLUMN screening_at INTEGER")
+        # v1.1 Q5: verified_wallets 补 last_kyt_at + last_kyt_decision(6h KYT TTL 缓存依据)。
+        vw_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(verified_wallets)").fetchall()}
+        if "last_kyt_at" not in vw_cols:
+            conn.execute("ALTER TABLE verified_wallets ADD COLUMN last_kyt_at INTEGER")
+        if "last_kyt_decision" not in vw_cols:
+            conn.execute("ALTER TABLE verified_wallets ADD COLUMN last_kyt_decision TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -3375,21 +3387,34 @@ def require_kyc(user_id: str) -> None:
 
 
 def record_verified_wallet(user_id: str, address: str, chain_id: str,
-                           asset: str = "USDT", method: str = "wallet_screening") -> str:
+                           asset: str = "USDT", method: str = "wallet_screening",
+                           kyt_decision: str = "pass") -> str:
     """记录客户已验证控制权的原钱包(入金流 ③ 调用)。退款只能退到这些钱包。
-    幂等: 同 (user_id,address,chain_id) 已存在则返回既有 id(而非新 uuid)。"""
+    幂等: 同 (user_id,address,chain_id) 已存在则返回既有 id(而非新 uuid)。
+
+v1.1 Q5: 同时写入 last_kyt_at / last_kyt_decision — KYT 缓存 6h TTL 的依据。
+"""
+    now = int(time.time())
     with db() as conn:
         existing = conn.execute(
             "SELECT id FROM verified_wallets WHERE user_id=? AND address=? AND chain_id=?",
             (user_id, address, chain_id),
         ).fetchone()
         if existing:
+            # 已有记录: 刷新 last_kyt_* (latest wins); 返回既有 id。
+            conn.execute(
+                "UPDATE verified_wallets SET last_kyt_at=?, last_kyt_decision=? WHERE id=?",
+                (now, kyt_decision, existing["id"]),
+            )
+            conn.commit()
             return existing["id"]
         wid = str(uuid.uuid4())
         # OR IGNORE + 回查: 并发下若他事务抢先插了同 (user,address,chain), UNIQUE 冲突被忽略, 回查取胜者 id。
         conn.execute(
-            "INSERT OR IGNORE INTO verified_wallets(id,user_id,address,chain_id,asset,method,verified_at) VALUES(?,?,?,?,?,?,?)",
-            (wid, user_id, address, chain_id, asset, method, int(time.time())),
+            "INSERT OR IGNORE INTO verified_wallets"
+            "(id,user_id,address,chain_id,asset,method,verified_at,last_kyt_at,last_kyt_decision) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (wid, user_id, address, chain_id, asset, method, now, now, kyt_decision),
         )
         conn.commit()
         row = conn.execute(
@@ -3397,6 +3422,18 @@ def record_verified_wallet(user_id: str, address: str, chain_id: str,
             (user_id, address, chain_id),
         ).fetchone()
     return row["id"] if row else wid
+
+
+# v1.1 Q5: 6h KYT 缓存 TTL(秒)。如需调整,改此常量并同步 PRD §3.1.3。
+KYT_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
+def kyt_cache_fresh(last_kyt_at: Optional[int]) -> bool:
+    """last_kyt_at 在 [now-TTL, now] 区间内 → 视为 fresh, 可跳过重筛查。"""
+    if not last_kyt_at:
+        return False
+    age = int(time.time()) - int(last_kyt_at)
+    return 0 <= age <= KYT_CACHE_TTL_SECONDS
 
 
 def _vw_public(r: sqlite3.Row) -> dict[str, Any]:
@@ -3626,21 +3663,12 @@ def resolve_chain_id(network: str) -> str:
 def screen_source_wallet(address: str, chain_id: str) -> dict[str, Any]:
     """来源钱包 KYT 筛查(③ Wallet Screening)。
 
-    ⚠️ 真实 KYT 口径见 CLAUDE.md §4.4: Chainalysis / TRM / Elliptic 或 Hex Trust KYT(合同级)。
-    Hex Safe sandbox 未提供文档化的 screening/KYT 端点(本仓库 hexsafe_client 无该方法), 且本机
-    无 Hex Safe 凭据无法探测 —— 故先用确定性 mock(与前端 WalletScreening 同口径), 结构化封装,
-    接通真实 KYT 时仅换本函数实现、不动编排。# MOCK
+    v1.1 Q2: 委托给 Sumsub KYT 适配器 (sumsub_kyt_adapter.screen_source_wallet_v2)。
+    默认实现为 mock(向后兼容,与前端 WalletScreening 同一关键字判定);
+    设置 HT_KYT_PROVIDER=sumsub 且 SUMSUB_KYT_* 凭据就绪后切到真实 Sumsub Crypto Monitoring。
+    生产凭据未配且 SUMSUB_ENVIRONMENT=production 时 fail closed(503)。
     """
-    a = (address or "").lower()
-    ref = "KYT-DEP-" + uuid.uuid4().hex[:8].upper()
-    if any(k in a for k in ("bad", "sanction", "blocked", "ofac")):
-        return {"decision": "fail", "provider": "mock", "riskScore": 92, "reference": ref,
-                "note": "Source wallet matched a high-risk/sanctioned sample rule"}
-    if any(k in a for k in ("edd", "review", "mixer", "tornado")):
-        return {"decision": "edd", "provider": "mock", "riskScore": 61, "reference": ref,
-                "note": "Source wallet triggered an enhanced due diligence (EDD) sample rule"}
-    return {"decision": "pass", "provider": "mock", "riskScore": 9, "reference": ref,
-            "note": "Source wallet did not match any risk rule"}
+    return screen_source_wallet_v2(address, chain_id)
 
 
 def _deposit_vault_id() -> str:
@@ -3710,6 +3738,9 @@ class DepositCreateIn(BaseModel):
 
 class DepositScreenIn(BaseModel):
     sourceWallet: str = Field(min_length=4, max_length=128)
+    # v1.1 Q5: 可选 — 若提供且对应 verified_wallets.last_kyt_at 在 6h TTL 内且 decision=pass,
+    # 跳过新的 wallet screening,直接 assign HexTrust 地址。
+    walletId: Optional[str] = Field(default=None, max_length=64)
 
 
 class DepositIssueAddressIn(BaseModel):
@@ -3742,6 +3773,40 @@ def deposit_eligibility(authorization: Optional[str] = Header(default=None)):
     ok, reason = user_kyc_ok(user["id"])
     return {"ok": True, "kycOk": ok, "accountState": "active" if ok else "hold",
             "reason": reason, "asset": "USDT", "travelRuleThresholdUsd": DEPOSIT_TR_THRESHOLD_USD}
+
+
+@app.get("/api/deposits/wallets")
+def deposits_wallets(authorization: Optional[str] = Header(default=None)):
+    """v1.1 Q5: 列出当前用户历史 originating wallets (verified_wallets) + KYT TTL 状态。
+    用于 NewDeposit picker — 已有钱包 + KYT fresh(<6h) → 可跳过 wallet screening 直接 assign HexTrust。
+    """
+    user = user_from_token(authorization)
+    require_kyc(user["id"])
+    now = int(time.time())
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM verified_wallets WHERE user_id=? ORDER BY last_kyt_at DESC, verified_at DESC",
+            (user["id"],),
+        ).fetchall()
+    wallets = []
+    for r in rows:
+        last = r["last_kyt_at"] or 0
+        age = now - int(last)
+        fresh = 0 <= age <= KYT_CACHE_TTL_SECONDS and r["last_kyt_decision"] == "pass"
+        wallets.append({
+            "id": r["id"],
+            "address": r["address"],
+            "chainId": r["chain_id"],
+            "asset": r["asset"],
+            "method": r["method"],
+            "verifiedAt": r["verified_at"],
+            "lastKytAt": r["last_kyt_at"],
+            "lastKytDecision": r["last_kyt_decision"],
+            "kytAgeSeconds": max(0, age),
+            "kytCacheFresh": fresh,
+            "ttlSeconds": KYT_CACHE_TTL_SECONDS,
+        })
+    return {"wallets": wallets, "ttlSeconds": KYT_CACHE_TTL_SECONDS}
 
 
 @app.post("/api/deposits")
@@ -3815,19 +3880,63 @@ def qr_generate(text: str = ""):
 
 @app.post("/api/deposits/{did}/screen")
 def deposit_screen(did: str, body: DepositScreenIn, authorization: Optional[str] = Header(default=None)):
-    """提交来源钱包做 KYT(③ Wallet Screening)。②KYC 硬阻断同样在此校验。"""
+    """提交来源钱包做 KYT(③ Wallet Screening)。②KYC 硬阻断同样在此校验。
+
+    v1.1 Q5: 若 body.walletId 指向本人 verified_wallets 且 KYT 缓存 fresh (<6h) 且 decision=pass,
+    跳过新的 screening (返回 decision=pass + provider='kyt-cache')。
+    """
     user = user_from_token(authorization)
     require_kyc(user["id"])                                   # ② 硬阻断
     r = _deposit_owned_or_404(did, user["id"])
     # 来源钱包在发址后不可变(地址已固定、可能已进入 1 USDT 验证)→ 只允许发址前筛查/改钱包。
     if r["status"] not in ("created", "screening_passed", "screening_failed"):
         raise HTTPException(status_code=409, detail="Deposit address already issued; the source wallet cannot be changed or re-screened")
+    # v1.1 Q5: KYT 缓存命中检查
+    if body.walletId:
+        with db() as conn:
+            vw = conn.execute(
+                "SELECT * FROM verified_wallets WHERE id=? AND user_id=?",
+                (body.walletId, user["id"]),
+            ).fetchone()
+        if not vw:
+            raise HTTPException(status_code=400, detail="walletId not found in your verified wallets")
+        if (vw["address"] or "").lower() != body.sourceWallet.strip().lower():
+            raise HTTPException(status_code=400, detail="sourceWallet does not match walletId")
+        if kyt_cache_fresh(vw["last_kyt_at"]) and vw["last_kyt_decision"] == "pass":
+            decision = "pass"
+            new_status = "screening_passed"
+            _deposit_update(
+                did, source_wallet=body.sourceWallet.strip(), screening_status=decision,
+                screening_ref=f"KYT-CACHE-{vw['id'][:8]}",
+                screening_detail=f"KYT cache hit (<{KYT_CACHE_TTL_SECONDS}s) from verified wallet",
+                screening_at=int(time.time()), status=new_status,
+            )
+            write_audit(user["id"], "deposit.screen.cache_hit", "deposit", did,
+                        {"walletId": vw["id"], "lastKytAt": vw["last_kyt_at"]})
+            return {"ok": True, "requestId": did, "screeningStatus": decision,
+                    "status": new_status, "provider": "kyt-cache",
+                    "reference": f"KYT-CACHE-{vw['id'][:8]}",
+                    "riskScore": None, "note": "KYT cache hit (<6h); skipped re-screening"}
+    # 正常 KYT 路径
     result = screen_source_wallet(body.sourceWallet, r["chain_id"])
     decision = result["decision"]
     new_status = "screening_passed" if decision == "pass" else "screening_failed"
     _deposit_update(did, source_wallet=body.sourceWallet.strip(), screening_status=decision,
                     screening_ref=result["reference"], screening_detail=result["note"],
                     screening_at=int(time.time()), status=new_status)
+    # v1.1 Q5: 若新决策 pass, 同步更新 verified_wallets.last_kyt_at (refresh 缓存)。
+    if decision == "pass":
+        try:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE verified_wallets SET last_kyt_at=?, last_kyt_decision=? "
+                    "WHERE user_id=? AND address=? AND chain_id=?",
+                    (int(time.time()), decision, user["id"], body.sourceWallet.strip().lower(),
+                     r["chain_id"]),
+                )
+                conn.commit()
+        except Exception:
+            pass
     write_audit(user["id"], "deposit.screen", "deposit", did,
                 {"decision": decision, "provider": result["provider"], "riskScore": result["riskScore"]})
     return {"ok": decision == "pass", "requestId": did, "screeningStatus": decision,
@@ -5804,6 +5913,36 @@ def transaction_pack_record_transfer(
         user["id"], "transaction.pack.transfer", "transaction_compliance_pack", pack_id,
         {"packId": pack_id, "txHash": body.txHash, "status": body.status},
     )
+    # v1.1 Q3: 通知 Admin 角色(per Q3 客户决议)。通知通道复用 send_email,与现有 Host/VIP 邮件一致。
+    try:
+        with db() as conn:
+            admins = conn.execute(
+                "SELECT u.email FROM users u JOIN user_roles ur ON ur.user_id = u.id "
+                "WHERE ur.role = 'admin' AND u.email IS NOT NULL AND u.email != ''"
+            ).fetchall()
+        if HT_ADMIN_EMAIL:
+            # HT_ADMIN_EMAIL env 也算 admin 收件人之一(向后兼容)
+            admin_emails = [a["email"].strip() for a in admins if a["email"]]
+            if HT_ADMIN_EMAIL not in admin_emails:
+                admin_emails.append(HT_ADMIN_EMAIL)
+        else:
+            admin_emails = [a["email"].strip() for a in admins if a["email"]]
+        if admin_emails:
+            admin_text = (
+                f"Pack {pack_id} recorded on-chain transfer.\n"
+                f"txHash: {body.txHash}\n"
+                f"transferLeg: {pack['transfer_leg']}\n"
+                f"amount: {pack.get('actual_amount', '?')}\n"
+                f"finalized_at: {now}\n"
+                f"Next: Cage confirmation (HK Ops) → Finance reconciliation."
+            )
+            send_email(admin_emails, f"Deposit Completed — pack {pack_id}", admin_text)
+    except Exception:
+        # Admin 通知失败不阻塞主流程,但写 audit
+        write_audit(
+            user["id"], "transaction.pack.admin_notify_failed", "transaction_compliance_pack", pack_id,
+            {"packId": pack_id, "error": "admin_notify_failed"},
+        )
     return {"ok": True, "pack": _pack_public(_pack_get_or_404(pack_id))}
 
 
