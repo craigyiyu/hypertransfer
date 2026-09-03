@@ -247,3 +247,22 @@
 ---
 
 *最后更新：2026-08-28*
+---
+
+## 6.6 Provider 政策变更日志（外部 notice 登记）
+
+> 收到 Sumsub / 其他 provider 的运营通知后，登记到此节；不会触发 v1.1 代码改动，但生产部署 / 客户支持脚本需要知道。
+
+### ENTRY-001 — Sumsub POI 文件类型变更（生效 2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **来源** | Sumsub 产品更新邮件（2026-09） |
+| **生效时间** | 2026-09-04 |
+| **影响范围** | HyperTransfer 客户端 KYC 流程（`/kyc`）+ Sumsub WebSDK |
+| **变更内容** | Sumsub 在 **Proof of Identity (POI)** 步骤不再接受 PDF 文件；只接受 **JPEG / PNG** 照片。PDF 仍在以下场景支持：数字 ID (originally PDF)、Proof of Address (POA)、KYB、Additional checks、AllDocs |
+| **代码影响** | ✅ **零代码改动** — 文档上传在 Sumsub WebSDK 内，我们代码不直接处理文件类型 |
+| **客户侧操作** | (1) 确认 Sumsub dashboard 上对应 level 的 POI step 已开启 image-only；(2) 客户支持话术：客户在 POI 阶段看到 "JPEG/PNG only" 提示；(3) Phase 2 若自建 upload，需遵守新限制 |
+| **验证** | 配置 Sumsub 后用 `demo.user@hypercrypto.com` 在 KYC 页提交 PDF → 应看到 Sumsub WebSDK 拒绝；提交 JPEG → 通过 |
+| **回滚** | 无 — 此为 Sumsub 平台级变更 |
+| **状态** | ✅ 已记录；生产部署前 客户/PM 需在 Sumsub dashboard 配置 POI image-only |

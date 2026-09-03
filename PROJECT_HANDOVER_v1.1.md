@@ -201,3 +201,29 @@ npm run build
 
 *最后更新：2026-09-01（v1.1 落地版本）*
 *本文档由 HyperTransfer Agent 起草；后续修改请同步更新版本号与日期。*
+---
+
+## 8. 外部 Provider 变更日志
+
+### NOTICE-001 — Sumsub POI 文件类型变更（2026-09-04 生效）
+
+**变更**：Sumsub 从 **2026-09-04** 起，Proof of Identity (POI) 步骤**不再接受 PDF 文件**；只接受 **JPEG / PNG** 照片。PDF 仍在以下场景支持：
+
+- 数字 ID (originally issued as PDF)
+- Proof of Address (POA)
+- Business Verification (KYB)
+- Additional checks (Actions)
+- AllDocs
+
+**对 HyperTransfer 的影响**：
+
+- **零代码改动** — 文档上传在 Sumsub WebSDK 内，HyperTransfer 客户端不直接处理文件类型
+- 客户在 `/kyc` 页面流程不变；Sumsub WebSDK 内部会强制 JPEG/PNG
+
+**行动项**：
+
+- [ ] 客户/PM：Sumsub dashboard 上确认 level 的 POI step 已开启 image-only
+- [ ] 客户支持：准备"为何不能用 PDF 上传 ID"的解释话术
+- [ ] Phase 2 若自建 upload，需遵守新限制
+
+详见 PRD `06-integrations-uat-nfr.md` §6.6 ENTRY-001。

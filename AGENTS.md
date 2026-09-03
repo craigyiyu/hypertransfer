@@ -161,7 +161,22 @@ Provider adapter 约定：
 - 报价单金额格式用 `"USD "#,##0`，避免 Excel locale 将 `$` 替换成 `¥`。
 - 报价使用 Item 01-11 编号，不用 Phase 编号，避免与牌照阶段混淆。
 
+
+### 2026-09-02 Sumsub POI 文件类型变更 notice（无代码改动）
+
+- **来源**：Sumsub 产品更新邮件。
+- **生效**：2026-09-04 — Sumsub Proof of Identity (POI) 步骤**不再接受 PDF 文件**；只接受 **JPEG / PNG** 照片。
+- **PDF 仍支持的场景**：数字 ID（originally PDF）、Proof of Address (POA)、KYB、Additional checks、AllDocs。
+- **代码影响**：✅ **零代码改动** — 文档上传在 Sumsub WebSDK 内，HyperTransfer 客户端代码不处理文件类型。`/kyc` 页面流程不变；Sumsub WebSDK 内部强制 JPEG/PNG。
+- **客户侧行动**：
+  - [ ] PM/客户：在 Sumsub dashboard 上确认对应 level 的 POI step 已开启 image-only（2026-09-04 前完成）
+  - [ ] 客户支持：准备"为何不能用 PDF 上传 ID"的解释话术
+  - [ ] Phase 2 若自建 upload，需遵守新限制
+- **登记位置**：`Docs/PRD/HyperTransfer-Production-v1/06-integrations-uat-nfr.md` §6.6 ENTRY-001
+- **验证**：配置 Sumsub 后用 `demo.user@hypercrypto.com` 在 KYC 页 → Sumsub WebSDK 内尝试上传 PDF → 应被拒绝；上传 JPEG → 通过
+
 ## 本地测试入口
+
 
 当前 HyperTransfer 本地前端默认运行在 `http://127.0.0.1:3003`。后端认证 API 默认由 Vite 代理到 `http://127.0.0.1:8001`。
 
